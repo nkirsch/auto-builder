@@ -1,5 +1,5 @@
 {{define "layout"}}<!doctype html>
-<html lang="en">
+<html lang="en"{{with .Theme}} data-theme="{{.}}"{{end}}>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -14,6 +14,11 @@
     <a href="/inbox">Inbox{{if .Unread}} <span class="count">{{.Unread}}</span>{{end}}</a>
     <a href="/runs">Runs</a>
     {{if .Me.IsAdmin}}<a href="/admin">Admin</a>{{end}}
+    <form method="post" action="/theme" class="theme">
+      <input type="hidden" name="back" value="{{.Path}}">
+      <button class="link to-dark" name="theme" value="dark" title="Dark mode" aria-label="Switch to dark mode">☾</button>
+      <button class="link to-light" name="theme" value="light" title="Light mode" aria-label="Switch to light mode">☀</button>
+    </form>
     <form method="post" action="/auth/logout" class="logout">
       <button class="link" title="Sign out">{{.Me.Login}} ⎋</button>
     </form>

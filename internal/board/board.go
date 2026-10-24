@@ -79,6 +79,7 @@ func (b *Board) Routes(mux *http.ServeMux) error {
 	mux.Handle("POST /admin/members", admin(b.addMember))
 	mux.Handle("POST /admin/members/{login}/delete", admin(b.deleteMember))
 	mux.Handle("POST /admin/run", admin(b.runNow))
+	mux.Handle("POST /theme", member(b.setTheme))
 	return nil
 }
 
@@ -146,6 +147,8 @@ type page struct {
 	GitSHA  string
 	Flash   string
 	BotName string
+	Theme   string // "light", "dark" or "" (system)
+	Path    string // current page, for forms that return here
 	Data    any
 }
 
@@ -162,7 +165,7 @@ func (b *Board) render(w http.ResponseWriter, r *http.Request, name, title strin
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	p := page{Me: me, Unread: unread, Title: title, GitSHA: b.GitSHA, Flash: r.URL.Query().Get("m"),
-		BotName: b.BotLogin, Data: data}
+		BotName: b.BotLogin, Theme: theme(r), Path: r.URL.RequestURI(), Data: data}
 	if err := t.ExecuteTemplate(w, "layout", p); err != nil {
 		slog.Error("render", "page", name, "err", err)
 	}

@@ -2,11 +2,21 @@
   --bg: #fbfbf9; --fg: #1d1d1b; --muted: #6b6b66; --line: #e3e2dc; --card: #fff;
   --accent: #2456c9; --ok: #1c7c43; --warn: #a15c00; --bad: #b42318; --bot: #f3f5fb;
 }
+:root { color-scheme: light; }
+/* Dark palette: the system preference unless the member chose light, or their explicit choice. */
 @media (prefers-color-scheme: dark) {
-  :root {
+  :root:not([data-theme=light]) {
+    color-scheme: dark;
     --bg: #161615; --fg: #e9e8e3; --muted: #9b9a94; --line: #2e2e2b; --card: #1e1e1c;
     --accent: #7ea2ff; --ok: #5fc58a; --warn: #e2a14a; --bad: #ff7b6e; --bot: #1d2130;
   }
+  :root:not([data-theme=light]) .theme .to-dark { display: none; }
+  :root:not([data-theme=light]) .theme .to-light { display: inline; }
+}
+:root[data-theme=dark] {
+  color-scheme: dark;
+  --bg: #161615; --fg: #e9e8e3; --muted: #9b9a94; --line: #2e2e2b; --card: #1e1e1c;
+  --accent: #7ea2ff; --ok: #5fc58a; --warn: #e2a14a; --bad: #ff7b6e; --bot: #1d2130;
 }
 * { box-sizing: border-box; }
 body { margin: 0; background: var(--bg); color: var(--fg);
@@ -17,7 +27,10 @@ header { border-bottom: 1px solid var(--line); background: var(--card); }
 nav, main, footer { max-width: 760px; margin: 0 auto; padding: 0 16px; }
 nav { display: flex; gap: 16px; align-items: center; height: 52px; overflow-x: auto; white-space: nowrap; }
 nav .brand { font-weight: 700; color: var(--fg); }
-nav .logout { margin-left: auto; }
+nav .theme { margin-left: auto; }
+nav .theme button { font-size: 18px; line-height: 1; }
+.theme .to-light, :root[data-theme=dark] .theme .to-dark { display: none; }
+:root[data-theme=dark] .theme .to-light { display: inline; }
 main { padding-top: 20px; padding-bottom: 40px; }
 footer { color: var(--muted); font-size: 12px; padding-bottom: 24px; }
 h1 { font-size: 22px; margin: 0 0 12px; }

@@ -1,0 +1,24 @@
+{{define "content"}}
+<div class="row">
+  <h1>{{if eq .Data.Show "done"}}Done{{else}}Open{{end}}</h1>
+  <span class="spacer"></span>
+  {{if eq .Data.Show "done"}}<a href="/">Open</a>{{else}}<a href="/?show=done">Done</a>{{end}}
+  <a class="button" href="/items/new">New ask</a>
+</div>
+{{with .Data.Items}}
+<ul class="items">
+  {{range .}}
+  <li>
+    <a href="/items/{{.ID}}" class="title">{{.Title}}</a>
+    <div class="meta">
+      <span class="status s-{{.Status}}">{{.Status}}</span>
+      {{if .Approved}}<span class="badge approved">approved</span>{{end}}
+      #{{.ID}} by {{.Author}} · {{ago .UpdatedAt}}{{if .Replies}} · {{.Replies}} repl{{if eq .Replies 1}}y{{else}}ies{{end}}{{end}}
+    </div>
+  </li>
+  {{end}}
+</ul>
+{{else}}
+<p class="empty">Nothing here.</p>
+{{end}}
+{{end}}

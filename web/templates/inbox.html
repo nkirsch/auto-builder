@@ -1,0 +1,19 @@
+{{define "content"}}
+<div class="row">
+  <h1>Inbox</h1>
+  <span class="spacer"></span>
+  {{if .Unread}}<form method="post" action="/inbox/read"><button class="secondary">Mark all read</button></form>{{end}}
+</div>
+{{with .Data}}
+<ul class="items">
+  {{range .}}
+  <li class="{{if not .ReadAt}}unread{{end}}">
+    <a href="/items/{{.ItemID}}#end" class="title">{{.ItemTitle}}</a>
+    <div class="meta">{{.Actor}} {{if eq .Kind "mention"}}mentioned you{{else}}replied{{end}} · {{ago .CreatedAt}}</div>
+  </li>
+  {{end}}
+</ul>
+{{else}}
+<p class="empty">No notifications.</p>
+{{end}}
+{{end}}

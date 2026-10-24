@@ -1,0 +1,24 @@
+FROM golang:1.26 AS build
+WORKDIR /src
+COPY go.mod go.sum ./
+RUN go mod download
+COPY . .
+ARG TARGETOS TARGETARCH
+RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -trimpath -ldflags=-s -o /runner ./cmd/runner
+
+# Agent toolbox: Go (to build and test this repo), git, gh, Node + Claude Code.
+FROM node:22-bookworm
+COPY --from=golang:1.26 /usr/local/go /usr/local/go
+ENV PATH=/usr/local/go/bin:/home/node/go/bin:/usr/lib/postgresql/15/bin:$PATH
+RUN curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg -o /usr/share/keyrings/githubcli.gpg \
+ && echo "deb [signed-by=/usr/share/keyrings/githubcli.gpg] https://cli.github.com/packages stable main" \
+      > /etc/apt/sources.list.d/github-cli.list \
+ && apt-get update && apt-get install -y --no-install-recommends gh postgresql jq \
+ && rm -rf /var/lib/apt/lists/* \
+ && npm install -g @anthropic-ai/claude-code && npm cache clean --force
+COPY --from=build /runner /usr/local/bin/runner
+# --dangerously-skip-permissions refuses to run as root.
+USER node
+ENV WORK_DIR=/home/node/work
+RUN mkdir -p /home/node/work
+ENTRYPOINT ["runner"]

@@ -1,0 +1,60 @@
+{{define "content"}}
+{{$me := .Me}}{{$bot := .BotName}}
+{{with .Data}}{{$it := .Item}}
+<h1>{{$it.Title}} <span class="muted">#{{$it.ID}}</span></h1>
+<div class="meta">
+  <span class="status s-{{$it.Status}}">{{$it.Status}}</span>
+  {{if $it.Approved}}<span class="badge approved">approved by {{$it.ApprovedBy}}</span>{{else}}<span class="badge">not approved</span>{{end}}
+  {{with $it.PRNumber}}<a href="https://github.com/{{$.Data.Repo}}/pull/{{.}}">PR #{{.}}</a>{{end}}
+  {{with $it.MergeSHA}}<a href="https://github.com/{{$.Data.Repo}}/commit/{{.}}">{{short .}}</a>{{end}}
+</div>
+
+<article class="post">
+  <div class="by"><b>{{$it.Author}}</b> <time datetime="{{stamp $it.CreatedAt}}">{{ago $it.CreatedAt}}</time></div>
+  <div class="body">{{md $it.Body}}</div>
+</article>
+
+{{with .Attachments}}
+<ul class="attachments">
+  {{range .}}<li><a href="/attachments/{{.ID}}">{{.Name}}</a> <span class="muted">{{size .Size}} · {{.UploadedBy}}</span></li>{{end}}
+</ul>
+{{end}}
+
+{{range .Responses}}
+<article class="post{{if eq .Author $bot}} bot{{end}}">
+  <div class="by"><b>{{.Author}}</b> <time datetime="{{stamp .CreatedAt}}">{{ago .CreatedAt}}</time></div>
+  <div class="body">{{md .Body}}</div>
+</article>
+{{end}}
+{{with $it.CloseNote}}<p class="note">Closed: {{.}}</p>{{end}}
+<a id="end"></a>
+
+<form method="post" action="/items/{{$it.ID}}/responses" enctype="multipart/form-data" class="stack">
+  <textarea name="body" rows="4" placeholder="Reply (markdown, @login)"></textarea>
+  <div class="row">
+    <input type="file" name="files" multiple>
+    <span class="spacer"></span>
+    <button>Reply</button>
+  </div>
+</form>
+
+<div class="row actions">
+  {{if $me.IsAdmin}}
+  <form method="post" action="/items/{{$it.ID}}/approve">
+    {{if $it.Approved}}<input type="hidden" name="approved" value="false"><button class="secondary">Unapprove</button>
+    {{else}}<button>Approve</button>{{end}}
+  </form>
+  {{end}}
+  {{if .CanClose}}
+    {{if eq $it.Status "closed" "shipped"}}
+    <form method="post" action="/items/{{$it.ID}}/reopen"><button class="secondary">Reopen</button></form>
+    {{else}}
+    <form method="post" action="/items/{{$it.ID}}/close" class="row">
+      <input name="note" placeholder="Why close? (optional)">
+      <button class="secondary">Close</button>
+    </form>
+    {{end}}
+  {{end}}
+</div>
+{{end}}
+{{end}}

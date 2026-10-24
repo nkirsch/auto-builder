@@ -1,0 +1,28 @@
+{{define "layout"}}<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{.Title}} · auto-builder</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<header>
+  <nav>
+    <a href="/" class="brand">auto-builder</a>
+    <a href="/items/new">New</a>
+    <a href="/inbox">Inbox{{if .Unread}} <span class="count">{{.Unread}}</span>{{end}}</a>
+    <a href="/runs">Runs</a>
+    {{if .Me.IsAdmin}}<a href="/admin">Admin</a>{{end}}
+    <form method="post" action="/auth/logout" class="logout">
+      <button class="link" title="Sign out">{{.Me.Login}} ⎋</button>
+    </form>
+  </nav>
+</header>
+<main>
+{{with .Flash}}<p class="flash">{{.}}</p>{{end}}
+{{template "content" .}}
+</main>
+<footer>{{short .GitSHA}}</footer>
+</body>
+</html>{{end}}

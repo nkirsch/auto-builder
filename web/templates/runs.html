@@ -1,0 +1,25 @@
+{{define "content"}}
+<div class="row">
+  <h1>Runs</h1>
+  <span class="spacer"></span>
+  {{if .Me.IsAdmin}}<form method="post" action="/admin/run"><button>Run now</button></form>{{end}}
+</div>
+{{with .Data}}
+<ul class="items">
+  {{range .}}
+  <li>
+    <div class="row">
+      <b>Run {{.ID}}</b>
+      <span class="status r-{{.Status}}">{{.Status}}</span>
+      <span class="muted">{{.Trigger}}{{with .RequestedBy}} by {{.}}{{end}} · {{ago .CreatedAt}}</span>
+      <span class="spacer"></span>
+      {{if .LogObject}}<a href="/runs/{{.ID}}/log">log</a>{{end}}
+    </div>
+    {{with .Summary}}<details><summary>Summary</summary><pre>{{.}}</pre></details>{{end}}
+  </li>
+  {{end}}
+</ul>
+{{else}}
+<p class="empty">No runs yet.</p>
+{{end}}
+{{end}}

@@ -1,0 +1,10 @@
+{{define "content"}}
+<h1>New ask</h1>
+<form method="post" action="/items" enctype="multipart/form-data" class="stack">
+  <label>Title <input name="title" required maxlength="200" autofocus></label>
+  <label>Details <span class="hint">markdown; @login to notify someone</span>
+    <textarea name="body" rows="10"></textarea></label>
+  <label>Attachments <input type="file" name="files" multiple></label>
+  <div><button>File it</button></div>
+</form>
+{{end}}

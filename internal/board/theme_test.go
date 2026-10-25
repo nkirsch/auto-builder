@@ -104,3 +104,23 @@ func TestLayoutVersion(t *testing.T) {
 		t.Fatalf("layout missing %s", want)
 	}
 }
+
+func TestLayoutFooterCommitLink(t *testing.T) {
+	b := &Board{}
+	if err := b.parse(); err != nil {
+		t.Fatal(err)
+	}
+	for repo, want := range map[string]string{
+		"nkirsch/auto-builder": `<footer><a href="https://github.com/nkirsch/auto-builder/commit/abc1234def" title="abc1234def">abc1234</a></footer>`,
+		"":                     `<footer>abc1234</footer>`,
+	} {
+		var sb strings.Builder
+		p := page{Me: db.Member{Login: "alice"}, GitSHA: "abc1234def", Repo: repo}
+		if err := b.tmpl["new"].ExecuteTemplate(&sb, "layout", p); err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(sb.String(), want) {
+			t.Errorf("repo %q: layout missing %s", repo, want)
+		}
+	}
+}

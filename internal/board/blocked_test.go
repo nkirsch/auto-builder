@@ -26,7 +26,9 @@ func TestBlockedShown(t *testing.T) {
 	}
 	admin, member := db.Member{Login: "nkirsch", Role: "admin"}, db.Member{Login: "alice", Role: "member"}
 
-	out := render("index", member, map[string]any{"Items": []db.Item{it}, "Show": ""})
+	// Items feeds the flat list; Sections the grouped board (PR #27), whichever lands first.
+	items := []db.Item{it}
+	out := render("index", member, map[string]any{"Items": items, "Sections": []map[string]any{{"Items": items}}, "Show": ""})
 	if !strings.Contains(out, `<span class="badge blocked" title="Re-run &lt;bootstrap&gt;.">blocked</span>`) {
 		t.Errorf("index missing blocked badge:\n%s", out)
 	}

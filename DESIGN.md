@@ -96,7 +96,8 @@ instead (local dev). Server SA needs `roles/run.developer` on the job
 The tick also walks items in `building`/`merged`:
 - `building` + PR merged (GitHub API) → `merged`, record `merge_sha`.
 - `merged` + `merge_sha` reachable from the server's own `GIT_SHA`
-  (compare API: `identical` or `behind`) → `shipped`, bot reply "Shipped in <sha>".
+  (compare API: `identical` or `behind`) → `shipped`, bot reply
+  "Shipped in vYY.MM.DD-N (<sha>)" (short SHA alone if the version lookup fails).
 - PR closed unmerged → back to `open`, bot reply.
 
 ## Runner (Cloud Run Job, Go)

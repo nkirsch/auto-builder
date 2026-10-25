@@ -64,9 +64,19 @@ func (a *App) Token(ctx context.Context) (string, error) {
 	if a.token != "" && time.Until(a.expires) > 5*time.Minute {
 		return a.token, nil
 	}
-	j, err := a.JWT()
+	token, expires, err := a.Mint(ctx)
 	if err != nil {
 		return "", err
+	}
+	a.token, a.expires = token, expires
+	return a.token, nil
+}
+
+// Mint returns a new, uncached installation token (GitHub gives it 1 h).
+func (a *App) Mint(ctx context.Context) (token string, expires time.Time, err error) {
+	j, err := a.JWT()
+	if err != nil {
+		return "", time.Time{}, err
 	}
 	var out struct {
 		Token     string    `json:"token"`
@@ -74,10 +84,9 @@ func (a *App) Token(ctx context.Context) (string, error) {
 	}
 	c := &Client{API: a.API, http: a.client, bearer: j}
 	if err := c.do(ctx, http.MethodPost, "/app/installations/"+a.InstallationID+"/access_tokens", nil, &out); err != nil {
-		return "", fmt.Errorf("installation token: %w", err)
+		return "", time.Time{}, fmt.Errorf("installation token: %w", err)
 	}
-	a.token, a.expires = out.Token, out.ExpiresAt
-	return a.token, nil
+	return out.Token, out.ExpiresAt, nil
 }
 
 // BotIdentity returns the app's commit identity: "<slug>[bot]" and its noreply email.

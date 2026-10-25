@@ -82,7 +82,9 @@ done
 # Least privilege: each SA gets only the roles and secrets it uses, scoped to
 # the resource where IAM allows it. Older broad grants are removed on re-run.
 SERVER_SECRETS="DATABASE_URL SESSION_KEY RUNNER_TOKEN TICK_TOKEN GITHUB_CLIENT_ID GITHUB_CLIENT_SECRET GH_APP_ID GH_APP_INSTALLATION_ID GH_APP_PRIVATE_KEY PUSHOVER_TOKEN PUSHOVER_USER"
-RUNNER_SECRETS="RUNNER_TOKEN ANTHROPIC_API_KEY GH_APP_ID GH_APP_INSTALLATION_ID GH_APP_PRIVATE_KEY"
+# The runner gets GitHub tokens from the server: no GH_APP_* secrets.
+RUNNER_SECRETS="RUNNER_TOKEN ANTHROPIC_API_KEY"
+APP_SECRETS="GH_APP_ID GH_APP_INSTALLATION_ID GH_APP_PRIVATE_KEY"
 mounts() { for s in $1; do printf '%s=%s:latest,' "$s" "$s"; done | sed 's/,$//'; }
 proj_role() { retry g projects add-iam-policy-binding "$PROJECT" --member "serviceAccount:$(sa $1)" \
   --role "$2" --condition None >/dev/null; }
@@ -159,6 +161,12 @@ if ! g run jobs describe "$JOB" --region "$REGION" >/dev/null 2>&1; then
     --set-env-vars "BASE_URL=https://$DOMAIN" \
     --set-secrets "$(mounts "$RUNNER_SECRETS")"
 fi
+# Older jobs mounted the App secrets; unmount them, then revoke the runner's access.
+g run jobs update "$JOB" --region "$REGION" --remove-secrets "${APP_SECRETS// /,}" >/dev/null
+for s in $APP_SECRETS; do
+  g secrets remove-iam-policy-binding "$s" --member "serviceAccount:$(sa builder-runner)" \
+    --role roles/secretmanager.secretAccessor >/dev/null 2>&1 || true
+done
 # Server launches the job with a RUN_ID override.
 retry g run jobs add-iam-policy-binding "$JOB" --region "$REGION" \
   --member "serviceAccount:$(sa builder-server)" --role roles/run.developer >/dev/null

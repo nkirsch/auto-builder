@@ -147,8 +147,8 @@ precedence: the server shows it and neither names nor tags the commit.
 
 ## GitHub issues (deterministic, no agent)
 
-With the GitHub App configured, the tick also syncs issues (the App needs
-Issues read & write):
+With the GitHub App configured and `ISSUE_SYNC` not `off`, the tick also
+syncs issues (the App needs Issues read & write):
 - Open issues on the repo opened by a member become items authored by them
   (`items.issue_number`, human activity, unapproved unless an admin approves;
   the body ends with a link to the issue). Issues and comments by non-members

@@ -58,7 +58,8 @@ type Item struct {
 	Tags            []string
 	Blocked         string // why it needs action outside auto-builder; "" when not blocked
 	BlockedAt       *time.Time
-	Replies         int // list queries only
+	IssueNumber     *int // GitHub issue it was imported from
+	Replies         int  // list queries only
 }
 
 type Response struct {
@@ -261,13 +262,13 @@ func (s *Store) TouchMember(ctx context.Context, login, name, avatar string) err
 
 const itemCols = `i.id, i.title, i.body, i.author, i.status, i.approved, i.approved_by, i.pr_number,
 	i.merge_sha, i.close_note, i.created_at, i.updated_at, i.human_activity_at, i.closed_at, i.tags,
-	i.blocked, i.blocked_at`
+	i.blocked, i.blocked_at, i.issue_number`
 
 func scanItem(row pgx.Row, extra ...any) (Item, error) {
 	var it Item
 	dest := []any{&it.ID, &it.Title, &it.Body, &it.Author, &it.Status, &it.Approved, &it.ApprovedBy,
 		&it.PRNumber, &it.MergeSHA, &it.CloseNote, &it.CreatedAt, &it.UpdatedAt, &it.HumanActivityAt, &it.ClosedAt, &it.Tags,
-		&it.Blocked, &it.BlockedAt}
+		&it.Blocked, &it.BlockedAt, &it.IssueNumber}
 	err := row.Scan(append(dest, extra...)...)
 	return it, notFound(err)
 }
@@ -306,6 +307,47 @@ func (s *Store) CreateBotItem(ctx context.Context, title, body, author string) (
 	err := s.Pool.QueryRow(ctx, `INSERT INTO items (title, body, author, human_activity_at)
 		VALUES ($1, $2, $3, 'epoch') RETURNING id`, title, body, author).Scan(&id)
 	return id, err
+}
+
+// ImportIssue files GitHub issue number as an item by its author (human
+// activity). created is false when the issue was already imported.
+func (s *Store) ImportIssue(ctx context.Context, number int, title, body, author string) (id int, created bool, err error) {
+	err = s.Pool.QueryRow(ctx, `INSERT INTO items (title, body, author, issue_number) VALUES ($1, $2, $3, $4)
+		ON CONFLICT (issue_number) DO NOTHING RETURNING id`, title, body, author, number).Scan(&id)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return 0, false, nil
+	}
+	return id, err == nil, err
+}
+
+// ItemByIssue is the item imported from GitHub issue number.
+func (s *Store) ItemByIssue(ctx context.Context, number int) (Item, error) {
+	return scanItem(s.Pool.QueryRow(ctx, `SELECT `+itemCols+` FROM items i WHERE issue_number = $1`, number))
+}
+
+// IssuesToClose lists shipped or closed items whose issue the sync hasn't closed yet.
+func (s *Store) IssuesToClose(ctx context.Context) ([]Item, error) {
+	rows, err := s.Pool.Query(ctx, `SELECT `+itemCols+` FROM items i
+		WHERE issue_number IS NOT NULL AND NOT issue_closed AND status IN ('shipped', 'closed') ORDER BY id`)
+	if err != nil {
+		return nil, err
+	}
+	return pgx.CollectRows(rows, func(r pgx.CollectableRow) (Item, error) { return scanItem(r) })
+}
+
+func (s *Store) MarkIssueClosed(ctx context.Context, id int) error {
+	return s.execOne(ctx, `UPDATE items SET issue_closed = true WHERE id = $1`, id)
+}
+
+// IssuesSyncedAt is when the last issue sync started; nil before the first.
+func (s *Store) IssuesSyncedAt(ctx context.Context) (*time.Time, error) {
+	var t *time.Time
+	err := s.Pool.QueryRow(ctx, `SELECT issues_synced_at FROM settings`).Scan(&t)
+	return t, err
+}
+
+func (s *Store) SetIssuesSyncedAt(ctx context.Context, t time.Time) error {
+	return s.execOne(ctx, `UPDATE settings SET issues_synced_at = $1`, t)
 }
 
 // SetTags sets an item's tags. With onlyIfEmpty it leaves tagged items alone
@@ -410,6 +452,25 @@ func (s *Store) AddResponse(ctx context.Context, itemID int, author, body string
 		return 0, err
 	}
 	return id, tx.Commit(ctx)
+}
+
+// ImportIssueComment adds GitHub issue comment commentID as a human reply.
+// created is false when the comment was already imported.
+func (s *Store) ImportIssueComment(ctx context.Context, itemID int, commentID int64, author, body string) (created bool, err error) {
+	tx, err := s.Pool.Begin(ctx)
+	if err != nil {
+		return false, err
+	}
+	defer tx.Rollback(ctx)
+	tag, err := tx.Exec(ctx, `INSERT INTO responses (item_id, author, body, issue_comment_id) VALUES ($1, $2, $3, $4)
+		ON CONFLICT (issue_comment_id) DO NOTHING`, itemID, author, body, commentID)
+	if err != nil || tag.RowsAffected() == 0 {
+		return false, err
+	}
+	if _, err := tx.Exec(ctx, `UPDATE items SET updated_at = now(), human_activity_at = now() WHERE id = $1`, itemID); err != nil {
+		return false, err
+	}
+	return true, tx.Commit(ctx)
 }
 
 // Attachments

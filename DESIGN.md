@@ -143,6 +143,22 @@ and, when it has the GitHub App, tags that commit with it (lightweight tag
 via the refs API; an existing tag on the same commit is fine). The footer
 links the version to its tag and the short SHA to its commit.
 
+## GitHub issues (deterministic, no agent)
+
+With the GitHub App configured, the tick also syncs issues (the App needs
+Issues read & write):
+- Open issues on the repo opened by a member become items authored by them
+  (`items.issue_number`, human activity, unapproved unless an admin approves;
+  the body ends with a link to the issue). Issues and comments by non-members
+  are ignored: the repo is public.
+- Member comments on an imported issue become replies
+  (`responses.issue_comment_id`, human activity, notifications as usual).
+- When the item ships or closes, the App comments with the board link and
+  closes the issue (completed / not planned) once (`items.issue_closed`).
+- `settings.issues_synced_at` is the cursor (re-read with 2 min overlap;
+  imports are idempotent). The first sync reads every open issue.
+- Board items and replies are not mirrored to GitHub: the board is private.
+
 ## Runner (Cloud Run Job, Go)
 
 1. `POST /api/runner/runs/{RUN_ID}/claim` (bearer `RUNNER_TOKEN`) → `running`; the
@@ -239,8 +255,8 @@ broader grants.
    `ghs.googlehosted.com`.
 3. One GitHub App serves both sign-in and the bot: redirect URI
    `https://builder.nick.org/auth/callback`, no webhook; repository
-   permissions contents, pull requests, workflows (write), actions, checks
-   (read). Install it on this repo only. Its Client ID/secret are
+   permissions contents, pull requests, issues, workflows (write), actions,
+   checks (read). Install it on this repo only. Its Client ID/secret are
    `GITHUB_CLIENT_ID`/`GITHUB_CLIENT_SECRET`, so no separate OAuth App.
 4. Load secrets with `gcloud secrets versions add`; a new Cloud Run revision
    is needed for running instances to read new `:latest` versions.

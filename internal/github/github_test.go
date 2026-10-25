@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 )
 
 func TestVersion(t *testing.T) {
@@ -90,5 +91,39 @@ func TestTag(t *testing.T) {
 	}
 	if err := c.Tag(context.Background(), "o/r", "v2", "abc"); err == nil {
 		t.Fatal("existing tag on another commit: want error")
+	}
+}
+
+func TestOpenIssuesPages(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		q := r.URL.Query()
+		if r.URL.Path != "/repos/o/r/issues" || q.Get("state") != "open" || q.Get("sort") != "updated" ||
+			q.Get("since") != "2026-10-25T01:02:03Z" {
+			t.Errorf("request = %s", r.URL)
+		}
+		n := 100
+		if q.Get("page") == "2" {
+			n = 3
+		}
+		list := make([]map[string]any, n)
+		for i := range list {
+			list[i] = map[string]any{"number": i + 1}
+		}
+		json.NewEncoder(w).Encode(list)
+	}))
+	defer srv.Close()
+	since, _ := time.Parse(time.RFC3339, "2026-10-25T01:02:03Z")
+	issues, err := New(srv.URL, "").OpenIssues(context.Background(), "o/r", since)
+	if err != nil || len(issues) != 103 {
+		t.Fatalf("issues = %d, err = %v", len(issues), err)
+	}
+}
+
+func TestIssueCommentNumber(t *testing.T) {
+	if n := (IssueComment{IssueURL: "https://api.github.com/repos/o/r/issues/42"}).IssueNumber(); n != 42 {
+		t.Fatalf("number = %d", n)
+	}
+	if n := (IssueComment{}).IssueNumber(); n != 0 {
+		t.Fatalf("empty number = %d", n)
 	}
 }

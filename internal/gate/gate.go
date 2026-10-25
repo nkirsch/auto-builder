@@ -29,7 +29,8 @@ type Gate struct {
 	Store    *db.Store
 	Launcher Launcher
 	Idle     time.Duration
-	Ship     *Shipper // nil disables ship checks
+	Ship     *Shipper   // nil disables ship checks
+	Issues   *IssueSync // nil disables the GitHub issue sync
 
 	mu      sync.Mutex // serialises Check so concurrent activity doesn't double-launch
 	pending chan struct{}
@@ -126,13 +127,18 @@ func (g *Gate) Activity() {
 	}()
 }
 
-// Tick runs the periodic duties: fail stale runs, check shipping, evaluate.
+// Tick runs the periodic duties: fail stale runs, sync issues, check shipping, evaluate.
 func (g *Gate) Tick(ctx context.Context) error {
 	var errs []error
 	if n, err := g.Store.FailStale(ctx, staleRunning, staleRequest); err != nil {
 		errs = append(errs, fmt.Errorf("fail stale: %w", err))
 	} else if n > 0 {
 		slog.Warn("failed stale runs", "count", n)
+	}
+	if g.Issues != nil {
+		if err := g.Issues.Sync(ctx); err != nil {
+			errs = append(errs, fmt.Errorf("issues: %w", err))
+		}
 	}
 	if g.Ship != nil {
 		if err := g.Ship.Check(ctx); err != nil {

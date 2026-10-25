@@ -15,7 +15,7 @@ import (
 )
 
 // md renders GitHub-flavoured markdown; raw HTML is escaped (goldmark's default).
-// "#N" links to board item N.
+// "#N" links to board item N ("PR #N" doesn't).
 var md = goldmark.New(
 	goldmark.WithExtensions(extension.GFM),
 	goldmark.WithParserOptions(parser.WithASTTransformers(util.Prioritized(itemRefs{}, 100))),
@@ -24,6 +24,9 @@ var md = goldmark.New(
 // itemRefRE matches #N not preceded by a word character, &, / or #
 // (so "a#1", "&#35;" and "page/#2" stay text).
 var itemRefRE = regexp.MustCompile(`(?:^|[^\w&/#])(#([0-9]{1,9}))\b`)
+
+// prRefRE matches text ending in "PR " or "pull request ".
+var prRefRE = regexp.MustCompile(`(?i)\b(?:PR|pull request) $`)
 
 // itemRefs turns "#N" in plain text into a link to /items/N, leaving code,
 // links and autolinks alone.
@@ -62,6 +65,14 @@ func linkItemRefs(t *ast.Text, source []byte) {
 			matches = matches[1:]
 		}
 	}
+	// "PR #34" is a pull request, not an item.
+	kept := matches[:0]
+	for _, m := range matches {
+		if !prRefRE.Match(val[:m[2]]) {
+			kept = append(kept, m)
+		}
+	}
+	matches = kept
 	if len(matches) == 0 {
 		return
 	}

@@ -40,6 +40,6 @@ DB tests skip without `TEST_DATABASE_URL` and truncate tables — never point it
 
 ## Deploy
 
-Push to `master` → `deploy.yml`: CI, multi-arch images to Artifact Registry,
+Push to `master` → `deploy.yml`: CI, amd64-only images (no arm64: Cloud Run runs amd64) to Artifact Registry,
 `gcloud run deploy builder`, `gcloud run jobs update builder-runner` (WIF auth).
 GCP project `nkirsch-auto-builder`, region `us-central1`, host `builder.nick.org`.

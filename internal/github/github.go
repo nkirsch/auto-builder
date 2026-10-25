@@ -12,6 +12,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -281,4 +282,98 @@ func (c *Client) Tag(ctx context.Context, repo, name, sha string) error {
 		return fmt.Errorf("tag %s already points at %s", name, ref.Object.SHA)
 	}
 	return nil
+}
+
+// Issue is the subset of an issue the issue sync needs. The issues API also
+// returns pull requests; those have PullRequest set.
+type Issue struct {
+	Number int    `json:"number"`
+	Title  string `json:"title"`
+	Body   string `json:"body"`
+	User   struct {
+		Login string `json:"login"`
+	} `json:"user"`
+	PullRequest *struct{} `json:"pull_request"`
+}
+
+// IssueComment is a comment on an issue (or pull request).
+type IssueComment struct {
+	ID   int64  `json:"id"`
+	Body string `json:"body"`
+	User struct {
+		Login string `json:"login"`
+	} `json:"user"`
+	IssueURL string `json:"issue_url"`
+}
+
+// IssueNumber is the number at the end of IssueURL, 0 if there is none.
+func (c IssueComment) IssueNumber() int {
+	n, _ := strconv.Atoi(c.IssueURL[strings.LastIndex(c.IssueURL, "/")+1:])
+	return n
+}
+
+// maxPages caps paging through issues and comments (100 per page).
+const maxPages = 10
+
+// OpenIssues lists open issues and pull requests updated at or after since
+// (all when zero), least recently updated first.
+func (c *Client) OpenIssues(ctx context.Context, repo string, since time.Time) ([]Issue, error) {
+	var all []Issue
+	err := c.pages(ctx, fmt.Sprintf("/repos/%s/issues", repo), url.Values{"state": {"open"}}, since, func(page []byte) (int, error) {
+		var list []Issue
+		err := json.Unmarshal(page, &list)
+		all = append(all, list...)
+		return len(list), err
+	})
+	return all, err
+}
+
+// IssueComments lists comments on the repo's issues and pull requests updated
+// at or after since (all when zero), least recently updated first.
+func (c *Client) IssueComments(ctx context.Context, repo string, since time.Time) ([]IssueComment, error) {
+	var all []IssueComment
+	err := c.pages(ctx, fmt.Sprintf("/repos/%s/issues/comments", repo), url.Values{}, since, func(page []byte) (int, error) {
+		var list []IssueComment
+		err := json.Unmarshal(page, &list)
+		all = append(all, list...)
+		return len(list), err
+	})
+	return all, err
+}
+
+// pages GETs path sorted by update time, passing each page to add until a
+// short page or maxPages.
+func (c *Client) pages(ctx context.Context, path string, q url.Values, since time.Time, add func([]byte) (int, error)) error {
+	q.Set("sort", "updated")
+	q.Set("direction", "asc")
+	q.Set("per_page", "100")
+	if !since.IsZero() {
+		q.Set("since", since.UTC().Format(time.RFC3339))
+	}
+	for page := 1; page <= maxPages; page++ {
+		q.Set("page", strconv.Itoa(page))
+		var raw json.RawMessage
+		if err := c.do(ctx, http.MethodGet, path+"?"+q.Encode(), nil, &raw); err != nil {
+			return err
+		}
+		n, err := add(raw)
+		if err != nil || n < 100 {
+			return err
+		}
+	}
+	return nil
+}
+
+// CloseIssue comments on issue n, then closes it as completed or not planned.
+func (c *Client) CloseIssue(ctx context.Context, repo string, n int, comment string, completed bool) error {
+	if err := c.do(ctx, http.MethodPost, fmt.Sprintf("/repos/%s/issues/%d/comments", repo, n),
+		map[string]string{"body": comment}, nil); err != nil {
+		return err
+	}
+	reason := "not_planned"
+	if completed {
+		reason = "completed"
+	}
+	return c.do(ctx, http.MethodPatch, fmt.Sprintf("/repos/%s/issues/%d", repo, n),
+		map[string]string{"state": "closed", "state_reason": reason}, nil)
 }

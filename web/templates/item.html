@@ -7,6 +7,7 @@
   {{if $it.Approved}}<span class="badge approved">approved by {{$it.ApprovedBy}}</span>{{else}}<span class="badge">not approved</span>{{end}}
   {{if $it.Blocked}}<span class="badge blocked">blocked</span>{{end}}
   {{range $it.Tags}}<a class="tag" href="/?tag={{.}}">#{{.}}</a>{{end}}
+  {{with $it.IssueNumber}}<a href="https://github.com/{{$.Data.Repo}}/issues/{{.}}">issue #{{.}}</a>{{end}}
   {{with $it.PRNumber}}<a href="https://github.com/{{$.Data.Repo}}/pull/{{.}}">PR #{{.}}</a>{{end}}
   {{with $it.MergeSHA}}<a href="https://github.com/{{$.Data.Repo}}/commit/{{.}}">{{short .}}</a>{{end}}
 </div>

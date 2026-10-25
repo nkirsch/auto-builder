@@ -165,6 +165,9 @@ func run() error {
 		BaseURL:  cfg.BaseURL, BotLogin: cfg.BotLogin, GitSHA: cfg.GitSHA, Repo: cfg.Repo,
 	}
 	g.Ship = &gate.Shipper{Store: st, GitHub: gh, Repo: cfg.Repo, GitSHA: cfg.GitSHA, Reply: b.BotReply}
+	if app != nil {
+		g.Issues = &gate.IssueSync{Store: st, GitHub: gh, Repo: cfg.Repo, BaseURL: cfg.BaseURL, Notified: b.Notified}
+	}
 	if cfg.GitSHA != "dev" {
 		go resolveVersion(ctx, gh, cfg.Repo, cfg.GitSHA, app != nil, b)
 	}

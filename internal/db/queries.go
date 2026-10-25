@@ -3,6 +3,7 @@ package db
 import (
 	"context"
 	"errors"
+	"fmt"
 	"regexp"
 	"strconv"
 	"time"
@@ -98,6 +99,91 @@ type Run struct {
 	StartedAt   *time.Time
 	FinishedAt  *time.Time
 	CostUSD     *float64 // nil when the runner didn't report one
+	AgentAt     *time.Time
+	ReportAt    *time.Time
+}
+
+// RunStageNames are a run's stages in order: queued (created → claimed),
+// setup (token, clone), agent (Claude Code), report (log upload, finish).
+var RunStageNames = []string{"queued", "setup", "agent", "report"}
+
+// RunStage is one stage of a run. State is done, active, pending or skipped;
+// Duration is so far for the active stage.
+type RunStage struct {
+	Name     string
+	State    string
+	Duration time.Duration
+}
+
+func (r Run) Stages() []RunStage { return r.stagesAt(time.Now()) }
+
+func (r Run) stagesAt(now time.Time) []RunStage {
+	created := r.CreatedAt
+	starts := []*time.Time{&created, r.StartedAt, r.AgentAt, r.ReportAt}
+	if r.FinishedAt != nil && r.AgentAt == nil && r.ReportAt == nil {
+		return nil // finished before stages were recorded (or the runner never reported)
+	}
+	out := make([]RunStage, len(starts))
+	for i, start := range starts {
+		out[i].Name = RunStageNames[i]
+		if start == nil {
+			out[i].State = "pending"
+			if r.FinishedAt != nil {
+				out[i].State = "skipped"
+			}
+			continue
+		}
+		end := r.FinishedAt
+		for _, next := range starts[i+1:] {
+			if next != nil {
+				end = next
+				break
+			}
+		}
+		if end == nil {
+			out[i].State, out[i].Duration = "active", now.Sub(*start)
+		} else {
+			out[i].State, out[i].Duration = "done", end.Sub(*start)
+		}
+	}
+	return out
+}
+
+// Progress is the percent of stages done; 100 once the run finished.
+func (r Run) Progress() int {
+	if r.FinishedAt != nil {
+		return 100
+	}
+	done := 0
+	for _, st := range r.Stages() {
+		if st.State == "done" {
+			done++
+		}
+	}
+	return done * 100 / len(RunStageNames)
+}
+
+// Stage is the name of the active stage, or "" when none is.
+func (r Run) Stage() string {
+	for _, st := range r.Stages() {
+		if st.State == "active" {
+			return st.Name
+		}
+	}
+	return ""
+}
+
+// Runtime is claim to finish, or to now while running; 0 before the claim.
+func (r Run) Runtime() time.Duration { return r.runtimeAt(time.Now()) }
+
+func (r Run) runtimeAt(now time.Time) time.Duration {
+	if r.StartedAt == nil {
+		return 0
+	}
+	if r.FinishedAt != nil {
+		now = *r.FinishedAt
+	}
+	return now.Sub(*r.StartedAt)
 }
 
 func notFound(err error) error {
@@ -368,7 +454,8 @@ func (s *Store) MarkRead(ctx context.Context, login string, itemID int) error {
 
 // Runs
 
-const runCols = `id, status, trigger, requested_by, execution, summary, log_object, created_at, started_at, finished_at, cost_usd::float8`
+const runCols = `id, status, trigger, requested_by, execution, summary, log_object, created_at, started_at, finished_at, cost_usd::float8,
+	agent_at, report_at`
 
 func (s *Store) Run(ctx context.Context, id int) (Run, error) {
 	rows, err := s.Pool.Query(ctx, `SELECT `+runCols+` FROM runs WHERE id = $1`, id)
@@ -406,6 +493,21 @@ func (s *Store) SetExecution(ctx context.Context, id int, execution string) erro
 // ClaimRun moves a requested run to running.
 func (s *Store) ClaimRun(ctx context.Context, id int) error {
 	return s.execOne(ctx, `UPDATE runs SET status = 'running', started_at = now() WHERE id = $1 AND status = 'requested'`, id)
+}
+
+// SetRunStage records when a running run reached stage agent or report; the
+// first report wins.
+func (s *Store) SetRunStage(ctx context.Context, id int, stage string) error {
+	var col string
+	switch stage {
+	case "agent":
+		col = "agent_at"
+	case "report":
+		col = "report_at"
+	default:
+		return fmt.Errorf("unknown stage %q", stage)
+	}
+	return s.execOne(ctx, `UPDATE runs SET `+col+` = coalesce(`+col+`, now()) WHERE id = $1 AND status = 'running'`, id)
 }
 
 // FinishRun records the outcome of an active run; cost may be nil. Items the

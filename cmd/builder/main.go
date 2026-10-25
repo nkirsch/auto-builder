@@ -178,6 +178,7 @@ func run() error {
 	mux.HandleFunc("GET /health", s.health)
 	mux.Handle("/mcp", auth.Bearer(cfg.RunnerToken, tools.Handler()))
 	mux.Handle("POST /api/runner/runs/{id}/claim", auth.Bearer(cfg.RunnerToken, http.HandlerFunc(s.claim)))
+	mux.Handle("POST /api/runner/runs/{id}/stage", auth.Bearer(cfg.RunnerToken, http.HandlerFunc(s.stage)))
 	mux.Handle("POST /api/runner/runs/{id}/finish", auth.Bearer(cfg.RunnerToken, http.HandlerFunc(s.finish)))
 	mux.Handle("GET /api/runner/attachments/{id}", auth.Bearer(cfg.RunnerToken, http.HandlerFunc(s.attachment)))
 	mux.Handle("POST /api/gate/tick", auth.Bearer(cfg.TickToken, http.HandlerFunc(s.tick)))
@@ -244,6 +245,35 @@ func (s *server) claim(w http.ResponseWriter, r *http.Request) {
 	}
 	slog.Info("run claimed", "run", id)
 	writeJSON(w, http.StatusOK, map[string]any{"run_id": id, "repo": s.cfg.Repo, "bot_login": s.cfg.BotLogin})
+}
+
+// stage records that the runner reached a stage (agent or report).
+func (s *server) stage(w http.ResponseWriter, r *http.Request) {
+	id, err := strconv.Atoi(r.PathValue("id"))
+	if err != nil {
+		http.Error(w, "bad run id", http.StatusBadRequest)
+		return
+	}
+	var req struct {
+		Stage string `json:"stage"`
+	}
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<10)).Decode(&req); err != nil {
+		http.Error(w, "bad body: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	if req.Stage != "agent" && req.Stage != "report" {
+		http.Error(w, "stage must be agent or report", http.StatusBadRequest)
+		return
+	}
+	if err := s.store.SetRunStage(r.Context(), id, req.Stage); errors.Is(err, db.ErrNotFound) {
+		http.Error(w, "run is not running", http.StatusConflict)
+		return
+	} else if err != nil {
+		slog.Error("stage", "run", id, "err", err)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }
 
 type finishReq struct {

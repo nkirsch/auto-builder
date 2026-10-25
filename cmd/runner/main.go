@@ -66,11 +66,12 @@ func main() {
 
 	log := &capped{max: maxLog}
 	status := "done"
-	if err := build(ctx, cfg, claim, log); err != nil {
+	if err := build(ctx, cfg, api, claim, log); err != nil {
 		status = "failed"
 		fmt.Fprintf(log, "\nrunner: %v\n", err)
 		slog.Error("build", "err", err)
 	}
+	api.stage(ctx, cfg.RunID, "report")
 	text, cost := result(log.Bytes())
 	if err := api.finish(ctx, cfg.RunID, status, text, log.String(), cost); err != nil {
 		slog.Error("finish", "err", err)
@@ -82,7 +83,7 @@ func main() {
 	}
 }
 
-func build(ctx context.Context, cfg config, claim claimResp, log io.Writer) error {
+func build(ctx context.Context, cfg config, api *api, claim claimResp, log io.Writer) error {
 	app, err := github.NewApp(cfg.AppID, cfg.AppInstallation, cfg.AppKey)
 	if err != nil {
 		return err
@@ -124,6 +125,7 @@ func build(ctx context.Context, cfg config, claim claimResp, log io.Writer) erro
 		return err
 	}
 
+	api.stage(ctx, cfg.RunID, "agent")
 	actx, cancel := context.WithTimeout(ctx, agentTimeout)
 	defer cancel()
 	agentEnv := append(gitEnv, "BOARD_URL="+cfg.BaseURL, "RUN_ID="+cfg.RunID)
@@ -208,6 +210,14 @@ func (a *api) claim(ctx context.Context, id string) (claimResp, error) {
 	var out claimResp
 	err := a.post(ctx, "/api/runner/runs/"+id+"/claim", nil, &out)
 	return out, err
+}
+
+// stage tells the server the run reached a stage; it's only for display, so
+// failures are logged and ignored.
+func (a *api) stage(ctx context.Context, id, stage string) {
+	if err := a.post(ctx, "/api/runner/runs/"+id+"/stage", map[string]string{"stage": stage}, nil); err != nil {
+		slog.Warn("stage", "stage", stage, "err", err)
+	}
 }
 
 func (a *api) finish(ctx context.Context, id, status, summary, log string, cost *float64) error {

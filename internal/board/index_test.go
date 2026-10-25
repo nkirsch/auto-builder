@@ -3,6 +3,7 @@ package board
 import (
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/nkirsch/auto-builder/internal/db"
 )
@@ -144,5 +145,51 @@ func TestRunsAndAdminShowCost(t *testing.T) {
 	}
 	if !strings.Contains(sb.String(), "Spend limit reached") {
 		t.Error("admin page doesn't say limit reached at $20 of $20")
+	}
+}
+
+func TestRunsShowStages(t *testing.T) {
+	b := &Board{}
+	if err := b.parse(); err != nil {
+		t.Fatal(err)
+	}
+	t0 := time.Now().Add(-time.Hour)
+	at := func(s int) *time.Time { v := t0.Add(time.Duration(s) * time.Second); return &v }
+	rows := []runRow{
+		{Run: db.Run{ID: 3, Status: "running", CreatedAt: t0, StartedAt: at(5), AgentAt: at(65)}},
+		{Run: db.Run{ID: 2, Status: "done", CreatedAt: t0, StartedAt: at(5), AgentAt: at(65), ReportAt: at(785), FinishedAt: at(790)}},
+		{Run: db.Run{ID: 1, Status: "requested", CreatedAt: t0}},
+	}
+	var sb strings.Builder
+	p := page{Title: "Runs", Me: db.Member{Login: "x"}, Data: rows}
+	if err := b.tmpl["runs"].ExecuteTemplate(&sb, "layout", p); err != nil {
+		t.Fatal(err)
+	}
+	out := sb.String()
+	for _, want := range []string{
+		`<span class="ring r-running" style="--p: 50" title="50% of stages done, in agent">`,
+		`<span class="ring r-done" style="--p: 100" title="100% of stages done">`,
+		`<span class="ring r-requested" style="--p: 0"`,
+		" · ran 13m 05s",
+		`<span class="st-done">queued 5s</span><span class="st-done">setup 1m 00s</span><span class="st-done">agent 12m 00s</span><span class="st-done">report 5s</span>`,
+		`<span class="st-active">agent `,
+		`<span class="st-pending">report</span>`,
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("runs page missing %s", want)
+		}
+	}
+	if strings.Count(out, " · running ") != 1 {
+		t.Errorf("want one running runtime")
+	}
+}
+
+func TestDur(t *testing.T) {
+	for d, want := range map[time.Duration]string{
+		45 * time.Second: "45s", 185 * time.Second: "3m 05s", 62*time.Minute + 10*time.Second: "1h 02m",
+	} {
+		if got := dur(d); got != want {
+			t.Errorf("dur(%v) = %q, want %q", d, got, want)
+		}
 	}
 }

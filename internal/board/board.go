@@ -110,6 +110,7 @@ var funcs = template.FuncMap{
 			return t.Format("Jan 2")
 		}
 	},
+	"dur":   dur,
 	"stamp": func(t time.Time) string { return t.UTC().Format(time.RFC3339) },
 	"short": func(s string) string {
 		if len(s) > 7 {
@@ -609,6 +610,19 @@ func (b *Board) markAllRead(w http.ResponseWriter, r *http.Request) {
 }
 
 // Runs
+
+// dur formats a duration compactly: "45s", "3m 05s", "1h 02m".
+func dur(d time.Duration) string {
+	d = d.Round(time.Second)
+	switch {
+	case d < time.Minute:
+		return fmt.Sprintf("%ds", int(d.Seconds()))
+	case d < time.Hour:
+		return fmt.Sprintf("%dm %02ds", int(d.Minutes()), int(d.Seconds())%60)
+	default:
+		return fmt.Sprintf("%dh %02dm", int(d.Hours()), int(d.Minutes())%60)
+	}
+}
 
 // runRow is a run with the items it acted on.
 type runRow struct {

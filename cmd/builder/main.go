@@ -112,6 +112,7 @@ type server struct {
 	gate    *gate.Gate
 	app     *github.App   // nil when the GitHub App isn't configured
 	version func() string // release name, "" until resolved
+	notify  *notify.Pushover
 }
 
 func main() {
@@ -185,9 +186,10 @@ func run() error {
 	}
 
 	g := &gate.Gate{Store: st, Launcher: launcher, Idle: time.Duration(cfg.IdleHours) * time.Hour}
+	push := notify.NewPushover(cfg.PushoverToken, cfg.PushoverUser)
 	b := &board.Board{
 		Store: st, Storage: storage, Auth: a, Gate: g,
-		Pushover: notify.NewPushover(cfg.PushoverToken, cfg.PushoverUser), Quiet: cfg.Quiet,
+		Pushover: push, Quiet: cfg.Quiet,
 		BaseURL: cfg.BaseURL, BotLogin: cfg.BotLogin, GitSHA: cfg.GitSHA, Repo: cfg.Repo,
 		GitHub: gh, Releases: cfg.Releases,
 	}
@@ -203,7 +205,7 @@ func run() error {
 	}
 	tools := &mcp.Board{Store: st, BotLogin: cfg.BotLogin, BaseURL: cfg.BaseURL, GitSHA: cfg.GitSHA, Reply: b.BotReply}
 
-	s := &server{cfg: cfg, store: st, storage: storage, gate: g, app: app, version: b.Version}
+	s := &server{cfg: cfg, store: st, storage: storage, gate: g, app: app, version: b.Version, notify: push}
 	mux := http.NewServeMux()
 	a.Routes(mux)
 	if err := b.Routes(mux); err != nil {
@@ -435,6 +437,9 @@ func (s *server) finish(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	slog.Info("run finished", "run", id, "status", req.Status, "cost_usd", req.CostUSD)
+	if req.Status == "failed" && outOfCredits(req.Summary+"\n"+req.Log) {
+		s.alertCredits(context.WithoutCancel(r.Context()), time.Now())
+	}
 	s.gate.ShipSoon()
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }

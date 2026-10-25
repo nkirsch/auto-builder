@@ -15,6 +15,7 @@ import (
 	"net/http"
 	"path"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"sync/atomic"
@@ -234,7 +235,11 @@ func (b *Board) index(w http.ResponseWriter, r *http.Request) {
 		b.fail(w, err)
 		return
 	}
-	b.render(w, r, "index", "Board", map[string]any{"Items": items, "Show": show})
+	tag := strings.ToLower(r.URL.Query().Get("tag"))
+	if tag != "" {
+		items = slices.DeleteFunc(items, func(it db.Item) bool { return !slices.Contains(it.Tags, tag) })
+	}
+	b.render(w, r, "index", "Board", map[string]any{"Items": items, "Show": show, "Tag": tag})
 }
 
 func (b *Board) newItem(w http.ResponseWriter, r *http.Request) {
@@ -261,6 +266,11 @@ func (b *Board) createItem(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		b.fail(w, err)
 		return
+	}
+	if tags := Tags(title + "\n" + body); len(tags) > 0 {
+		if err := b.Store.SetTags(r.Context(), id, tags, false); err != nil {
+			slog.Warn("tags", "item", id, "err", err)
+		}
 	}
 	if err := b.saveUploads(r, id, me.Login); err != nil {
 		slog.Warn("upload", "item", id, "err", err)

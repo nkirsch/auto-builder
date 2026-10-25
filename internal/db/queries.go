@@ -46,6 +46,7 @@ type Item struct {
 	UpdatedAt       time.Time
 	HumanActivityAt time.Time
 	ClosedAt        *time.Time
+	Tags            []string
 	Replies         int // list queries only
 }
 
@@ -144,12 +145,12 @@ func (s *Store) TouchMember(ctx context.Context, login, name, avatar string) err
 // Items
 
 const itemCols = `i.id, i.title, i.body, i.author, i.status, i.approved, i.approved_by, i.pr_number,
-	i.merge_sha, i.close_note, i.created_at, i.updated_at, i.human_activity_at, i.closed_at`
+	i.merge_sha, i.close_note, i.created_at, i.updated_at, i.human_activity_at, i.closed_at, i.tags`
 
 func scanItem(row pgx.Row, extra ...any) (Item, error) {
 	var it Item
 	dest := []any{&it.ID, &it.Title, &it.Body, &it.Author, &it.Status, &it.Approved, &it.ApprovedBy,
-		&it.PRNumber, &it.MergeSHA, &it.CloseNote, &it.CreatedAt, &it.UpdatedAt, &it.HumanActivityAt, &it.ClosedAt}
+		&it.PRNumber, &it.MergeSHA, &it.CloseNote, &it.CreatedAt, &it.UpdatedAt, &it.HumanActivityAt, &it.ClosedAt, &it.Tags}
 	err := row.Scan(append(dest, extra...)...)
 	return it, notFound(err)
 }
@@ -186,6 +187,16 @@ func (s *Store) CreateBotItem(ctx context.Context, title, body, author string) (
 	err := s.Pool.QueryRow(ctx, `INSERT INTO items (title, body, author, human_activity_at)
 		VALUES ($1, $2, $3, '-infinity') RETURNING id`, title, body, author).Scan(&id)
 	return id, err
+}
+
+// SetTags sets an item's tags. With onlyIfEmpty it leaves tagged items alone
+// and returns ErrNotFound for them. It is not human activity either way.
+func (s *Store) SetTags(ctx context.Context, id int, tags []string, onlyIfEmpty bool) error {
+	if tags == nil {
+		tags = []string{}
+	}
+	return s.execOne(ctx, `UPDATE items SET tags = $2 WHERE id = $1 AND (NOT $3 OR cardinality(tags) = 0)`,
+		id, tags, onlyIfEmpty)
 }
 
 // SetApproved flips the approval flag; approving is human activity.

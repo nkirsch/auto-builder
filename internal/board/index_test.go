@@ -40,3 +40,22 @@ func TestInboxDoneToggle(t *testing.T) {
 		}
 	}
 }
+
+func TestIndexTags(t *testing.T) {
+	b := &Board{}
+	if err := b.parse(); err != nil {
+		t.Fatal(err)
+	}
+	items := []db.Item{{ID: 8, Title: "Tags", Status: "open", Tags: []string{"feature"}}}
+	var sb strings.Builder
+	p := page{Title: "Board", Me: db.Member{Login: "x"}, Data: map[string]any{"Items": items, "Show": "", "Tag": "feature"}}
+	if err := b.tmpl["index"].ExecuteTemplate(&sb, "layout", p); err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{`<a class="tag" href="/?tag=feature">#feature</a>`, `<a href="/">All tags</a>`,
+		`<a href="/?show=done&amp;tag=feature">Done</a>`} {
+		if !strings.Contains(sb.String(), want) {
+			t.Errorf("index missing %s", want)
+		}
+	}
+}

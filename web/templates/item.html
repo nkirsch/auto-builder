@@ -5,6 +5,7 @@
 <div class="meta">
   <span class="status s-{{$it.Status}}">{{$it.Status}}</span>
   {{if $it.Approved}}<span class="badge approved">approved by {{$it.ApprovedBy}}</span>{{else}}<span class="badge">not approved</span>{{end}}
+  {{range $it.Tags}}<a class="tag" href="/?tag={{.}}">#{{.}}</a>{{end}}
   {{with $it.PRNumber}}<a href="https://github.com/{{$.Data.Repo}}/pull/{{.}}">PR #{{.}}</a>{{end}}
   {{with $it.MergeSHA}}<a href="https://github.com/{{$.Data.Repo}}/commit/{{.}}">{{short .}}</a>{{end}}
 </div>

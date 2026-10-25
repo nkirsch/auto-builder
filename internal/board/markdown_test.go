@@ -26,3 +26,14 @@ func TestMentions(t *testing.T) {
 		t.Fatalf("got %v, want %v", got, want)
 	}
 }
+
+func TestTags(t *testing.T) {
+	got := Tags("Dark mode #Feature (#ui) see #12 and page#anchor, #feature again #a-b_c\n#bug")
+	want := []string{"feature", "ui", "a-b_c", "bug"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+	if got := Tags("#a #b #c #d #e #f"); len(got) != maxTags {
+		t.Fatalf("got %v, want %d tags", got, maxTags)
+	}
+}

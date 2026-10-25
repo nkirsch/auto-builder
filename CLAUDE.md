@@ -13,7 +13,7 @@ CI; the server marks items shipped once its own `GIT_SHA` contains the merge.
 - `internal/auth` — GitHub OAuth, HMAC session cookie, `Require`/`RequireAdmin`, `Bearer`
 - `internal/board` — page handlers, markdown (goldmark, raw HTML escaped), mentions
 - `internal/gate` — `Decide` policy, Cloud Run Job launcher, ship-checker
-- `internal/mcp` — agent tools (`list_items`, `get_item`, `reply`, `set_pr`, `close_item`, `file_item`, `deploy_status`)
+- `internal/mcp` — agent tools (`list_items`, `get_item`, `reply`, `set_pr`, `set_tags`, `close_item`, `file_item`, `deploy_status`)
 - `internal/github` — App JWT/installation tokens, PR, compare
 - `internal/store` — GCS (JSON API) or local dir
 - `web/` — embedded templates + CSS (no JS build)

@@ -180,3 +180,27 @@ func TestMembersCaseInsensitive(t *testing.T) {
 		t.Fatalf("missing member: %v", err)
 	}
 }
+
+func TestSetTags(t *testing.T) {
+	ctx := context.Background()
+	s := testStore(t)
+	id, _ := s.CreateItem(ctx, "x", "", "alice")
+	before, _ := s.Item(ctx, id)
+	if len(before.Tags) != 0 {
+		t.Fatalf("new item tags = %v", before.Tags)
+	}
+	if err := s.SetTags(ctx, id, []string{"bug"}, true); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetTags(ctx, id, []string{"feature"}, true); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("retagged a tagged item: %v", err)
+	}
+	it, _ := s.Item(ctx, id)
+	if len(it.Tags) != 1 || it.Tags[0] != "bug" || !it.HumanActivityAt.Equal(before.HumanActivityAt) {
+		t.Fatalf("item = %+v", it)
+	}
+	items, _ := s.Items(ctx, "open")
+	if len(items) != 1 || items[0].Tags[0] != "bug" {
+		t.Fatalf("items = %+v", items)
+	}
+}

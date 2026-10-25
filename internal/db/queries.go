@@ -309,10 +309,15 @@ func (s *Store) Notify(ctx context.Context, login string, itemID int, actor, kin
 	return err
 }
 
-func (s *Store) Notifications(ctx context.Context, login string, limit int) ([]Notification, error) {
+// Notifications lists the login's notifications, newest first. done selects
+// read notifications on shipped or closed items; the rest are the inbox, so
+// unread ones stay there until read.
+func (s *Store) Notifications(ctx context.Context, login string, done bool, limit int) ([]Notification, error) {
 	rows, err := s.Pool.Query(ctx, `SELECT n.id, n.login, n.item_id, i.title, n.actor, n.kind, n.read_at, n.created_at
 		FROM notifications n JOIN items i ON i.id = n.item_id
-		WHERE lower(n.login) = lower($1) ORDER BY n.id DESC LIMIT $2`, login, limit)
+		WHERE lower(n.login) = lower($1)
+		  AND (n.read_at IS NOT NULL AND i.status IN ('shipped', 'closed')) = $2
+		ORDER BY n.id DESC LIMIT $3`, login, done, limit)
 	if err != nil {
 		return nil, err
 	}

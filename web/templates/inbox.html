@@ -1,10 +1,11 @@
 {{define "content"}}
 <div class="row">
-  <h1>Inbox</h1>
+  <h1>{{if eq .Data.Show "done"}}Inbox · Done{{else}}Inbox{{end}}</h1>
   <span class="spacer"></span>
+  {{if eq .Data.Show "done"}}<a href="/inbox">Inbox</a>{{else}}<a href="/inbox?show=done">Done</a>{{end}}
   {{if .Unread}}<form method="post" action="/inbox/read"><button class="secondary">Mark all read</button></form>{{end}}
 </div>
-{{with .Data}}
+{{with .Data.Notifications}}
 <ul class="items">
   {{range .}}
   <li class="{{if not .ReadAt}}unread{{end}}">

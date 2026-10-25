@@ -153,9 +153,18 @@ func TestNotifications(t *testing.T) {
 	if n, _ := s.UnreadCount(ctx, "alice"); n != 0 {
 		t.Fatalf("unread after read = %d", n)
 	}
-	ns, err := s.Notifications(ctx, "alice", 10)
+	ns, err := s.Notifications(ctx, "alice", false, 10)
 	if err != nil || len(ns) != 2 || ns[0].ItemTitle != "x" {
 		t.Fatalf("notifications = %+v, %v", ns, err)
+	}
+
+	// Closing the item moves read notifications to done; unread ones stay in the inbox.
+	s.CloseItem(ctx, id, "dup", true)
+	s.Notify(ctx, "alice", id, "bob", "reply")
+	inbox, _ := s.Notifications(ctx, "alice", false, 10)
+	done, _ := s.Notifications(ctx, "alice", true, 10)
+	if len(inbox) != 1 || inbox[0].ReadAt != nil || len(done) != 2 {
+		t.Fatalf("inbox = %+v, done = %+v", inbox, done)
 	}
 }
 

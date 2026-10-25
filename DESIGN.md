@@ -61,7 +61,8 @@ non-bot change (create, reply, approve) and drives the gate.
 ## Board
 
 - `/` open items (approved badge, status, reply count), `/items/{id}` thread,
-  `/items/new`, `/inbox` (mentions + replies to your items, unread count in nav),
+  `/items/new`, `/inbox` (mentions + replies to your items, unread count in nav;
+  read ones on shipped/closed items move to `/inbox?show=done`),
   `/runs` (history, summary, log link), `/admin` (members, Run now).
 - Signed-out visitors land on `/auth/login` (our page, generic Open Graph
   preview so item titles never unfurl); its button starts the GitHub redirect

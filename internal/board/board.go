@@ -578,12 +578,13 @@ func (b *Board) serveObject(w http.ResponseWriter, r *http.Request, object, name
 
 func (b *Board) inbox(w http.ResponseWriter, r *http.Request) {
 	me := auth.Member(r.Context())
-	ns, err := b.Store.Notifications(r.Context(), me.Login, 100)
+	show := r.URL.Query().Get("show")
+	ns, err := b.Store.Notifications(r.Context(), me.Login, show == "done", 100)
 	if err != nil {
 		b.fail(w, err)
 		return
 	}
-	b.render(w, r, "inbox", "Inbox", ns)
+	b.render(w, r, "inbox", "Inbox", map[string]any{"Notifications": ns, "Show": show})
 }
 
 func (b *Board) markAllRead(w http.ResponseWriter, r *http.Request) {

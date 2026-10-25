@@ -98,6 +98,7 @@ func (b *Board) Routes(mux *http.ServeMux) error {
 	mux.Handle("POST /admin/members/{login}/delete", admin(b.deleteMember))
 	mux.Handle("POST /admin/run", admin(b.runNow))
 	mux.Handle("POST /admin/spend-limit", admin(b.setSpendLimit))
+	mux.Handle("POST /admin/auto-approve", admin(b.setAutoApprove))
 	mux.Handle("POST /theme", member(b.setTheme))
 	return nil
 }
@@ -276,6 +277,11 @@ func (b *Board) createItem(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		b.fail(w, err)
 		return
+	}
+	if me.IsAdmin() && me.AutoApprove {
+		if err := b.Store.SetApproved(r.Context(), id, true, me.Login); err != nil {
+			slog.Warn("auto-approve", "item", id, "err", err)
+		}
 	}
 	if tags := Tags(title + "\n" + body); len(tags) > 0 {
 		if err := b.Store.SetTags(r.Context(), id, tags, false); err != nil {
@@ -725,6 +731,20 @@ func (b *Board) setSpendLimit(w http.ResponseWriter, r *http.Request) {
 	}
 	b.Gate.Activity() // raising the limit may release held work
 	redirect(w, r, "/admin", fmt.Sprintf("Spend limit set to $%.2f", v))
+}
+
+func (b *Board) setAutoApprove(w http.ResponseWriter, r *http.Request) {
+	me := auth.Member(r.Context())
+	on := r.FormValue("on") == "true"
+	if err := b.Store.SetAutoApprove(r.Context(), me.Login, on); err != nil {
+		b.fail(w, err)
+		return
+	}
+	msg := "Auto-approve off"
+	if on {
+		msg = "Auto-approve on"
+	}
+	redirect(w, r, "/admin", msg)
 }
 
 var loginRE = regexp.MustCompile(`^[A-Za-z0-9](?:[A-Za-z0-9]|-[A-Za-z0-9]){0,38}$`)

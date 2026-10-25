@@ -27,6 +27,10 @@
   <input id="limit" name="limit" type="number" min="0.01" step="0.01" value="{{printf "%.2f" .Data.Limit}}" required>
   <button>Save</button>
 </form>
+<form method="post" action="/admin/auto-approve" class="row">
+  {{if .Me.AutoApprove}}<input type="hidden" name="on" value="false"><span>Auto-approve is <b>on</b>: your new asks, and items the agent splits from your comments on approved items, start approved.</span><button class="secondary">Turn off</button>
+  {{else}}<input type="hidden" name="on" value="true"><span>Auto-approve is off.</span><button class="secondary">Auto-approve my asks</button>{{end}}
+</form>
 {{with .Data.MemberCosts}}
 <h3>Cost by member</h3>
 <p class="hint">Each run's cost is split evenly across the items it acted on and charged to each item's author.</p>

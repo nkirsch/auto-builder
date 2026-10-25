@@ -45,7 +45,7 @@ func (b *Board) Handler() http.Handler {
 	mcp.AddTool(s, &mcp.Tool{Name: "close_item",
 		Description: "Close a duplicate or obsolete item with a short note."}, b.closeItem)
 	mcp.AddTool(s, &mcp.Tool{Name: "file_item",
-		Description: "File a new (unapproved) item, e.g. to split work out of a larger ask."}, b.fileItem)
+		Description: "File a new item, e.g. to split work out of a larger ask. It starts unapproved unless from_item names the approved item whose admin comment it came from and that admin has auto-approve on."}, b.fileItem)
 	mcp.AddTool(s, &mcp.Tool{Name: "deploy_status",
 		Description: "The deployed git SHA and the items merged but not yet shipped."}, b.deployStatus)
 	return mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server { return s },
@@ -114,8 +114,9 @@ type CloseIn struct {
 }
 
 type FileIn struct {
-	Title string `json:"title"`
-	Body  string `json:"body"`
+	Title    string `json:"title"`
+	Body     string `json:"body"`
+	FromItem int    `json:"from_item,omitempty" jsonschema:"the item this was split from, when an admin's post there asked for it"`
 }
 
 type OK struct {
@@ -124,7 +125,8 @@ type OK struct {
 }
 
 type FileOut struct {
-	ID int `json:"id"`
+	ID         int    `json:"id"`
+	ApprovedBy string `json:"approved_by,omitempty" jsonschema:"set when the item was auto-approved"`
 }
 
 type DeployOut struct {
@@ -311,7 +313,20 @@ func (b *Board) fileItem(ctx context.Context, _ *mcp.CallToolRequest, in FileIn)
 		return nil, FileOut{}, err
 	}
 	b.noteRunItem(ctx, id)
-	return nil, FileOut{ID: id}, nil
+	out := FileOut{ID: id}
+	if in.FromItem > 0 {
+		by, err := b.Store.AutoApprover(ctx, in.FromItem)
+		if err != nil {
+			slog.Warn("auto-approver", "item", in.FromItem, "err", err)
+		} else if by != "" {
+			if err := b.Store.ApproveBotItem(ctx, id, by); err != nil {
+				slog.Warn("auto-approve", "item", id, "err", err)
+			} else {
+				out.ApprovedBy = by
+			}
+		}
+	}
+	return nil, out, nil
 }
 
 // noteRunItem lists the item under the current run on the Runs page.

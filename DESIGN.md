@@ -64,8 +64,9 @@ non-bot change (create, reply, approve) and drives the gate.
   `/items/new`, `/inbox` (mentions + replies to your items, unread count in nav;
   one row per item; shipped/closed items, read or not, move to
   `/inbox?show=done`),
-  `/runs` (history, items the agent replied on/opened a PR for/closed/filed
-  during each run via MCP, summary, log link, cost), `/admin` (members, Run now,
+  `/runs` (history, items the agent read/tagged/replied on/opened a PR
+  for/closed/filed during each run via MCP or listed as `#N` lines in its
+  summary, summary, log link, cost), `/admin` (members, Run now,
   agent cost over the last 30 days and in total).
 - Signed-out visitors land on `/auth/login` (our page, generic Open Graph
   preview so item titles never unfurl); its button starts the GitHub redirect

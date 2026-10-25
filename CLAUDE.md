@@ -16,7 +16,7 @@ CI; the server marks items shipped once its own `GIT_SHA` contains the merge.
 - `internal/mcp` — agent tools (`list_items`, `get_item`, `reply`, `set_pr`, `set_tags`, `close_item`, `file_item`, `deploy_status`)
 - `internal/github` — App JWT/installation tokens, PR, compare
 - `internal/store` — GCS (JSON API) or local dir
-- `web/` — embedded templates + CSS (no JS build)
+- `web/` — embedded templates + CSS (no JS build); branding only in `templates/brand.html` + `static/brand.css`
 - `.claude/commands/build-board.md` — the agent's instructions
 - `infra/bootstrap.sh` — idempotent GCP + GitHub setup
 

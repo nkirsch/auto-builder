@@ -4,25 +4,26 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="color-scheme" content="{{if eq .Theme "light"}}only light{{else if eq .Theme "dark"}}dark{{else}}light dark{{end}}">
-<title>{{.Title}} · auto-builder</title>
-<meta name="description" content="A board where asks become pull requests, built and shipped by an unattended Claude Code agent.">
-<meta property="og:site_name" content="auto-builder">
+<title>{{.Title}} · {{template "brand-site" .}}</title>
+<meta name="description" content="{{template "brand-description" .}}">
+<meta property="og:site_name" content="{{template "brand-site" .}}">
 <meta property="og:type" content="website">
-<meta property="og:title" content="auto-builder">
-<meta property="og:description" content="A board where asks become pull requests, built and shipped by an unattended Claude Code agent.">
+<meta property="og:title" content="{{template "brand-og-title" .}}">
+<meta property="og:description" content="{{template "brand-description" .}}">
 <meta property="og:url" content="{{.BaseURL}}/">
 <meta property="og:image" content="{{.BaseURL}}/static/og.png">
 <meta property="og:image:width" content="1200">
 <meta property="og:image:height" content="630">
 <meta name="twitter:card" content="summary_large_image">
-<link rel="icon" href="{{base}}/favicon.ico" sizes="any">
+{{template "brand-head" .}}
 <link rel="icon" href="{{base}}/static/icon.svg" type="image/svg+xml">
 <link rel="stylesheet" href="{{base}}/static/style.css{{with .GitSHA}}?v={{short .}}{{end}}">
+<link rel="stylesheet" href="{{base}}/static/brand.css{{with .GitSHA}}?v={{short .}}{{end}}">
 </head>
 <body>
 <header>
   {{if .Me.Login}}<nav>
-    <a href="{{base}}/" class="brand">auto-builder{{with .Version}} <span class="version" title="{{$.GitSHA}}">{{.}}</span>{{end}}</a>
+    <a href="{{base}}/" class="brand">{{template "brand-name" .}}{{with .Version}} <span class="version" title="{{$.GitSHA}}">{{.}}</span>{{end}}</a>{{template "brand-nav" .}}
     <a href="{{base}}/">Board{{if .Unread}} <span class="count" title="Items with unread updates">{{.Unread}}</span>{{end}}</a>
     <a href="{{base}}/items/new">New</a>
     <a href="{{base}}/runs">Runs</a>
@@ -35,7 +36,7 @@
     <form method="post" action="{{base}}/auth/logout" class="logout">
       <button class="link" title="Sign out">{{.Me.Login}} ⎋</button>
     </form>
-  </nav>{{else}}<nav><a href="{{base}}/" class="brand">auto-builder</a></nav>{{end}}
+  </nav>{{else}}<nav>{{template "brand-signed-out" .}}</nav>{{end}}
 </header>
 <main>
 {{with .Flash}}<p class="flash">{{.}}</p>{{end}}

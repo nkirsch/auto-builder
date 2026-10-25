@@ -127,6 +127,21 @@ func (g *Gate) Activity() {
 	}()
 }
 
+// ShipSoon checks shipping in the background, so a PR merged by a run that
+// just finished (or a deploy that just started) shows without waiting a tick.
+func (g *Gate) ShipSoon() {
+	if g.Ship == nil {
+		return
+	}
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+		defer cancel()
+		if err := g.Ship.Check(ctx); err != nil {
+			slog.Error("ship soon", "err", err)
+		}
+	}()
+}
+
 // Tick runs the periodic duties: fail stale runs, sync issues, check shipping, evaluate.
 func (g *Gate) Tick(ctx context.Context) error {
 	var errs []error

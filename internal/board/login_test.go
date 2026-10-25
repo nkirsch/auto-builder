@@ -31,7 +31,7 @@ func TestLoginPagePreview(t *testing.T) {
 	}
 	body := w.Body.String()
 	for _, want := range []string{
-		`<meta property="og:title" content="auto-builder">`,
+		`<meta property="og:title" content="`,
 		`<meta property="og:image" content="https://builder.example/static/og.png">`,
 		`<meta property="og:url" content="https://builder.example/">`,
 		`href="/auth/github?next=%2fitems%2f7"`,

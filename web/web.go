@@ -10,7 +10,7 @@ import (
 //go:embed templates static
 var FS embed.FS
 
-// Pages lists the page templates (everything but layout.html).
+// Pages lists the page templates (everything but layout.html and brand.html).
 func Pages() ([]string, error) {
 	entries, err := fs.ReadDir(FS, "templates")
 	if err != nil {
@@ -18,7 +18,7 @@ func Pages() ([]string, error) {
 	}
 	var out []string
 	for _, e := range entries {
-		if n := e.Name(); strings.HasSuffix(n, ".html") && n != "layout.html" {
+		if n := e.Name(); strings.HasSuffix(n, ".html") && n != "layout.html" && n != "brand.html" {
 			out = append(out, n)
 		}
 	}

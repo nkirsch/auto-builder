@@ -127,3 +127,49 @@ func TestIssueCommentNumber(t *testing.T) {
 		t.Fatalf("empty number = %d", n)
 	}
 }
+
+func TestReleaseCalls(t *testing.T) {
+	var created map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.URL.Path == "/repos/o/r/releases/latest":
+			w.Write([]byte(`{"tag_name":"v26.10.23-2"}`))
+		case r.URL.Path == "/repos/o/r/commits/HEAD":
+			w.Write([]byte(`{"sha":"head1"}`))
+		case r.URL.Path == "/repos/o/r/compare/v26.10.23-2...head1":
+			w.Write([]byte(`{"ahead_by":3}`))
+		case r.URL.Path == "/repos/o/r/git/matching-refs/tags/v26.10.24":
+			w.Write([]byte(`[{"ref":"refs/tags/v26.10.24"},{"ref":"refs/tags/v26.10.24-1"}]`))
+		case r.URL.Path == "/repos/o/r/releases" && r.Method == http.MethodPost:
+			json.NewDecoder(r.Body).Decode(&created)
+			w.WriteHeader(http.StatusCreated)
+			w.Write([]byte(`{"html_url":"https://github.com/o/r/releases/tag/v26.10.24-2"}`))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+	c, ctx := New(srv.URL, ""), context.Background()
+
+	latest, err := c.LatestRelease(ctx, "o/r")
+	if err != nil || latest != "v26.10.23-2" {
+		t.Fatalf("LatestRelease = %q, %v", latest, err)
+	}
+	head, ahead, err := c.Unreleased(ctx, "o/r", latest)
+	if err != nil || head != "head1" || ahead != 3 {
+		t.Fatalf("Unreleased = %q, %d, %v", head, ahead, err)
+	}
+	tags, err := c.TagsWithPrefix(ctx, "o/r", "v26.10.24")
+	if err != nil || len(tags) != 2 || tags[1] != "v26.10.24-1" {
+		t.Fatalf("TagsWithPrefix = %v, %v", tags, err)
+	}
+	if _, err := c.CreateRelease(ctx, "o/r", "v26.10.24-2", head); err != nil {
+		t.Fatal(err)
+	}
+	if created["tag_name"] != "v26.10.24-2" || created["target_commitish"] != "head1" || created["generate_release_notes"] != true {
+		t.Errorf("created = %v", created)
+	}
+	if latest, err := New(srv.URL, "").LatestRelease(ctx, "o/none"); err != nil || latest != "" {
+		t.Errorf("no releases: %q, %v", latest, err)
+	}
+}

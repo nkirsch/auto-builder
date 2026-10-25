@@ -39,6 +39,7 @@ type config struct {
 	PushoverToken, PushoverUser              string
 	Version                                  string // set by a deploy that tags the commit
 	IdleHours                                int
+	IssueSync                                bool // ISSUE_SYNC=off disables importing GitHub issues
 }
 
 func loadConfig() (config, error) {
@@ -73,6 +74,7 @@ func loadConfig() (config, error) {
 		PushoverToken:   env("PUSHOVER_TOKEN", ""),
 		PushoverUser:    env("PUSHOVER_USER", ""),
 		IdleHours:       idle,
+		IssueSync:       env("ISSUE_SYNC", "on") != "off",
 	}
 	if c.DatabaseURL == "" {
 		return c, errors.New("DATABASE_URL is required")
@@ -167,7 +169,7 @@ func run() error {
 		BaseURL:  cfg.BaseURL, BotLogin: cfg.BotLogin, GitSHA: cfg.GitSHA, Repo: cfg.Repo,
 	}
 	g.Ship = &gate.Shipper{Store: st, GitHub: gh, Repo: cfg.Repo, GitSHA: cfg.GitSHA, Reply: b.BotReply}
-	if app != nil {
+	if app != nil && cfg.IssueSync {
 		g.Issues = &gate.IssueSync{Store: st, GitHub: gh, Repo: cfg.Repo, BaseURL: cfg.BaseURL, Notified: b.Notified}
 	}
 	if cfg.Version != "" {

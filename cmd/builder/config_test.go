@@ -17,3 +17,14 @@ func TestLoadConfigVersion(t *testing.T) {
 		t.Errorf("unset Version = %q", cfg.Version)
 	}
 }
+
+func TestLoadConfigIssueSync(t *testing.T) {
+	t.Setenv("DATABASE_URL", "postgres://x")
+	if cfg, _ := loadConfig(); !cfg.IssueSync {
+		t.Error("IssueSync off by default")
+	}
+	t.Setenv("ISSUE_SYNC", "off")
+	if cfg, _ := loadConfig(); cfg.IssueSync {
+		t.Error("ISSUE_SYNC=off left IssueSync on")
+	}
+}

@@ -50,7 +50,7 @@ type Board struct {
 	Pushover *notify.Pushover
 	// Quiet is the login whose own actions don't Pushover (the person receiving them).
 	Quiet string
-	// GitHub and Releases enable the admin page's Release button.
+	// GitHub and Releases enable the runs page's Release button.
 	GitHub   *github.Client
 	Releases bool
 	Gate     Gate
@@ -717,7 +717,11 @@ func (b *Board) runs(w http.ResponseWriter, r *http.Request) {
 	for i, run := range runs {
 		rows[i] = runRow{Run: run, Items: items[run.ID]}
 	}
-	b.render(w, r, "runs", "Runs", rows)
+	var rel *releaseInfo
+	if auth.Member(r.Context()).IsAdmin() {
+		rel = b.releaseInfo(r.Context())
+	}
+	b.render(w, r, "runs", "Runs", map[string]any{"Runs": rows, "Release": rel})
 }
 
 func (b *Board) runLog(w http.ResponseWriter, r *http.Request) {
@@ -772,8 +776,7 @@ func (b *Board) admin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	b.render(w, r, "admin", "Admin", map[string]any{"Members": members, "Costs": costs,
-		"Limit": limit, "MemberCosts": byMember, "Stats": []db.RunStats{recent, all},
-		"Release": b.releaseInfo(r.Context())})
+		"Limit": limit, "MemberCosts": byMember, "Stats": []db.RunStats{recent, all}})
 }
 
 func (b *Board) setSpendLimit(w http.ResponseWriter, r *http.Request) {

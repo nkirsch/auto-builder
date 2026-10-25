@@ -69,7 +69,7 @@ func TestRunsListItems(t *testing.T) {
 		{Run: db.Run{ID: 1, Status: "done"}},
 	}
 	var sb strings.Builder
-	p := page{Title: "Runs", Me: db.Member{Login: "x"}, Data: rows}
+	p := page{Title: "Runs", Me: db.Member{Login: "x"}, Data: map[string]any{"Runs": rows}}
 	if err := b.tmpl["runs"].ExecuteTemplate(&sb, "layout", p); err != nil {
 		t.Fatal(err)
 	}
@@ -108,7 +108,7 @@ func TestRunsAndAdminShowCost(t *testing.T) {
 	}
 	cost := 1.234
 	var sb strings.Builder
-	p := page{Title: "Runs", Me: db.Member{Login: "x"}, Data: []runRow{{Run: db.Run{ID: 2, Status: "done", CostUSD: &cost}}, {Run: db.Run{ID: 1, Status: "done"}}}}
+	p := page{Title: "Runs", Me: db.Member{Login: "x"}, Data: map[string]any{"Runs": []runRow{{Run: db.Run{ID: 2, Status: "done", CostUSD: &cost}}, {Run: db.Run{ID: 1, Status: "done"}}}}}
 	if err := b.tmpl["runs"].ExecuteTemplate(&sb, "layout", p); err != nil {
 		t.Fatal(err)
 	}
@@ -162,7 +162,7 @@ func TestRunsShowStages(t *testing.T) {
 		{Run: db.Run{ID: 1, Status: "requested", CreatedAt: t0}},
 	}
 	var sb strings.Builder
-	p := page{Title: "Runs", Me: db.Member{Login: "x"}, Data: rows}
+	p := page{Title: "Runs", Me: db.Member{Login: "x"}, Data: map[string]any{"Runs": rows}}
 	if err := b.tmpl["runs"].ExecuteTemplate(&sb, "layout", p); err != nil {
 		t.Fatal(err)
 	}
@@ -206,7 +206,7 @@ func TestRunsShowRelease(t *testing.T) {
 		{Run: db.Run{ID: 1, Status: "done"}},
 	}
 	var sb strings.Builder
-	p := page{Title: "Runs", Me: db.Member{Login: "x"}, Repo: "nkirsch/auto-builder", Data: rows}
+	p := page{Title: "Runs", Me: db.Member{Login: "x"}, Repo: "nkirsch/auto-builder", Data: map[string]any{"Runs": rows}}
 	if err := b.tmpl["runs"].ExecuteTemplate(&sb, "layout", p); err != nil {
 		t.Fatal(err)
 	}
@@ -297,5 +297,32 @@ func TestIsDone(t *testing.T) {
 		if got := isDone(tc.it); got != tc.want {
 			t.Errorf("isDone(%s, blocked %q) = %v, want %v", tc.it.Status, tc.it.Blocked, got, tc.want)
 		}
+	}
+}
+
+func TestRunsReleaseSection(t *testing.T) {
+	b := &Board{}
+	if err := b.parse(); err != nil {
+		t.Fatal(err)
+	}
+	render := func(rel *releaseInfo) string {
+		var sb strings.Builder
+		p := page{Title: "Runs", Me: db.Member{Login: "x", Role: "admin"}, Data: map[string]any{"Runs": []runRow{}, "Release": rel}}
+		if err := b.tmpl["runs"].ExecuteTemplate(&sb, "layout", p); err != nil {
+			t.Fatal(err)
+		}
+		return sb.String()
+	}
+	out := render(&releaseInfo{Latest: "v26.10.24", Ahead: 3})
+	for _, want := range []string{"<h2>Release</h2>", "Latest release <b>v26.10.24</b>; 3 commits since.", `action="/admin/release"`, "<button>Release now</button>", "No runs yet."} {
+		if !strings.Contains(out, want) {
+			t.Errorf("runs page missing %s", want)
+		}
+	}
+	if out := render(&releaseInfo{Latest: "v26.10.24"}); !strings.Contains(out, "<button disabled>Release now</button>") {
+		t.Errorf("Release now not disabled with nothing to release")
+	}
+	if out := render(nil); strings.Contains(out, "Release now") {
+		t.Errorf("Release section shown without release info")
 	}
 }

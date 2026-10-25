@@ -20,16 +20,6 @@
   <select name="role"><option value="member">member</option><option value="admin">admin</option></select>
   <button>Save</button>
 </form>
-<h2>Release</h2>
-{{with .Data.Release}}
-{{if .Err}}<p class="flash">Can't read releases: {{.Err}}</p>
-{{else}}<form method="post" action="{{base}}/admin/release" class="row">
-  <span>{{if .Latest}}Latest release <b>{{.Latest}}</b>; {{.Ahead}} commit{{if ne .Ahead 1}}s{{end}} since.{{else}}No releases yet.{{end}}</span>
-  <span class="spacer"></span>
-  <button{{if and .Latest (eq .Ahead 0)}} disabled{{end}}>Release now</button>
-</form>
-<p class="hint">Cuts vYY.M.D (or -N) at the head of the default branch; the repo's release workflows deploy from it.</p>{{end}}
-{{end}}
 <h2>Builder</h2>
 {{with .Data.Costs}}<p class="muted">Agent cost: {{usd .Last30Days}} in the last 30 days, {{usd .Total}} in total ({{.Runs}} runs reported a cost).</p>{{end}}
 {{if ge .Data.Costs.Last30Days .Data.Limit}}<p class="flash">Spend limit reached: no runs, Run now included, until the last 30 days' cost drops below it or you raise it.</p>{{end}}

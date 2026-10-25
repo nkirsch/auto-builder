@@ -6,11 +6,12 @@
 </div>
 {{with .Data}}
 <ul class="items">
-  {{range .}}
+  {{range $run := .}}
   <li>
     <div class="row">
       <span class="ring r-{{.Status}}" style="--p: {{.Progress}}" title="{{.Progress}}% of stages done{{with .Stage}}, in {{.}}{{end}}"></span>
       <b>Run {{.ID}}</b>
+      {{with .GitSHA}}{{$v := or $run.Version (short .)}}{{if $.Repo}}<a class="version" href="https://github.com/{{$.Repo}}/commit/{{.}}" title="{{.}}">{{$v}}</a>{{else}}<span class="version" title="{{.}}">{{$v}}</span>{{end}}{{end}}
       <span class="status r-{{.Status}}">{{.Status}}</span>
       <span class="muted">{{.Trigger}}{{with .RequestedBy}} by {{.}}{{end}} · {{ago .CreatedAt}}{{if .StartedAt}} · {{if .FinishedAt}}ran{{else}}running{{end}} {{dur .Runtime}}{{end}}{{with .CostUSD}} · {{usd .}}{{end}}</span>
       <span class="spacer"></span>

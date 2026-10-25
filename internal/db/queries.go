@@ -101,6 +101,8 @@ type Run struct {
 	CostUSD     *float64 // nil when the runner didn't report one
 	AgentAt     *time.Time
 	ReportAt    *time.Time
+	GitSHA      string // server release that claimed the run; "" before
+	Version     string // its "vYY.MM.DD-N", "" if unknown at claim
 }
 
 // RunStageNames are a run's stages in order: queued (created → claimed),
@@ -455,7 +457,7 @@ func (s *Store) MarkRead(ctx context.Context, login string, itemID int) error {
 // Runs
 
 const runCols = `id, status, trigger, requested_by, execution, summary, log_object, created_at, started_at, finished_at, cost_usd::float8,
-	agent_at, report_at`
+	agent_at, report_at, git_sha, version`
 
 func (s *Store) Run(ctx context.Context, id int) (Run, error) {
 	rows, err := s.Pool.Query(ctx, `SELECT `+runCols+` FROM runs WHERE id = $1`, id)
@@ -490,9 +492,11 @@ func (s *Store) SetExecution(ctx context.Context, id int, execution string) erro
 	return s.execOne(ctx, `UPDATE runs SET execution = $2 WHERE id = $1`, id, execution)
 }
 
-// ClaimRun moves a requested run to running.
-func (s *Store) ClaimRun(ctx context.Context, id int) error {
-	return s.execOne(ctx, `UPDATE runs SET status = 'running', started_at = now() WHERE id = $1 AND status = 'requested'`, id)
+// ClaimRun moves a requested run to running, recording the release (commit
+// and version name) of the server that claimed it.
+func (s *Store) ClaimRun(ctx context.Context, id int, sha, version string) error {
+	return s.execOne(ctx, `UPDATE runs SET status = 'running', started_at = now(), git_sha = $2, version = $3
+		WHERE id = $1 AND status = 'requested'`, id, sha, version)
 }
 
 // SetRunStage records when a running run reached stage agent or report; the

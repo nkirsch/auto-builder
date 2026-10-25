@@ -59,6 +59,14 @@ type Board struct {
 // SetVersion sets the release name shown next to the brand, e.g. "v26.10.25-2".
 func (b *Board) SetVersion(v string) { b.version.Store(&v) }
 
+// Version is the release name set by SetVersion, or "" until then.
+func (b *Board) Version() string {
+	if v := b.version.Load(); v != nil {
+		return *v
+	}
+	return ""
+}
+
 // Routes registers the board's pages.
 func (b *Board) Routes(mux *http.ServeMux) error {
 	if err := b.parse(); err != nil {
@@ -185,9 +193,7 @@ func (b *Board) render(w http.ResponseWriter, r *http.Request, name, title strin
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	p := page{Me: me, Unread: unread, Title: title, GitSHA: b.GitSHA, Repo: b.Repo, Flash: r.URL.Query().Get("m"),
 		BotName: b.BotLogin, Theme: theme(r), Path: r.URL.RequestURI(), BaseURL: strings.TrimSuffix(b.BaseURL, "/"), Data: data}
-	if v := b.version.Load(); v != nil {
-		p.Version = *v
-	}
+	p.Version = b.Version()
 	if err := t.ExecuteTemplate(w, "layout", p); err != nil {
 		slog.Error("render", "page", name, "err", err)
 	}

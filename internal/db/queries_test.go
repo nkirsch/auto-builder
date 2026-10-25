@@ -128,7 +128,7 @@ func TestGateState(t *testing.T) {
 	if _, err := s.CreateRun(ctx, "now", "nkirsch"); !errors.Is(err, ErrRunActive) {
 		t.Fatalf("second run: %v", err)
 	}
-	s.ClaimRun(ctx, run)
+	s.ClaimRun(ctx, run, "", "")
 	if err := s.FinishRun(ctx, run, "done", "ok", "", nil); err != nil {
 		t.Fatal(err)
 	}
@@ -230,7 +230,7 @@ func TestRunItems(t *testing.T) {
 		t.Fatal(err)
 	}
 	s.NoteRunItem(ctx, a) // requested, not yet running
-	if err := s.ClaimRun(ctx, run); err != nil {
+	if err := s.ClaimRun(ctx, run, "", ""); err != nil {
 		t.Fatal(err)
 	}
 	for _, id := range []int{b, a, b} {
@@ -375,7 +375,7 @@ func TestMemberCosts(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		s.ClaimRun(ctx, run)
+		s.ClaimRun(ctx, run, "", "")
 		for _, id := range items {
 			s.NoteRunItem(ctx, id)
 		}
@@ -455,7 +455,7 @@ func TestSetRunStage(t *testing.T) {
 	if err := s.SetRunStage(ctx, id, "agent"); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("stage before claim: %v", err)
 	}
-	if err := s.ClaimRun(ctx, id); err != nil {
+	if err := s.ClaimRun(ctx, id, "", ""); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.SetRunStage(ctx, id, "agent"); err != nil {
@@ -488,6 +488,25 @@ func TestSetRunStage(t *testing.T) {
 	}
 }
 
+func TestClaimRecordsRelease(t *testing.T) {
+	ctx := context.Background()
+	s := testStore(t)
+	id, err := s.CreateRun(ctx, "manual", "nkirsch")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.ClaimRun(ctx, id, "abc1234def", "v26.10.25-3"); err != nil {
+		t.Fatal(err)
+	}
+	r, err := s.Run(ctx, id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r.GitSHA != "abc1234def" || r.Version != "v26.10.25-3" {
+		t.Fatalf("run = %+v", r)
+	}
+}
+
 func TestRunStats(t *testing.T) {
 	ctx := context.Background()
 	s := testStore(t)
@@ -516,15 +535,15 @@ func TestRunStats(t *testing.T) {
 	s.MarkMerged(ctx, item, "abc")
 	s.FinishRun(ctx, r1, "done", "", "", ptr(3.0))
 	// 10s queued, 20s setup, 600s agent, 5s report = 625s runtime
-	if _, err := s.Pool.Exec(ctx, `UPDATE runs SET created_at = $2, started_at = $2 + interval '10 s',
-		agent_at = $2 + interval '30 s', report_at = $2 + interval '630 s', finished_at = $2 + interval '635 s' WHERE id = $1`,
+	if _, err := s.Pool.Exec(ctx, `UPDATE runs SET created_at = $2::timestamptz, started_at = $2::timestamptz + interval '10 s',
+		agent_at = $2::timestamptz + interval '30 s', report_at = $2::timestamptz + interval '630 s', finished_at = $2::timestamptz + interval '635 s' WHERE id = $1`,
 		r1, time.Now().Add(-time.Hour)); err != nil {
 		t.Fatal(err)
 	}
 	// an old failed run without stage times, outside the last 30 days
 	r2 := newRun()
 	s.FinishRun(ctx, r2, "failed", "", "", nil)
-	if _, err := s.Pool.Exec(ctx, `UPDATE runs SET created_at = $2, started_at = $2, finished_at = $2 + interval '25 s' WHERE id = $1`,
+	if _, err := s.Pool.Exec(ctx, `UPDATE runs SET created_at = $2::timestamptz, started_at = $2::timestamptz, finished_at = $2::timestamptz + interval '25 s' WHERE id = $1`,
 		r2, time.Now().Add(-40*24*time.Hour)); err != nil {
 		t.Fatal(err)
 	}

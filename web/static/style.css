@@ -93,6 +93,7 @@ button.link { border: 0; background: none; color: var(--muted); padding: 0; }
 .stages .st-active { color: var(--warn); border-color: currentColor; }
 .stages .st-pending, .stages .st-skipped { opacity: .6; }
 .stages .st-skipped { text-decoration: line-through; }
+.items .version { font-size: 13px; color: var(--muted); }
 .stats { border-collapse: collapse; font-size: 14px; margin: 0 0 16px; }
 .stats th, .stats td { padding: 4px 16px 4px 0; text-align: left; border-bottom: 1px solid var(--line); }
 .stats th { color: var(--muted); font-weight: 600; }

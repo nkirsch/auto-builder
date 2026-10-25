@@ -28,7 +28,7 @@ make test       # go test ./... with TEST_DATABASE_URL
 DEV_LOGIN=nkirsch make run   # http://localhost:8080, signed in as DEV_LOGIN, LAUNCHER=none
 ```
 
-DB tests skip without `TEST_DATABASE_URL` and truncate tables — never point it at a real database.
+DB tests skip without `TEST_DATABASE_URL` and truncate tables — never point it at a real database. Packages share it, so run `go test -p 1 ./...`.
 
 ## Rules
 

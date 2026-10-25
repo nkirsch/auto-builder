@@ -249,7 +249,37 @@ func (b *Board) index(w http.ResponseWriter, r *http.Request) {
 	if tag != "" {
 		items = slices.DeleteFunc(items, func(it db.Item) bool { return !slices.Contains(it.Tags, tag) })
 	}
-	b.render(w, r, "index", "Board", map[string]any{"Items": items, "Show": show, "Tag": tag})
+	b.render(w, r, "index", "Board", map[string]any{"Sections": sections(items, show == "done"), "Show": show, "Tag": tag})
+}
+
+// section is a titled group of items on the board.
+type section struct {
+	Title string
+	Items []db.Item
+}
+
+// sections groups the Open view into waiting for approval, approved but not
+// started, and in progress (a PR is open or merged); empty groups are left
+// out. The Done view is one untitled list.
+func sections(items []db.Item, done bool) []section {
+	if done {
+		if len(items) == 0 {
+			return nil
+		}
+		return []section{{Items: items}}
+	}
+	out := []section{{Title: "Waiting for approval"}, {Title: "Approved, not started"}, {Title: "In progress"}}
+	for _, it := range items {
+		i := 2
+		if it.Status == "open" {
+			i = 0
+			if it.Approved {
+				i = 1
+			}
+		}
+		out[i].Items = append(out[i].Items, it)
+	}
+	return slices.DeleteFunc(out, func(s section) bool { return len(s.Items) == 0 })
 }
 
 func (b *Board) newItem(w http.ResponseWriter, r *http.Request) {

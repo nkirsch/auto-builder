@@ -60,7 +60,9 @@ non-bot change (create, reply, approve) and drives the gate.
 
 ## Board
 
-- `/` open items (approved badge, status, reply count), `/items/{id}` thread,
+- `/` open items (approved badge, status, reply count) in sections: waiting
+  for approval, approved but not started, in progress (PR open or merged);
+  empty sections are hidden, and a Done button switches to shipped/closed, `/items/{id}` thread,
   `/items/new`, `/inbox` (mentions + replies to your items, unread count in nav;
   one row per item; shipped/closed items, read or not, move to
   `/inbox?show=done`),

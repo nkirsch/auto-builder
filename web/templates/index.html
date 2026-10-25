@@ -3,13 +3,14 @@
   <h1>{{if eq .Data.Show "done"}}Done{{else}}Open{{end}}{{with .Data.Tag}} <span class="tag">#{{.}}</span>{{end}}</h1>
   <span class="spacer"></span>
   {{with .Data.Tag}}<a href="/{{if eq $.Data.Show "done"}}?show=done{{end}}">All tags</a>{{end}}
-  {{if eq .Data.Show "done"}}<a href="/{{with .Data.Tag}}?tag={{.}}{{end}}">Open</a>{{else}}<a href="/?show=done{{with .Data.Tag}}&amp;tag={{.}}{{end}}">Done</a>{{end}}
+  {{if eq .Data.Show "done"}}<a class="button secondary" href="/{{with .Data.Tag}}?tag={{.}}{{end}}">Open</a>{{else}}<a class="button secondary" href="/?show=done{{with .Data.Tag}}&amp;tag={{.}}{{end}}">Done</a>{{end}}
   {{if .Me.IsAdmin}}<form method="post" action="/admin/run"><button class="secondary">Run now</button></form>{{end}}
   <a class="button" href="/items/new">New ask</a>
 </div>
-{{with .Data.Items}}
+{{range .Data.Sections}}
+{{with .Title}}<h2>{{.}}</h2>{{end}}
 <ul class="items">
-  {{range .}}
+  {{range .Items}}
   <li>
     <a href="/items/{{.ID}}" class="title">{{.Title}}</a>
     <div class="meta">

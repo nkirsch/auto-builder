@@ -18,7 +18,7 @@ steps are the manual ones below.
 | Language | Go (server, runner, MCP server). Server-rendered `html/template`, plain forms (POST-redirect-GET), no Node build. Mobile-friendly CSS. |
 | Scope | Builds only itself. |
 | Users | Admin (`nkirsch`) + allowlisted GitHub logins. Members file asks and reply; only admins approve, manage members, and press Run now. |
-| Auth | GitHub sign-in via the GitHub App's OAuth credentials, implemented in the app (no proxy sidecar). Session = HMAC-signed cookie (`login|expiry`), `SameSite=Lax` + Origin check on POST. Non-members get a 403 naming their login. `DEV_LOGIN` bypass only when `BASE_URL` is localhost. |
+| Auth | GitHub sign-in via the GitHub App's OAuth credentials and/or Google sign-in (OpenID, `GOOGLE_CLIENT_ID`), implemented in the app (no proxy sidecar). Members are keyed by login; Google finds the member whose `email` matches the verified address and signs them in as that login. A member with an email signs in with Google only (their login may be a made-up handle someone else owns on GitHub). GitHub is offered when configured or when Google isn't. `ADMIN_EMAIL` seeds the admin's email. Session = HMAC-signed cookie (`login|expiry`), `SameSite=Lax` + Origin check on POST. Non-members get a 403 naming their login or email. `DEV_LOGIN` bypass only when `BASE_URL` is localhost. |
 | Hosting | GCP, new personal project, region `us-central1` (domain mappings supported). |
 | Host | `builder.nick.org` — CNAME to `ghs.googlehosted.com`, Cloud Run domain mapping. |
 | Database | Cloud SQL Postgres (smallest tier, Postgres 16/17), via the Cloud Run Cloud SQL connector (`host=/cloudsql/PROJECT:REGION:INSTANCE`). pgx v5. Embedded SQL migrations + `schema_migrations` table. |
@@ -33,7 +33,7 @@ steps are the manual ones below.
 cmd/builder     server: board UI, API, /mcp, gate, ship-checker
 cmd/runner      Cloud Run Job entrypoint: claim → token → clone → claude → finish
 internal/db     pgx pool, migrations, queries
-internal/auth   GitHub OAuth, sessions, member checks
+internal/auth   GitHub + Google OAuth, sessions, member checks
 internal/board  item/response/attachment handlers, mentions, markdown (goldmark, no raw HTML)
 internal/gate   decides whether a run is warranted; launches the Job
 internal/mcp    MCP tools for the agent (modelcontextprotocol/go-sdk, Stateless streamable HTTP)
@@ -275,6 +275,10 @@ broader grants.
    permissions contents, pull requests, issues, workflows (write), actions,
    checks (read). Install it on this repo only. Its Client ID/secret are
    `GITHUB_CLIENT_ID`/`GITHUB_CLIENT_SECRET`, so no separate OAuth App.
+   Optional Google sign-in: a Web OAuth client (Google Auth Platform,
+   External, published; scopes openid/email/profile) with redirect URI
+   `<BASE_URL>/auth/google/callback`, loaded as
+   `GOOGLE_CLIENT_ID`/`GOOGLE_CLIENT_SECRET`. Add members' emails on /admin.
 4. Load secrets with `gcloud secrets versions add`; a new Cloud Run revision
    is needed for running instances to read new `:latest` versions.
 5. Repo settings (auto-merge, `master` protection requiring `test`, deploy

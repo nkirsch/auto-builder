@@ -56,6 +56,23 @@ func TestLoginPageRejectsOffsiteNext(t *testing.T) {
 	}
 }
 
+func TestLoginPageOffersGoogle(t *testing.T) {
+	a, err := auth.New(auth.Config{BaseURL: "https://builder.example", SessionKey: []byte("0123456789abcdef"), GoogleClientID: "g"}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b := &Board{Auth: a, BaseURL: "https://builder.example"}
+	if err := b.parse(); err != nil {
+		t.Fatal(err)
+	}
+	w := httptest.NewRecorder()
+	b.login(w, httptest.NewRequest(http.MethodGet, "/auth/login?next=/items/7", nil))
+	body := w.Body.String()
+	if !strings.Contains(body, `href="/auth/google?next=%2fitems%2f7"`) || strings.Contains(body, `/auth/github`) {
+		t.Fatalf("want Google only:\n%s", body)
+	}
+}
+
 func TestLoginPageRedirectsWhenSignedIn(t *testing.T) {
 	b := loginBoard(t, "http://localhost:8080", "nkirsch")
 	w := httptest.NewRecorder()

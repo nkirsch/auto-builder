@@ -10,7 +10,7 @@ CI; the server marks items shipped once its own `GIT_SHA` contains the merge.
 - `cmd/builder` — server: board UI, `/mcp`, runner API, `/api/gate/tick`, `/health`
 - `cmd/runner` — job entrypoint: claim → App token → clone → `claude -p /build-board` → finish
 - `internal/db` — pgx pool, embedded migrations (`migrations/NNN_*.sql`, append-only), all queries
-- `internal/auth` — GitHub OAuth, HMAC session cookie, `Require`/`RequireAdmin`, `Bearer`
+- `internal/auth` — GitHub or Google OAuth (Google matches `members.email`), HMAC session cookie, `Require`/`RequireAdmin`, `Bearer`
 - `internal/board` — page handlers, markdown (goldmark, raw HTML escaped), mentions
 - `internal/gate` — `Decide` policy, Cloud Run Job launcher, ship-checker
 - `internal/mcp` — agent tools (`list_items`, `get_item`, `reply`, `set_pr`, `set_tags`, `close_item`, `file_item`, `deploy_status`)

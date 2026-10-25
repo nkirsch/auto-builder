@@ -210,6 +210,43 @@ func TestMembersCaseInsensitive(t *testing.T) {
 	}
 }
 
+func TestMemberEmail(t *testing.T) {
+	ctx := context.Background()
+	s := testStore(t)
+	s.UpsertMember(ctx, "katrina", "member", "nkirsch")
+	s.UpsertMember(ctx, "momo", "member", "nkirsch")
+	if err := s.SetMemberEmail(ctx, "katrina", " K@Example.com "); err != nil {
+		t.Fatal(err)
+	}
+	if m, err := s.MemberByEmail(ctx, "k@example.com"); err != nil || m.Login != "katrina" || m.Email != "K@Example.com" {
+		t.Fatalf("by email = %+v, %v", m, err)
+	}
+	if err := s.SetMemberEmail(ctx, "momo", "k@EXAMPLE.com"); !errors.Is(err, ErrEmailTaken) {
+		t.Fatalf("duplicate email: %v", err)
+	}
+	if _, err := s.MemberByEmail(ctx, ""); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("empty email: %v", err)
+	}
+	s.UpsertMember(ctx, "katrina", "admin", "nkirsch")
+	if m, _ := s.Member(ctx, "katrina"); m.Email != "K@Example.com" {
+		t.Fatalf("role change dropped email: %+v", m)
+	}
+}
+
+func TestMemberAvatar(t *testing.T) {
+	for in, want := range map[string]string{
+		"https://avatars.githubusercontent.com/u/1?v=4": "https://avatars.githubusercontent.com/u/1?v=4&s=48",
+		"https://avatars.githubusercontent.com/u/1":     "https://avatars.githubusercontent.com/u/1?s=48",
+		"https://lh3.googleusercontent.com/a/ABC=s96-c": "https://lh3.googleusercontent.com/a/ABC=s48-c",
+		"https://lh3.googleusercontent.com/a/ABC":       "https://lh3.googleusercontent.com/a/ABC=s48-c",
+		"": "",
+	} {
+		if got := (Member{AvatarURL: in}).Avatar(); got != want {
+			t.Errorf("Avatar(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
 func TestRunItems(t *testing.T) {
 	ctx := context.Background()
 	s := testStore(t)

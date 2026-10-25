@@ -1,5 +1,5 @@
-// Package auth implements GitHub OAuth sign-in, signed session cookies and
-// member checks.
+// Package auth implements GitHub and Google OAuth sign-in, signed session
+// cookies and member checks.
 package auth
 
 import (
@@ -36,23 +36,33 @@ var github = oauth2.Endpoint{
 	TokenURL: "https://github.com/login/oauth/access_token",
 }
 
+var google = oauth2.Endpoint{
+	AuthURL:   "https://accounts.google.com/o/oauth2/v2/auth",
+	TokenURL:  "https://oauth2.googleapis.com/token",
+	AuthStyle: oauth2.AuthStyleInParams,
+}
+
 // Config configures Auth.
 type Config struct {
-	BaseURL      string
-	ClientID     string
-	ClientSecret string
-	SessionKey   []byte
-	DevLogin     string // honoured only when BaseURL is localhost
+	BaseURL            string
+	ClientID           string // GitHub
+	ClientSecret       string
+	GoogleClientID     string
+	GoogleClientSecret string
+	SessionKey         []byte
+	DevLogin           string // honoured only when BaseURL is localhost
 }
 
 // Auth handles sign-in and resolves the current member.
 type Auth struct {
-	cfg    Config
-	store  *db.Store
-	oauth  *oauth2.Config
-	secure bool
-	dev    bool
-	api    string // GitHub API base, overridable in tests
+	cfg      Config
+	store    *db.Store
+	oauth    *oauth2.Config
+	google   *oauth2.Config
+	secure   bool
+	dev      bool
+	api      string // GitHub API base, overridable in tests
+	userinfo string // Google OpenID userinfo endpoint, overridable in tests
 }
 
 func New(cfg Config, store *db.Store) (*Auth, error) {
@@ -68,6 +78,7 @@ func New(cfg Config, store *db.Store) (*Auth, error) {
 		cfg.SessionKey = make([]byte, 32)
 		rand.Read(cfg.SessionKey)
 	}
+	base := strings.TrimSuffix(cfg.BaseURL, "/")
 	return &Auth{
 		cfg:   cfg,
 		store: store,
@@ -75,11 +86,19 @@ func New(cfg Config, store *db.Store) (*Auth, error) {
 			ClientID:     cfg.ClientID,
 			ClientSecret: cfg.ClientSecret,
 			Endpoint:     github,
-			RedirectURL:  strings.TrimSuffix(cfg.BaseURL, "/") + "/auth/callback",
+			RedirectURL:  base + "/auth/callback",
 		},
-		secure: u.Scheme == "https",
-		dev:    local && cfg.DevLogin != "",
-		api:    "https://api.github.com",
+		google: &oauth2.Config{
+			ClientID:     cfg.GoogleClientID,
+			ClientSecret: cfg.GoogleClientSecret,
+			Endpoint:     google,
+			RedirectURL:  base + "/auth/google/callback",
+			Scopes:       []string{"openid", "email", "profile"},
+		},
+		secure:   u.Scheme == "https",
+		dev:      local && cfg.DevLogin != "",
+		api:      "https://api.github.com",
+		userinfo: "https://openidconnect.googleapis.com/v1/userinfo",
 	}, nil
 }
 
@@ -149,6 +168,11 @@ func (a *Auth) sameOrigin(r *http.Request) bool {
 	return strings.TrimSuffix(origin, "/") == strings.TrimSuffix(a.cfg.BaseURL, "/")
 }
 
+// GitHub and Google report which sign-in buttons to offer; GitHub is the
+// default when neither is configured.
+func (a *Auth) GitHub() bool { return a.dev || a.oauth.ClientID != "" || a.google.ClientID == "" }
+func (a *Auth) Google() bool { return a.google.ClientID != "" }
+
 // SignedIn returns the session's login, or "" when signed out. It does not
 // check membership.
 func (a *Auth) SignedIn(r *http.Request) string { return a.login(r) }
@@ -200,23 +224,40 @@ func (a *Auth) verify(value string, now time.Time) (string, bool) {
 	return login, true
 }
 
-// Routes registers /auth/github, /auth/callback and /auth/logout. The
-// /auth/login page itself is served by the board.
+// Routes registers /auth/github, /auth/callback, /auth/google,
+// /auth/google/callback and /auth/logout. The /auth/login page itself is
+// served by the board.
 func (a *Auth) Routes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /auth/github", a.handleGitHub)
 	mux.HandleFunc("GET /auth/callback", a.handleCallback)
+	mux.HandleFunc("GET /auth/google", a.handleGoogle)
+	mux.HandleFunc("GET /auth/google/callback", a.handleGoogleCallback)
 	mux.HandleFunc("POST /auth/logout", a.handleLogout)
 }
 
 // handleGitHub starts the OAuth redirect.
 func (a *Auth) handleGitHub(w http.ResponseWriter, r *http.Request) {
+	if a.oauth.ClientID == "" && !a.dev {
+		http.Error(w, "GitHub sign-in is not configured (GITHUB_CLIENT_ID)", http.StatusServiceUnavailable)
+		return
+	}
+	a.start(w, r, a.oauth)
+}
+
+// handleGoogle starts the Google OAuth redirect.
+func (a *Auth) handleGoogle(w http.ResponseWriter, r *http.Request) {
+	if a.google.ClientID == "" && !a.dev {
+		http.Error(w, "Google sign-in is not configured (GOOGLE_CLIENT_ID)", http.StatusServiceUnavailable)
+		return
+	}
+	a.start(w, r, a.google)
+}
+
+// start sets the state cookie and redirects to the provider.
+func (a *Auth) start(w http.ResponseWriter, r *http.Request, oc *oauth2.Config) {
 	next := safeNext(r.URL.Query().Get("next"))
 	if a.dev {
 		http.Redirect(w, r, next, http.StatusFound)
-		return
-	}
-	if a.oauth.ClientID == "" {
-		http.Error(w, "GitHub sign-in is not configured (GITHUB_CLIENT_ID)", http.StatusServiceUnavailable)
 		return
 	}
 	b := make([]byte, 16)
@@ -226,22 +267,39 @@ func (a *Auth) handleGitHub(w http.ResponseWriter, r *http.Request) {
 		Name: stateCookie, Value: state + "|" + next, Path: "/auth", MaxAge: 600,
 		HttpOnly: true, Secure: a.secure, SameSite: http.SameSiteLaxMode,
 	})
-	http.Redirect(w, r, a.oauth.AuthCodeURL(state), http.StatusFound)
+	http.Redirect(w, r, oc.AuthCodeURL(state), http.StatusFound)
 }
 
-func (a *Auth) handleCallback(w http.ResponseWriter, r *http.Request) {
+// checkState validates and clears the state cookie, returning the next path.
+func (a *Auth) checkState(w http.ResponseWriter, r *http.Request) (string, bool) {
 	c, err := r.Cookie(stateCookie)
 	if err != nil {
 		http.Error(w, "sign-in expired; try again", http.StatusBadRequest)
-		return
+		return "", false
 	}
 	state, next, _ := strings.Cut(c.Value, "|")
 	if subtle.ConstantTimeCompare([]byte(state), []byte(r.URL.Query().Get("state"))) != 1 {
 		http.Error(w, "bad sign-in state; try again", http.StatusBadRequest)
-		return
+		return "", false
 	}
 	http.SetCookie(w, &http.Cookie{Name: stateCookie, Path: "/auth", MaxAge: -1})
+	return next, true
+}
 
+// setSession signs the member in and returns to next.
+func (a *Auth) setSession(w http.ResponseWriter, r *http.Request, login, next string) {
+	http.SetCookie(w, &http.Cookie{
+		Name: sessionCookie, Value: a.sign(login, time.Now().Add(sessionTTL)), Path: "/",
+		MaxAge: int(sessionTTL.Seconds()), HttpOnly: true, Secure: a.secure, SameSite: http.SameSiteLaxMode,
+	})
+	http.Redirect(w, r, safeNext(next), http.StatusFound)
+}
+
+func (a *Auth) handleCallback(w http.ResponseWriter, r *http.Request) {
+	next, ok := a.checkState(w, r)
+	if !ok {
+		return
+	}
 	tok, err := a.oauth.Exchange(r.Context(), r.URL.Query().Get("code"))
 	if err != nil {
 		slog.Warn("oauth exchange", "err", err)
@@ -254,14 +312,80 @@ func (a *Auth) handleCallback(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "GitHub sign-in failed", http.StatusBadGateway)
 		return
 	}
+	// A member with an email may be a made-up handle that a stranger owns on GitHub.
+	if m, err := a.store.Member(r.Context(), user.Login); err == nil && m.Email != "" {
+		w.WriteHeader(http.StatusForbidden)
+		fmt.Fprintf(w, "%s signs in with Google.\n", user.Login)
+		return
+	}
 	if err := a.store.TouchMember(r.Context(), user.Login, user.Name, user.AvatarURL); err != nil {
 		slog.Error("touch member", "err", err)
 	}
-	http.SetCookie(w, &http.Cookie{
-		Name: sessionCookie, Value: a.sign(user.Login, time.Now().Add(sessionTTL)), Path: "/",
-		MaxAge: int(sessionTTL.Seconds()), HttpOnly: true, Secure: a.secure, SameSite: http.SameSiteLaxMode,
-	})
-	http.Redirect(w, r, safeNext(next), http.StatusFound)
+	a.setSession(w, r, user.Login, next)
+}
+
+// handleGoogleCallback signs in the member whose email matches the verified
+// Google address; the session carries that member's login.
+func (a *Auth) handleGoogleCallback(w http.ResponseWriter, r *http.Request) {
+	next, ok := a.checkState(w, r)
+	if !ok {
+		return
+	}
+	tok, err := a.google.Exchange(r.Context(), r.URL.Query().Get("code"))
+	if err != nil {
+		slog.Warn("google exchange", "err", err)
+		http.Error(w, "Google sign-in failed", http.StatusBadGateway)
+		return
+	}
+	user, err := a.googleUser(r.Context(), tok.AccessToken)
+	if err != nil {
+		slog.Warn("google user", "err", err)
+		http.Error(w, "Google sign-in failed", http.StatusBadGateway)
+		return
+	}
+	m, err := a.store.MemberByEmail(r.Context(), user.Email)
+	if errors.Is(err, db.ErrNotFound) {
+		w.WriteHeader(http.StatusForbidden)
+		fmt.Fprintf(w, "%s is not a member of this board. Ask the admin to add you.\n", user.Email)
+		return
+	}
+	if err != nil {
+		slog.Error("member by email", "err", err)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	if err := a.store.TouchMember(r.Context(), m.Login, user.Name, user.Picture); err != nil {
+		slog.Error("touch member", "err", err)
+	}
+	a.setSession(w, r, m.Login, next)
+}
+
+type googleUser struct {
+	Email         string `json:"email"`
+	EmailVerified bool   `json:"email_verified"`
+	Name          string `json:"name"`
+	Picture       string `json:"picture"`
+}
+
+func (a *Auth) googleUser(ctx context.Context, token string) (googleUser, error) {
+	var u googleUser
+	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, a.userinfo, nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return u, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return u, fmt.Errorf("GET userinfo: %s", resp.Status)
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&u); err != nil {
+		return u, err
+	}
+	if u.Email == "" || !u.EmailVerified {
+		return u, errors.New("GET userinfo: no verified email")
+	}
+	return u, nil
 }
 
 func (a *Auth) handleLogout(w http.ResponseWriter, r *http.Request) {

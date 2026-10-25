@@ -78,7 +78,8 @@ func (b *Board) Routes(mux *http.ServeMux) error {
 	mux.Handle("GET /static/", http.FileServerFS(web.FS))
 	mux.HandleFunc("GET /auth/login", b.login)
 	mux.HandleFunc("GET /favicon.ico", func(w http.ResponseWriter, r *http.Request) {
-		http.Redirect(w, r, "/static/icon.svg", http.StatusMovedPermanently)
+		w.Header().Set("Cache-Control", "public, max-age=86400")
+		http.ServeFileFS(w, r, web.FS, "static/favicon.ico")
 	})
 	mux.Handle("GET /{$}", member(b.index))
 	mux.Handle("GET /items/new", member(b.newItem))

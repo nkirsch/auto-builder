@@ -11,7 +11,7 @@
     <div class="row">
       <b>Run {{.ID}}</b>
       <span class="status r-{{.Status}}">{{.Status}}</span>
-      <span class="muted">{{.Trigger}}{{with .RequestedBy}} by {{.}}{{end}} · {{ago .CreatedAt}}</span>
+      <span class="muted">{{.Trigger}}{{with .RequestedBy}} by {{.}}{{end}} · {{ago .CreatedAt}}{{with .CostUSD}} · {{usd .}}{{end}}</span>
       <span class="spacer"></span>
       {{if .LogObject}}<a href="/runs/{{.ID}}/log">log</a>{{end}}
     </div>

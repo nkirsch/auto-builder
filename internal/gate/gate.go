@@ -139,7 +139,7 @@ func (g *Gate) launch(ctx context.Context, trigger, by string) (int, error) {
 	}
 	exec, err := g.Launcher.Launch(ctx, id)
 	if err != nil {
-		if ferr := g.Store.FinishRun(ctx, id, "failed", "launch: "+err.Error(), ""); ferr != nil {
+		if ferr := g.Store.FinishRun(ctx, id, "failed", "launch: "+err.Error(), "", nil); ferr != nil {
 			slog.Error("finish run after launch failure", "run", id, "err", ferr)
 		}
 		return id, fmt.Errorf("launch run %d: %w", id, err)

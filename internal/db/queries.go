@@ -92,6 +92,7 @@ type Run struct {
 	CreatedAt   time.Time
 	StartedAt   *time.Time
 	FinishedAt  *time.Time
+	CostUSD     *float64 // nil when the runner didn't report one
 }
 
 func notFound(err error) error {
@@ -360,7 +361,7 @@ func (s *Store) MarkRead(ctx context.Context, login string, itemID int) error {
 
 // Runs
 
-const runCols = `id, status, trigger, requested_by, execution, summary, log_object, created_at, started_at, finished_at`
+const runCols = `id, status, trigger, requested_by, execution, summary, log_object, created_at, started_at, finished_at, cost_usd::float8`
 
 func (s *Store) Run(ctx context.Context, id int) (Run, error) {
 	rows, err := s.Pool.Query(ctx, `SELECT `+runCols+` FROM runs WHERE id = $1`, id)
@@ -400,11 +401,28 @@ func (s *Store) ClaimRun(ctx context.Context, id int) error {
 	return s.execOne(ctx, `UPDATE runs SET status = 'running', started_at = now() WHERE id = $1 AND status = 'requested'`, id)
 }
 
-// FinishRun records the outcome of an active run.
-func (s *Store) FinishRun(ctx context.Context, id int, status, summary, logObject string) error {
-	return s.execOne(ctx, `UPDATE runs SET status = $2, summary = $3, log_object = $4, finished_at = now(),
-		started_at = coalesce(started_at, now()) WHERE id = $1 AND status IN ('requested', 'running')`,
-		id, status, summary, logObject)
+// FinishRun records the outcome of an active run; cost may be nil.
+func (s *Store) FinishRun(ctx context.Context, id int, status, summary, logObject string, cost *float64) error {
+	return s.execOne(ctx, `UPDATE runs SET status = $2, summary = $3, log_object = $4, cost_usd = $5,
+		finished_at = now(), started_at = coalesce(started_at, now())
+		WHERE id = $1 AND status IN ('requested', 'running')`,
+		id, status, summary, logObject, cost)
+}
+
+// RunCosts is the reported spend across runs.
+type RunCosts struct {
+	Total, Last30Days float64
+	Runs              int // runs with a reported cost
+}
+
+func (s *Store) RunCosts(ctx context.Context) (RunCosts, error) {
+	var c RunCosts
+	err := s.Pool.QueryRow(ctx, `SELECT
+			coalesce(sum(cost_usd), 0)::float8,
+			coalesce(sum(cost_usd) FILTER (WHERE created_at > now() - interval '30 days'), 0)::float8,
+			count(cost_usd)
+		FROM runs`).Scan(&c.Total, &c.Last30Days, &c.Runs)
+	return c, err
 }
 
 // FailStale fails runs stuck running longer than running, or never claimed within requested.

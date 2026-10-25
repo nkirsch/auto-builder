@@ -88,6 +88,7 @@ func (b *Board) Routes(mux *http.ServeMux) error {
 	mux.Handle("POST /items/{id}/close", member(b.closeItem))
 	mux.Handle("POST /items/{id}/reopen", member(b.reopenItem))
 	mux.Handle("POST /items/{id}/approve", admin(b.approve))
+	mux.Handle("POST /items/{id}/unblock", admin(b.unblock))
 	mux.Handle("GET /attachments/{id}", member(b.attachment))
 	mux.Handle("GET /inbox", member(b.inbox))
 	mux.Handle("POST /inbox/read", member(b.markAllRead))
@@ -520,6 +521,22 @@ func (b *Board) approve(w http.ResponseWriter, r *http.Request) {
 		b.Gate.Activity()
 	}
 	redirect(w, r, fmt.Sprintf("/items/%d", id), msg)
+}
+
+// unblock clears an item's blocked flag; it's human activity, so the gate
+// picks the item up again.
+func (b *Board) unblock(w http.ResponseWriter, r *http.Request) {
+	id, ok := pathID(r)
+	if !ok {
+		http.NotFound(w, r)
+		return
+	}
+	if err := b.Store.SetBlocked(r.Context(), id, "", true); err != nil {
+		b.fail(w, err)
+		return
+	}
+	b.Gate.Activity()
+	redirect(w, r, fmt.Sprintf("/items/%d", id), "Unblocked")
 }
 
 // Attachments

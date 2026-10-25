@@ -44,6 +44,8 @@ func (b *Board) Handler() http.Handler {
 		Description: "Tag an item that has no tags yet (e.g. bug, feature); items the author tagged are left alone."}, b.setTags)
 	mcp.AddTool(s, &mcp.Tool{Name: "close_item",
 		Description: "Close a duplicate or obsolete item with a short note."}, b.closeItem)
+	mcp.AddTool(s, &mcp.Tool{Name: "set_blocked",
+		Description: "Flag an item as blocked (shown in red) when it needs action outside auto-builder (e.g. re-run bootstrap, set a secret) or hit an error you can't fix; an empty note clears it."}, b.setBlocked)
 	mcp.AddTool(s, &mcp.Tool{Name: "file_item",
 		Description: "File a new (unapproved) item, e.g. to split work out of a larger ask."}, b.fileItem)
 	mcp.AddTool(s, &mcp.Tool{Name: "deploy_status",
@@ -76,6 +78,7 @@ type ItemOut struct {
 	PRNumber    int             `json:"pr_number,omitempty"`
 	MergeSHA    string          `json:"merge_sha,omitempty"`
 	CloseNote   string          `json:"close_note,omitempty"`
+	Blocked     string          `json:"blocked,omitempty" jsonschema:"why the item is blocked; empty when it isn't"`
 	Tags        []string        `json:"tags" jsonschema:"lower-case #tags; empty means untagged"`
 	Thread      []Post          `json:"thread" jsonschema:"the item body first, then replies in order"`
 	Attachments []AttachmentOut `json:"attachments,omitempty"`
@@ -111,6 +114,11 @@ type SetTagsIn struct {
 type CloseIn struct {
 	ID   int    `json:"id"`
 	Note string `json:"note"`
+}
+
+type BlockedIn struct {
+	ID   int    `json:"id"`
+	Note string `json:"note" jsonschema:"one sentence: what's needed and from whom; empty to clear"`
 }
 
 type FileIn struct {
@@ -154,7 +162,7 @@ func role(roles map[string]string, login string) string {
 
 func (b *Board) itemOut(ctx context.Context, it db.Item, roles map[string]string, attachments bool) (ItemOut, error) {
 	out := ItemOut{ID: it.ID, Title: it.Title, Status: it.Status, Approved: it.Approved, ApprovedBy: it.ApprovedBy,
-		MergeSHA: it.MergeSHA, CloseNote: it.CloseNote, Tags: it.Tags}
+		MergeSHA: it.MergeSHA, CloseNote: it.CloseNote, Blocked: it.Blocked, Tags: it.Tags}
 	if out.Tags == nil {
 		out.Tags = []string{}
 	}
@@ -299,6 +307,21 @@ func (b *Board) closeItem(ctx context.Context, _ *mcp.CallToolRequest, in CloseI
 	}
 	b.noteRunItem(ctx, in.ID)
 	return nil, OK{OK: true}, nil
+}
+
+func (b *Board) setBlocked(ctx context.Context, _ *mcp.CallToolRequest, in BlockedIn) (*mcp.CallToolResult, OK, error) {
+	note := strings.TrimSpace(in.Note)
+	if len(note) > 500 {
+		return nil, OK{}, fmt.Errorf("note must be at most 500 characters")
+	}
+	if err := b.Store.SetBlocked(ctx, in.ID, note, false); err != nil {
+		return nil, OK{}, fmt.Errorf("item %d: %w", in.ID, err)
+	}
+	b.noteRunItem(ctx, in.ID)
+	if note == "" {
+		return nil, OK{OK: true, Message: "unblocked"}, nil
+	}
+	return nil, OK{OK: true, Message: "blocked"}, nil
 }
 
 func (b *Board) fileItem(ctx context.Context, _ *mcp.CallToolRequest, in FileIn) (*mcp.CallToolResult, FileOut, error) {

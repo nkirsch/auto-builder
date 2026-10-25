@@ -16,6 +16,7 @@
     <div class="meta">
       <span class="status s-{{.Status}}">{{.Status}}</span>
       {{if .Approved}}<span class="badge approved">approved</span>{{end}}
+      {{with .Blocked}}<span class="badge blocked" title="{{.}}">blocked</span>{{end}}
       {{range .Tags}}<a class="tag" href="/?{{if eq $.Data.Show "done"}}show=done&amp;{{end}}tag={{.}}">#{{.}}</a>{{end}}
       #{{.ID}} by {{.Author}} · {{ago .UpdatedAt}}{{if .Replies}} · {{.Replies}} repl{{if eq .Replies 1}}y{{else}}ies{{end}}{{end}}
     </div>

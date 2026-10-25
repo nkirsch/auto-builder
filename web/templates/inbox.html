@@ -10,7 +10,7 @@
   {{range .}}
   <li class="{{if not .ReadAt}}unread{{end}}">
     <a href="/items/{{.ItemID}}#end" class="title">{{.ItemTitle}}</a>
-    <div class="meta">{{.Actor}} {{if eq .Kind "mention"}}mentioned you{{else}}replied{{end}} · {{ago .CreatedAt}}{{if gt .Count 1}} · {{.Count}} updates{{end}}</div>
+    <div class="meta">{{with .Blocked}}<span class="badge blocked" title="{{.}}">blocked</span>{{end}}{{.Actor}} {{if eq .Kind "mention"}}mentioned you{{else}}replied{{end}} · {{ago .CreatedAt}}{{if gt .Count 1}} · {{.Count}} updates{{end}}</div>
   </li>
   {{end}}
 </ul>

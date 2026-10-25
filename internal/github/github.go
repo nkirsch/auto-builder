@@ -195,12 +195,33 @@ type PR struct {
 	Merged         bool   `json:"merged"`
 	MergeCommitSHA string `json:"merge_commit_sha"`
 	HTMLURL        string `json:"html_url"`
+	Head           struct {
+		SHA string `json:"sha"`
+	} `json:"head"`
 }
 
 func (c *Client) PR(ctx context.Context, repo string, n int) (PR, error) {
 	var pr PR
 	err := c.do(ctx, http.MethodGet, fmt.Sprintf("/repos/%s/pulls/%d", repo, n), nil, &pr)
 	return pr, err
+}
+
+// ChecksFailed reports whether any check run on commit sha failed or timed out.
+func (c *Client) ChecksFailed(ctx context.Context, repo, sha string) (bool, error) {
+	var out struct {
+		CheckRuns []struct {
+			Conclusion string `json:"conclusion"`
+		} `json:"check_runs"`
+	}
+	if err := c.do(ctx, http.MethodGet, fmt.Sprintf("/repos/%s/commits/%s/check-runs?per_page=100", repo, sha), nil, &out); err != nil {
+		return false, err
+	}
+	for _, r := range out.CheckRuns {
+		if r.Conclusion == "failure" || r.Conclusion == "timed_out" {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 // Contains reports whether commit sha is reachable from head.

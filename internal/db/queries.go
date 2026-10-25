@@ -53,6 +53,8 @@ type Item struct {
 	HumanActivityAt time.Time
 	ClosedAt        *time.Time
 	Tags            []string
+	Blocked         string // why it needs action outside auto-builder; "" when not blocked
+	BlockedAt       *time.Time
 	Replies         int // list queries only
 }
 
@@ -80,6 +82,7 @@ type Notification struct {
 	Login     string
 	ItemID    int
 	ItemTitle string
+	Blocked   string // the item's blocked note
 	Actor     string
 	Kind      string
 	ReadAt    *time.Time
@@ -240,12 +243,14 @@ func (s *Store) TouchMember(ctx context.Context, login, name, avatar string) err
 // Items
 
 const itemCols = `i.id, i.title, i.body, i.author, i.status, i.approved, i.approved_by, i.pr_number,
-	i.merge_sha, i.close_note, i.created_at, i.updated_at, i.human_activity_at, i.closed_at, i.tags`
+	i.merge_sha, i.close_note, i.created_at, i.updated_at, i.human_activity_at, i.closed_at, i.tags,
+	i.blocked, i.blocked_at`
 
 func scanItem(row pgx.Row, extra ...any) (Item, error) {
 	var it Item
 	dest := []any{&it.ID, &it.Title, &it.Body, &it.Author, &it.Status, &it.Approved, &it.ApprovedBy,
-		&it.PRNumber, &it.MergeSHA, &it.CloseNote, &it.CreatedAt, &it.UpdatedAt, &it.HumanActivityAt, &it.ClosedAt, &it.Tags}
+		&it.PRNumber, &it.MergeSHA, &it.CloseNote, &it.CreatedAt, &it.UpdatedAt, &it.HumanActivityAt, &it.ClosedAt, &it.Tags,
+		&it.Blocked, &it.BlockedAt}
 	err := row.Scan(append(dest, extra...)...)
 	return it, notFound(err)
 }
@@ -296,6 +301,14 @@ func (s *Store) SetTags(ctx context.Context, id int, tags []string, onlyIfEmpty 
 		id, tags, onlyIfEmpty)
 }
 
+// SetBlocked flags an item as blocked with a note, or clears it when note is
+// empty. Only a human (admin) clearing it counts as human activity.
+func (s *Store) SetBlocked(ctx context.Context, id int, note string, human bool) error {
+	return s.execOne(ctx, `UPDATE items SET blocked = $2,
+		blocked_at = CASE WHEN $2 = '' THEN NULL ELSE now() END, updated_at = now(),
+		human_activity_at = CASE WHEN $3 THEN now() ELSE human_activity_at END WHERE id = $1`, id, note, human)
+}
+
 // SetApproved flips the approval flag; approving is human activity.
 func (s *Store) SetApproved(ctx context.Context, id int, approved bool, by string) error {
 	if !approved {
@@ -323,8 +336,8 @@ func (s *Store) SetPR(ctx context.Context, id, pr int) error {
 }
 
 func (s *Store) MarkMerged(ctx context.Context, id int, sha string) error {
-	return s.execOne(ctx, `UPDATE items SET status = 'merged', merge_sha = $2, updated_at = now()
-		WHERE id = $1 AND status = 'building'`, id, sha)
+	return s.execOne(ctx, `UPDATE items SET status = 'merged', merge_sha = $2, blocked = '', blocked_at = NULL,
+		updated_at = now() WHERE id = $1 AND status = 'building'`, id, sha)
 }
 
 func (s *Store) MarkShipped(ctx context.Context, id int) error {
@@ -422,7 +435,7 @@ func (s *Store) Notify(ctx context.Context, login string, itemID int, actor, kin
 // notifications is unread and Count the number collapsed into the row. done
 // selects items that are shipped or closed, read or not; the rest are the inbox.
 func (s *Store) Notifications(ctx context.Context, login string, done bool, limit int) ([]Notification, error) {
-	rows, err := s.Pool.Query(ctx, `SELECT l.id, l.login, l.item_id, i.title, l.actor, l.kind,
+	rows, err := s.Pool.Query(ctx, `SELECT l.id, l.login, l.item_id, i.title, i.blocked, l.actor, l.kind,
 			CASE WHEN g.unread > 0 THEN NULL ELSE g.last_read END, l.created_at, g.n
 		FROM (SELECT item_id, count(*) AS n, count(*) FILTER (WHERE read_at IS NULL) AS unread,
 				max(read_at) AS last_read, max(id) AS last_id
@@ -623,7 +636,7 @@ type GateState struct {
 	LastSuccess  *time.Time // started_at of the newest done run
 	LastFailure  *time.Time // finished_at of the newest failed run
 	NewActivity  bool       // an open/building item has human activity after LastSuccess
-	ApprovedOpen bool       // an approved open item exists
+	ApprovedOpen bool       // an approved open item exists, not blocked unless a human acted since
 	Spend30      float64    // reported agent cost over the last 30 days
 	SpendLimit   float64    // cap on Spend30
 }
@@ -639,7 +652,8 @@ func (s *Store) GateState(ctx context.Context) (GateState, error) {
 			EXISTS (SELECT 1 FROM items WHERE status IN ('open', 'building')
 				AND human_activity_at > 'epoch' -- bot-filed items carry epoch
 				AND human_activity_at > coalesce((SELECT t FROM last_ok), '-infinity')),
-			EXISTS (SELECT 1 FROM items WHERE status = 'open' AND approved),
+			EXISTS (SELECT 1 FROM items WHERE status = 'open' AND approved
+				AND (blocked = '' OR human_activity_at > blocked_at)),
 			(SELECT coalesce(sum(cost_usd), 0)::float8 FROM runs WHERE created_at > now() - interval '30 days'),
 			(SELECT spend_limit_usd::float8 FROM settings)`).
 		Scan(&g.Active, &g.LastSuccess, &g.LastFailure, &g.NewActivity, &g.ApprovedOpen, &g.Spend30, &g.SpendLimit)

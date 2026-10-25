@@ -166,7 +166,7 @@ func run() error {
 	}
 	g.Ship = &gate.Shipper{Store: st, GitHub: gh, Repo: cfg.Repo, GitSHA: cfg.GitSHA, Reply: b.BotReply}
 	if cfg.GitSHA != "dev" {
-		go resolveVersion(ctx, gh, cfg.Repo, cfg.GitSHA, b)
+		go resolveVersion(ctx, gh, cfg.Repo, cfg.GitSHA, app != nil, b)
 	}
 	tools := &mcp.Board{Store: st, BotLogin: cfg.BotLogin, BaseURL: cfg.BaseURL, GitSHA: cfg.GitSHA, Reply: b.BotReply}
 
@@ -202,8 +202,9 @@ func run() error {
 }
 
 // resolveVersion looks up the deployed commit's "vYY.MM.DD-N" name for the nav,
-// retrying briefly; the page simply omits it until then.
-func resolveVersion(ctx context.Context, gh *github.Client, repo, sha string, b *board.Board) {
+// retrying briefly; the page simply omits it until then. With tag set (the
+// client is the App's), it also tags the commit with that name.
+func resolveVersion(ctx context.Context, gh *github.Client, repo, sha string, tag bool, b *board.Board) {
 	for attempt := 1; attempt <= 5; attempt++ {
 		c, cancel := context.WithTimeout(ctx, 30*time.Second)
 		v, err := gh.Version(c, repo, sha)
@@ -211,9 +212,31 @@ func resolveVersion(ctx context.Context, gh *github.Client, repo, sha string, b 
 		if err == nil {
 			b.SetVersion(v)
 			slog.Info("version", "version", v, "sha", sha)
+			if tag {
+				tagRelease(ctx, gh, repo, v, sha)
+			}
 			return
 		}
 		slog.Warn("version", "attempt", attempt, "err", err)
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(time.Duration(attempt) * 10 * time.Second):
+		}
+	}
+}
+
+// tagRelease tags sha as version v, retrying briefly; failures are only logged.
+func tagRelease(ctx context.Context, gh *github.Client, repo, v, sha string) {
+	for attempt := 1; attempt <= 3; attempt++ {
+		c, cancel := context.WithTimeout(ctx, 30*time.Second)
+		err := gh.Tag(c, repo, v, sha)
+		cancel()
+		if err == nil {
+			slog.Info("tagged", "tag", v, "sha", sha)
+			return
+		}
+		slog.Warn("tag", "tag", v, "attempt", attempt, "err", err)
 		select {
 		case <-ctx.Done():
 			return

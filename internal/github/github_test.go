@@ -2,6 +2,7 @@ package github
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -54,5 +55,40 @@ func TestChecksFailed(t *testing.T) {
 		if err != nil || got != want {
 			t.Errorf("%s: got %v, %v; want %v", sha, got, err, want)
 		}
+	}
+}
+
+func TestTag(t *testing.T) {
+	var created []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodPost && r.URL.Path == "/repos/o/r/git/refs":
+			var in struct{ Ref, SHA string }
+			json.NewDecoder(r.Body).Decode(&in)
+			if in.Ref != "refs/tags/v1" && in.Ref != "refs/tags/v2" {
+				w.WriteHeader(http.StatusCreated)
+				created = append(created, in.Ref+"@"+in.SHA)
+				return
+			}
+			w.WriteHeader(http.StatusUnprocessableEntity)
+			w.Write([]byte(`{"message":"Reference already exists"}`))
+		case r.URL.Path == "/repos/o/r/git/ref/tags/v1":
+			w.Write([]byte(`{"object":{"sha":"abc"}}`))
+		case r.URL.Path == "/repos/o/r/git/ref/tags/v2":
+			w.Write([]byte(`{"object":{"sha":"other"}}`))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+	c := New(srv.URL, "")
+	if err := c.Tag(context.Background(), "o/r", "v3", "abc"); err != nil || len(created) != 1 || created[0] != "refs/tags/v3@abc" {
+		t.Fatalf("new tag: err = %v, created = %v", err, created)
+	}
+	if err := c.Tag(context.Background(), "o/r", "v1", "abc"); err != nil {
+		t.Fatalf("existing tag on same commit: %v", err)
+	}
+	if err := c.Tag(context.Background(), "o/r", "v2", "abc"); err == nil {
+		t.Fatal("existing tag on another commit: want error")
 	}
 }

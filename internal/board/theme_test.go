@@ -80,6 +80,26 @@ func TestLayoutTheme(t *testing.T) {
 	}
 }
 
+func TestLayoutColorScheme(t *testing.T) {
+	b := &Board{}
+	if err := b.parse(); err != nil {
+		t.Fatal(err)
+	}
+	for th, want := range map[string]string{"": "light dark", "light": "only light", "dark": "dark"} {
+		var sb strings.Builder
+		p := page{Me: db.Member{Login: "alice"}, Theme: th, GitSHA: "abc1234def"}
+		if err := b.tmpl["new"].ExecuteTemplate(&sb, "layout", p); err != nil {
+			t.Fatal(err)
+		}
+		if tag := `<meta name="color-scheme" content="` + want + `">`; !strings.Contains(sb.String(), tag) {
+			t.Errorf("theme %q: layout missing %s", th, tag)
+		}
+		if !strings.Contains(sb.String(), `href="/static/style.css?v=abc1234"`) {
+			t.Errorf("theme %q: stylesheet not versioned", th)
+		}
+	}
+}
+
 func TestLayoutVersion(t *testing.T) {
 	b := &Board{GitSHA: "abc123"}
 	if err := b.parse(); err != nil {

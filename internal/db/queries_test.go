@@ -15,7 +15,7 @@ func testStore(t *testing.T) *Store {
 		t.Fatal(err)
 	}
 	t.Cleanup(pool.Close)
-	if _, err := pool.Exec(ctx, `TRUNCATE members, items, responses, attachments, notifications, runs RESTART IDENTITY CASCADE`); err != nil {
+	if _, err := pool.Exec(ctx, `TRUNCATE members, items, responses, attachments, notifications, runs, run_items RESTART IDENTITY CASCADE`); err != nil {
 		t.Fatal(err)
 	}
 	return &Store{Pool: pool}
@@ -178,6 +178,39 @@ func TestMembersCaseInsensitive(t *testing.T) {
 	}
 	if _, err := s.Member(ctx, "nobody"); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("missing member: %v", err)
+	}
+}
+
+func TestRunItems(t *testing.T) {
+	ctx := context.Background()
+	s := testStore(t)
+	a, _ := s.CreateItem(ctx, "Tags", "", "alice")
+	b, _ := s.CreateItem(ctx, "Dupes", "", "alice")
+	if err := s.NoteRunItem(ctx, a); err != nil {
+		t.Fatal(err)
+	}
+	run, err := s.CreateRun(ctx, "tick", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.NoteRunItem(ctx, a) // requested, not yet running
+	if err := s.ClaimRun(ctx, run); err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range []int{b, a, b} {
+		if err := s.NoteRunItem(ctx, id); err != nil {
+			t.Fatal(err)
+		}
+	}
+	s.FinishRun(ctx, run, "done", "", "")
+	s.NoteRunItem(ctx, a) // after the run
+	got, err := s.RunItems(ctx, []int{run, 99})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || len(got[run]) != 2 || got[run][0].ItemID != b || got[run][1].ItemID != a ||
+		got[run][0].Title != "Dupes" || got[run][1].Status != "open" {
+		t.Fatalf("run items = %+v", got)
 	}
 }
 

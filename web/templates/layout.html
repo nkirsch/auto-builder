@@ -4,11 +4,22 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{{.Title}} · auto-builder</title>
+<meta name="description" content="A board where asks become pull requests, built and shipped by an unattended Claude Code agent.">
+<meta property="og:site_name" content="auto-builder">
+<meta property="og:type" content="website">
+<meta property="og:title" content="auto-builder">
+<meta property="og:description" content="A board where asks become pull requests, built and shipped by an unattended Claude Code agent.">
+<meta property="og:url" content="{{.BaseURL}}/">
+<meta property="og:image" content="{{.BaseURL}}/static/og.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="icon" href="/static/icon.svg" type="image/svg+xml">
 <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
 <header>
-  <nav>
+  {{if .Me.Login}}<nav>
     <a href="/" class="brand">auto-builder{{with .Version}} <span class="version" title="{{$.GitSHA}}">{{.}}</span>{{end}}</a>
     <a href="/items/new">New</a>
     <a href="/inbox">Inbox{{if .Unread}} <span class="count">{{.Unread}}</span>{{end}}</a>
@@ -22,7 +33,7 @@
     <form method="post" action="/auth/logout" class="logout">
       <button class="link" title="Sign out">{{.Me.Login}} ⎋</button>
     </form>
-  </nav>
+  </nav>{{else}}<nav><a href="/" class="brand">auto-builder</a></nav>{{end}}
 </header>
 <main>
 {{with .Flash}}<p class="flash">{{.}}</p>{{end}}

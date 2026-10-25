@@ -107,7 +107,7 @@ func (a *Auth) Require(next http.Handler) http.Handler {
 		}
 		login := a.login(r)
 		if login == "" {
-			if r.Method == http.MethodGet {
+			if r.Method == http.MethodGet || r.Method == http.MethodHead {
 				http.Redirect(w, r, "/auth/login?next="+url.QueryEscape(r.URL.RequestURI()), http.StatusFound)
 				return
 			}
@@ -148,6 +148,10 @@ func (a *Auth) sameOrigin(r *http.Request) bool {
 	}
 	return strings.TrimSuffix(origin, "/") == strings.TrimSuffix(a.cfg.BaseURL, "/")
 }
+
+// SignedIn returns the session's login, or "" when signed out. It does not
+// check membership.
+func (a *Auth) SignedIn(r *http.Request) string { return a.login(r) }
 
 func (a *Auth) login(r *http.Request) string {
 	if a.dev {
@@ -196,14 +200,16 @@ func (a *Auth) verify(value string, now time.Time) (string, bool) {
 	return login, true
 }
 
-// Routes registers /auth/login, /auth/callback and /auth/logout.
+// Routes registers /auth/github, /auth/callback and /auth/logout. The
+// /auth/login page itself is served by the board.
 func (a *Auth) Routes(mux *http.ServeMux) {
-	mux.HandleFunc("GET /auth/login", a.handleLogin)
+	mux.HandleFunc("GET /auth/github", a.handleGitHub)
 	mux.HandleFunc("GET /auth/callback", a.handleCallback)
 	mux.HandleFunc("POST /auth/logout", a.handleLogout)
 }
 
-func (a *Auth) handleLogin(w http.ResponseWriter, r *http.Request) {
+// handleGitHub starts the OAuth redirect.
+func (a *Auth) handleGitHub(w http.ResponseWriter, r *http.Request) {
 	next := safeNext(r.URL.Query().Get("next"))
 	if a.dev {
 		http.Redirect(w, r, next, http.StatusFound)
@@ -296,6 +302,9 @@ func (a *Auth) githubUser(ctx context.Context, token string) (githubUser, error)
 }
 
 // safeNext keeps redirects on this site.
+// SafeNext keeps redirects on this site.
+func SafeNext(next string) string { return safeNext(next) }
+
 func safeNext(next string) string {
 	if !strings.HasPrefix(next, "/") || strings.HasPrefix(next, "//") || strings.HasPrefix(next, "/\\") {
 		return "/"

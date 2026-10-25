@@ -6,6 +6,8 @@ import (
 	"net/url"
 	"strings"
 	"testing"
+
+	"github.com/nkirsch/auto-builder/internal/db"
 )
 
 func TestBackPath(t *testing.T) {
@@ -67,7 +69,7 @@ func TestLayoutTheme(t *testing.T) {
 		t.Fatal(err)
 	}
 	var sb strings.Builder
-	p := page{Title: "x", Theme: "dark", Path: "/items/1"}
+	p := page{Me: db.Member{Login: "alice"}, Title: "x", Theme: "dark", Path: "/items/1"}
 	if err := b.tmpl["new"].ExecuteTemplate(&sb, "layout", p); err != nil {
 		t.Fatal(err)
 	}
@@ -84,7 +86,7 @@ func TestLayoutVersion(t *testing.T) {
 		t.Fatal(err)
 	}
 	layout := func() string {
-		p := page{GitSHA: b.GitSHA}
+		p := page{Me: db.Member{Login: "alice"}, GitSHA: b.GitSHA}
 		if v := b.version.Load(); v != nil {
 			p.Version = *v
 		}

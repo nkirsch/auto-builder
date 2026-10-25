@@ -393,11 +393,11 @@ func (s *Store) FailStale(ctx context.Context, running, requested time.Duration)
 
 // GateState is what the gate needs to decide whether to launch.
 type GateState struct {
-	Active         bool
-	LastSuccess    *time.Time // started_at of the newest done run
-	LastFailure    *time.Time // finished_at of the newest failed run
-	NewActivity    bool       // an open/building item has human activity after LastSuccess
-	ApprovedOpen   bool       // an approved open item exists
+	Active       bool
+	LastSuccess  *time.Time // started_at of the newest done run
+	LastFailure  *time.Time // finished_at of the newest failed run
+	NewActivity  bool       // an open/building item has human activity after LastSuccess
+	ApprovedOpen bool       // an approved open item exists
 }
 
 func (s *Store) GateState(ctx context.Context) (GateState, error) {

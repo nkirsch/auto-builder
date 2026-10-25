@@ -379,3 +379,90 @@ func TestMemberCosts(t *testing.T) {
 }
 
 func ptr[T any](v T) *T { return &v }
+
+func TestRunStages(t *testing.T) {
+	t0 := time.Date(2026, 10, 25, 1, 0, 0, 0, time.UTC)
+	at := func(s int) *time.Time { v := t0.Add(time.Duration(s) * time.Second); return &v }
+	now := *at(400)
+	type st struct {
+		state string
+		secs  int
+	}
+	for _, tc := range []struct {
+		name string
+		run  Run
+		want []st
+	}{
+		{"requested", Run{CreatedAt: t0}, []st{{"active", 400}, {"pending", 0}, {"pending", 0}, {"pending", 0}}},
+		{"agent", Run{CreatedAt: t0, StartedAt: at(10), AgentAt: at(40)}, []st{{"done", 10}, {"done", 30}, {"active", 360}, {"pending", 0}}},
+		{"done", Run{CreatedAt: t0, StartedAt: at(10), AgentAt: at(40), ReportAt: at(300), FinishedAt: at(305)},
+			[]st{{"done", 10}, {"done", 30}, {"done", 260}, {"done", 5}}},
+		{"setup failed", Run{CreatedAt: t0, StartedAt: at(10), ReportAt: at(20), FinishedAt: at(21)},
+			[]st{{"done", 10}, {"done", 10}, {"skipped", 0}, {"done", 1}}},
+	} {
+		got := tc.run.stagesAt(now)
+		if len(got) != len(tc.want) {
+			t.Fatalf("%s: %d stages", tc.name, len(got))
+		}
+		for i, w := range tc.want {
+			if got[i].Name != RunStageNames[i] || got[i].State != w.state || got[i].Duration != time.Duration(w.secs)*time.Second {
+				t.Errorf("%s: stage %d = %+v, want %+v", tc.name, i, got[i], w)
+			}
+		}
+	}
+	if got := (Run{CreatedAt: t0, StartedAt: at(10), FinishedAt: at(100)}).stagesAt(now); got != nil {
+		t.Errorf("run without stage times: %+v", got)
+	}
+	if got := (Run{CreatedAt: t0, StartedAt: at(10), FinishedAt: at(100)}).runtimeAt(now); got != 90*time.Second {
+		t.Errorf("finished runtime = %v", got)
+	}
+	if got := (Run{CreatedAt: t0, StartedAt: at(10)}).runtimeAt(now); got != 390*time.Second {
+		t.Errorf("running runtime = %v", got)
+	}
+	if got := (Run{CreatedAt: t0}).runtimeAt(now); got != 0 {
+		t.Errorf("requested runtime = %v", got)
+	}
+}
+
+func TestSetRunStage(t *testing.T) {
+	ctx := context.Background()
+	s := testStore(t)
+	id, err := s.CreateRun(ctx, "manual", "nkirsch")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetRunStage(ctx, id, "agent"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("stage before claim: %v", err)
+	}
+	if err := s.ClaimRun(ctx, id); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetRunStage(ctx, id, "agent"); err != nil {
+		t.Fatal(err)
+	}
+	r, _ := s.Run(ctx, id)
+	first := *r.AgentAt
+	if err := s.SetRunStage(ctx, id, "agent"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetRunStage(ctx, id, "report"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetRunStage(ctx, id, "agent_at = now(), status"); err == nil {
+		t.Fatal("unknown stage accepted")
+	}
+	r, _ = s.Run(ctx, id)
+	if !r.AgentAt.Equal(first) || r.ReportAt == nil || r.Progress() != 75 || r.Stage() != "report" {
+		t.Fatalf("run = %+v, progress %d", r, r.Progress())
+	}
+	if err := s.FinishRun(ctx, id, "done", "", "", nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetRunStage(ctx, id, "report"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("stage after finish: %v", err)
+	}
+	r, _ = s.Run(ctx, id)
+	if r.Progress() != 100 || r.Stage() != "" {
+		t.Fatalf("finished progress %d stage %q", r.Progress(), r.Stage())
+	}
+}

@@ -66,7 +66,8 @@ non-bot change (create, reply, approve) and drives the gate.
   `/inbox?show=done`),
   `/runs` (history, items the agent read/tagged/replied on/opened a PR
   for/closed/filed during each run via MCP or listed as `#N` lines in its
-  summary, summary, log link, cost), `/admin` (members, Run now,
+  summary, summary, log link, cost, runtime, and a progress ring plus
+  per-stage timings: queued → setup → agent → report), `/admin` (members, Run now,
   agent cost over the last 30 days and in total, the spend limit, and cost
   by member: each run's cost split evenly across its run items and charged
   to each item's author; runs with no items stay unattributed).
@@ -124,6 +125,9 @@ The tick also walks items in `building`/`merged`:
 4. `claude -p "/build-board" --dangerously-skip-permissions --mcp-config <file>`
    with the board MCP server at `BASE_URL/mcp` (bearer `RUNNER_TOKEN`) and
    `GH_TOKEN` for `gh`. Non-root user (the flag refuses root). 55 min timeout.
+   The runner posts `POST /api/runner/runs/{id}/stage` with `agent` before
+   this step and `report` after it (best effort, display only; stored in
+   `runs.agent_at` / `report_at`).
 5. `POST /api/runner/runs/{id}/finish` with status, last 4,000 chars as
    summary, full log → GCS, and `cost_usd` from the result event's
    `total_cost_usd` (stored in `runs.cost_usd`; NULL when the agent didn't

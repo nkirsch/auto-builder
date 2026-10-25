@@ -80,3 +80,16 @@ button.link { border: 0; background: none; color: var(--muted); padding: 0; }
 .signin .button { padding: 10px 20px; font-weight: 600; }
 .run-items { list-style: none; padding: 0; margin: 6px 0 0; font-size: 14px; display: grid; gap: 2px; }
 .tag { font-size: 13px; color: var(--accent); }
+/* progress ring: --p is the percent of the run's stages done */
+.ring { width: 18px; height: 18px; border-radius: 50%; flex: none; color: var(--muted);
+  background: conic-gradient(currentColor calc(var(--p) * 1%), var(--line) 0);
+  -webkit-mask: radial-gradient(circle, transparent 5px, #000 5.5px); mask: radial-gradient(circle, transparent 5px, #000 5.5px); }
+.ring.r-running, .ring.r-requested { color: var(--warn); }
+.ring.r-done { color: var(--ok); }
+.ring.r-failed { color: var(--bad); }
+.stages { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 6px; font-size: 13px; }
+.stages span { padding: 0 8px; border-radius: 10px; border: 1px solid var(--line); color: var(--muted); }
+.stages .st-done { color: var(--fg); }
+.stages .st-active { color: var(--warn); border-color: currentColor; }
+.stages .st-pending, .stages .st-skipped { opacity: .6; }
+.stages .st-skipped { text-decoration: line-through; }

@@ -17,22 +17,25 @@ CI; the server marks items shipped once its own `GIT_SHA` contains the merge.
 - `internal/github` — App JWT/installation tokens, PR, compare
 - `internal/store` — GCS (JSON API) or local dir
 - `web/` — embedded templates + CSS (no JS build); branding only in `templates/brand.html` + `static/brand.css`
-- `.claude/commands/build-board.md` — the agent's instructions
+- `.claude/commands/build-board.md` — the agent's instructions; `.claude/site.md` — the per-site part
+- `config.toml`, `layouts/` — Hugo site served at `/` when `BASE_URL` has a path; here a redirect to the board, forks replace it
+- `app.env` — per-site settings (name, URL, Hugo version, serve site, deploy on push or release, issue sync, local Postgres port), read by `Makefile` and the workflows
 - `infra/bootstrap.sh` — idempotent GCP + GitHub setup
 
 ## Develop
 
 ```bash
-make db-up      # Postgres 17 in Docker (on $DOCKER_HOST's host, else localhost)
+make db-up      # Postgres 17 in Docker (on $DOCKER_HOST's host, else localhost; port and name from app.env)
 make test       # go test ./... with TEST_DATABASE_URL
-DEV_LOGIN=nkirsch make run   # http://localhost:8080, signed in as DEV_LOGIN, LAUNCHER=none
+make build      # hugo into public/
+DEV_LOGIN=nkirsch make run   # site at localhost:8080/, board at /iterate, signed in as DEV_LOGIN, LAUNCHER=none
 ```
 
 DB tests skip without `TEST_DATABASE_URL` and truncate tables — never point it at a real database. Packages share it, so run `go test -p 1 ./...`.
 
 ## Rules
 
-- `go vet ./... && go test ./...` before every PR. New behaviour gets a test.
+- `hugo --minify && go vet ./... && go test -p 1 ./...` before every PR. New behaviour gets a test.
 - New schema = new migration file; never edit an applied one.
 - Human actions bump `items.human_activity_at`; bot actions must not (the gate depends on it).
 - Server-rendered HTML forms with POST-redirect-GET; no client JS frameworks.
@@ -40,6 +43,14 @@ DB tests skip without `TEST_DATABASE_URL` and truncate tables — never point it
 
 ## Deploy
 
-Push to `master` → `deploy.yml`: CI, amd64-only images (no arm64: Cloud Run runs amd64) to Artifact Registry,
-`gcloud run deploy builder`, `gcloud run jobs update builder-runner` (WIF auth).
-GCP project `nkirsch-auto-builder`, region `us-central1`, host `builder.nick.org`.
+Push to `master` (or a published release, with `DEPLOY_ON=release`) → `deploy.yml`: CI, amd64-only images
+(no arm64: Cloud Run runs amd64) to Artifact Registry, a `vYY.M.D-N` tag passed as `VERSION`,
+`gcloud run deploy $SERVICE`, `gcloud run jobs update $JOB` (repo variables; WIF auth), then Pushover if
+`PUSHOVER_*` secrets are set. GCP project `nkirsch-auto-builder`, region `us-central1`, host `builder.nick.org`
+(`BASE_URL` has no path, so the board is at `/` and the site isn't served).
+
+## Forks
+
+Site forks (`kirsch/momo`, `kirsch/katrina`, `kirsch/youkoh.org`, `nkirsch/nick.org`) are git-level forks
+that `git merge upstream/master`. They change only `app.env`, branding, `.claude/site.md`, docs and their
+Hugo site, so upstream changes merge without conflicts; keep per-site values out of every other file.

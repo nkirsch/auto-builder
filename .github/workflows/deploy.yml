@@ -2,18 +2,44 @@ name: deploy
 on:
   push:
     branches: [master]
+  release:
+    types: [published]
   workflow_dispatch:
-concurrency:
-  group: deploy
-  cancel-in-progress: false
 permissions:
-  contents: read
+  contents: write # the vYY.M.D-N tag
   id-token: write
 # Tests and both image builds run in parallel; deploy waits for all three.
 jobs:
+  # app.env's DEPLOY_ON picks push or release; the other trigger stops here.
+  config:
+    runs-on: ubuntu-latest
+    outputs:
+      deploy: ${{ steps.app.outputs.deploy }}
+      HUGO_VERSION: ${{ steps.app.outputs.HUGO_VERSION }}
+      SERVE_SITE: ${{ steps.app.outputs.SERVE_SITE }}
+      DEPLOY_ON: ${{ steps.app.outputs.DEPLOY_ON }}
+      ISSUE_SYNC: ${{ steps.app.outputs.ISSUE_SYNC }}
+      SITE_NAME: ${{ steps.app.outputs.SITE_NAME }}
+      SITE_URL: ${{ steps.app.outputs.SITE_URL }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: app
+        run: |
+          grep -E '^[A-Z_]+=' app.env >> "$GITHUB_OUTPUT"
+          . ./app.env
+          case "$GITHUB_EVENT_NAME" in
+            workflow_dispatch) deploy=true ;;
+            release) deploy=$([ "$DEPLOY_ON" = release ] && echo true || echo false) ;;
+            *) deploy=$([ "$DEPLOY_ON" = push ] && echo true || echo false) ;;
+          esac
+          echo "deploy=$deploy" >> "$GITHUB_OUTPUT"
   test:
+    needs: config
+    if: needs.config.outputs.deploy == 'true'
     uses: ./.github/workflows/ci.yml
   image:
+    needs: config
+    if: needs.config.outputs.deploy == 'true'
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -44,13 +70,44 @@ jobs:
           platforms: linux/amd64
           push: true
           tags: ${{ vars.IMAGE }}/${{ matrix.name }}:${{ github.sha }}
-          build-args: TOOLS_WEEK=${{ steps.week.outputs.week }}
+          build-args: |
+            TOOLS_WEEK=${{ steps.week.outputs.week }}
+            HUGO_VERSION=${{ needs.config.outputs.HUGO_VERSION }}
+            SERVE_SITE=${{ needs.config.outputs.SERVE_SITE }}
           cache-from: type=gha,scope=${{ matrix.name }}
           cache-to: type=gha,scope=${{ matrix.name }},mode=max
   deploy:
-    needs: [test, image]
+    needs: [config, test, image]
     runs-on: ubuntu-latest
+    concurrency:
+      group: deploy
+      cancel-in-progress: false
+    outputs:
+      version: ${{ steps.version.outputs.version }}
     steps:
+      - uses: actions/checkout@v4
+      # Name the commit vYY.M.D-N (a v* tag already on it, else a new tag) and hand
+      # it to the server as VERSION, so board, site footer, tag and Pushover agree.
+      - id: version
+        run: |
+          tags=$(git ls-remote --tags origin 'v*' 2>/dev/null | sed 's/\^{}$//' || true)
+          v=$(awk -v s="$GITHUB_SHA" '$1==s {sub("refs/tags/", "", $2); print $2}' <<<"$tags" | sort -V | tail -1)
+          if [ -z "$v" ]; then
+            d=$(TZ=America/Los_Angeles date +%y.%-m.%-d)
+            n=$(grep -c "refs/tags/v$d-[0-9]*$" <<<"$tags" || true)
+            v="v$d-$((n + 1))"
+            git push -q origin "$GITHUB_SHA:refs/tags/$v" || v=
+          fi
+          echo "version=$v" >> "$GITHUB_OUTPUT"
+      - id: env
+        env:
+          SERVE_SITE: ${{ needs.config.outputs.SERVE_SITE }}
+          DEPLOY_ON: ${{ needs.config.outputs.DEPLOY_ON }}
+          ISSUE_SYNC: ${{ needs.config.outputs.ISSUE_SYNC }}
+        run: |
+          site=$([ "$SERVE_SITE" = true ] && echo /site || true)
+          releases=$([ "$DEPLOY_ON" = release ] && echo true || echo false)
+          echo "vars=SITE_DIR=$site,RELEASES=$releases,ISSUE_SYNC=$ISSUE_SYNC" >> "$GITHUB_OUTPUT"
       - uses: google-github-actions/auth@v3
         with:
           workload_identity_provider: ${{ vars.GCP_WIF_PROVIDER }}
@@ -61,10 +118,33 @@ jobs:
           skip_install: true
       - name: deploy server
         run: >
-          gcloud run deploy builder --project ${{ vars.GCP_PROJECT }} --region ${{ vars.GCP_REGION }}
+          gcloud run deploy ${{ vars.SERVICE }} --project ${{ vars.GCP_PROJECT }} --region ${{ vars.GCP_REGION }}
           --image ${{ vars.IMAGE }}/server:${{ github.sha }}
-          --update-env-vars GIT_SHA=${{ github.sha }} --quiet
+          --update-env-vars GIT_SHA=${{ github.sha }},VERSION=${{ steps.version.outputs.version }},${{ steps.env.outputs.vars }} --quiet
       - name: update runner job
         run: >
-          gcloud run jobs update builder-runner --project ${{ vars.GCP_PROJECT }} --region ${{ vars.GCP_REGION }}
+          gcloud run jobs update ${{ vars.JOB }} --project ${{ vars.GCP_PROJECT }} --region ${{ vars.GCP_REGION }}
           --image ${{ vars.IMAGE }}/runner:${{ github.sha }} --quiet
+  notify:
+    needs: [config, deploy]
+    if: always() && needs.config.outputs.deploy == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Notify (Pushover)
+        env:
+          PUSHOVER_TOKEN: ${{ secrets.PUSHOVER_TOKEN }}
+          PUSHOVER_USER: ${{ secrets.PUSHOVER_USER }}
+          STATUS: ${{ needs.deploy.result }}
+          VERSION: ${{ needs.deploy.outputs.version }}
+          SITE: ${{ needs.config.outputs.SITE_NAME }}
+          URL: ${{ needs.config.outputs.SITE_URL }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          [ -n "$PUSHOVER_TOKEN" ] || exit 0
+          VERSION=${VERSION:-${GITHUB_SHA::7}}
+          title=$SITE url=$URL priority=0
+          [ "$STATUS" = success ] || { title="$SITE FAILED"; url=$RUN_URL; priority=1; }
+          curl -fsS https://api.pushover.net/1/messages.json \
+            --form-string "token=$PUSHOVER_TOKEN" --form-string "user=$PUSHOVER_USER" \
+            --form-string "title=$title" --form-string "message=$VERSION" \
+            --form-string "priority=$priority" --form-string "url=$url" >/dev/null || true

@@ -156,11 +156,21 @@ syncs issues (the App needs Issues read & write):
   are ignored: the repo is public.
 - Member comments on an imported issue become replies
   (`responses.issue_comment_id`, human activity, notifications as usual).
+- Board items are mirrored the other way (the admin chose: everything except
+  items tagged `#private`): an active item (open/building/merged) with no
+  issue, filed over a minute ago, gets an issue opened by the App (title,
+  body, a footer linking the item and naming its author) stored in
+  `items.issue_number`. Every non-empty reply on an item with an issue that
+  isn't on GitHub yet (`responses.issue_comment_id` NULL) is posted as a
+  comment headed by its author and the comment ID stored, so bot status
+  notes (PR opened, shipped, blocked) reach issues filed on GitHub too. In
+  mirrored text `#N` becomes a link to board item N (not after "PR "). The
+  App's own issues and comments aren't imported back (it isn't a member).
 - When the item ships or closes, the App comments with the board link and
-  closes the issue (completed / not planned) once (`items.issue_closed`).
+  closes the issue (completed / not planned) once (`items.issue_closed`); if
+  an admin reopens the item, the issue is reopened.
 - `settings.issues_synced_at` is the cursor (re-read with 2 min overlap;
   imports are idempotent). The first sync reads every open issue.
-- Board items and replies are not mirrored to GitHub: the board is private.
 
 ## Runner (Cloud Run Job, Go)
 

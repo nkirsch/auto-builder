@@ -3,6 +3,7 @@ package gate
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -109,5 +110,81 @@ func TestIssueSync(t *testing.T) {
 	want := []string{"POST Closed on the board (item #1): https://b/items/1", "PATCH not_planned"}
 	if len(calls) != 2 || calls[0] != want[0] || calls[1] != want[1] {
 		t.Fatalf("calls = %q", calls)
+	}
+}
+
+func TestIssueMirror(t *testing.T) {
+	ctx := context.Background()
+	st := testStore(t)
+	st.UpsertMember(ctx, "nkirsch", "admin", "bootstrap")
+	pub, _ := st.CreateItem(ctx, "Dark mode", "like #3, not PR #4 or `x`", "nkirsch")
+	priv, _ := st.CreateItem(ctx, "Secret", "#private", "nkirsch")
+	st.SetTags(ctx, priv, []string{"private"}, false)
+	st.Pool.Exec(ctx, `UPDATE items SET created_at = now() - interval '2 minutes'`)
+	st.AddResponse(ctx, pub, "builder-bot", "Built it: PR #9", false)
+	st.AddResponse(ctx, priv, "nkirsch", "hidden", true)
+
+	var mu sync.Mutex
+	var calls []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		defer mu.Unlock()
+		b, _ := io.ReadAll(r.Body)
+		var m map[string]string
+		json.Unmarshal(b, &m)
+		switch r.Method + " " + r.URL.Path {
+		case "GET /repos/o/r/issues", "GET /repos/o/r/issues/comments":
+			w.Write([]byte(`[]`))
+			return
+		case "POST /repos/o/r/issues":
+			w.Write([]byte(`{"number":70}`))
+		case "POST /repos/o/r/issues/70/comments":
+			w.Write([]byte(fmt.Sprintf(`{"id":%d}`, 800+len(calls))))
+		case "PATCH /repos/o/r/issues/70":
+			w.Write([]byte(`{}`))
+		default:
+			t.Errorf("unexpected %s %s", r.Method, r.URL.Path)
+			http.NotFound(w, r)
+			return
+		}
+		calls = append(calls, r.Method+" "+r.URL.Path+" "+m["title"]+"|"+m["body"]+"|"+m["state"]+m["state_reason"])
+	}))
+	defer srv.Close()
+
+	s := &IssueSync{Store: st, GitHub: github.New(srv.URL, ""), Repo: "o/r", BaseURL: "https://b"}
+	sync := func() {
+		t.Helper()
+		if err := s.Sync(ctx); err != nil {
+			t.Fatal(err)
+		}
+	}
+	sync()
+	sync() // nothing twice
+	want := []string{
+		"POST /repos/o/r/issues Dark mode|like [#3](https://b/items/3), not PR #4 or `x`\n\n_Board item [#1](https://b/items/1) by **nkirsch**._|",
+		"POST /repos/o/r/issues/70/comments |**builder-bot** on board item [#1](https://b/items/1):\n\nBuilt it: PR #9|",
+	}
+	if fmt.Sprint(calls) != fmt.Sprint(want) {
+		t.Fatalf("calls =\n%q\nwant\n%q", calls, want)
+	}
+	if it, _ := st.Item(ctx, pub); it.IssueNumber == nil || *it.IssueNumber != 70 {
+		t.Fatalf("item = %+v", it)
+	}
+
+	calls = nil
+	st.CloseItem(ctx, pub, "dup", true)
+	sync()
+	st.ReopenItem(ctx, pub)
+	st.AddResponse(ctx, pub, "nkirsch", "try again", true)
+	sync()
+	sync()
+	want = []string{
+		"POST /repos/o/r/issues/70/comments |Closed on the board (item #1): https://b/items/1|",
+		"PATCH /repos/o/r/issues/70 ||closednot_planned",
+		"PATCH /repos/o/r/issues/70 ||open",
+		"POST /repos/o/r/issues/70/comments |**nkirsch** on board item [#1](https://b/items/1):\n\ntry again|",
+	}
+	if fmt.Sprint(calls) != fmt.Sprint(want) {
+		t.Fatalf("calls =\n%q\nwant\n%q", calls, want)
 	}
 }

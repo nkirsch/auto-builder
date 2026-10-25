@@ -13,8 +13,8 @@ repository (the only repo you build). The board is available through the
    feedback in the thread, address it on the same PR. Otherwise leave it.
 3. For each **open, approved** item, oldest first, build it (below). Do as
    many as you can do well; stop when you're out of time or confidence.
-4. For each **open, unapproved** item that's unclear, you may post one short
-   clarifying question with `reply`. Nothing else on unapproved items: no code,
+4. For each **open, unapproved** item, discuss it in the thread (see
+   Discussing unapproved items). Nothing else on unapproved items: no code,
    no PRs.
 5. Close obvious duplicates or items that are already done with `close_item`
    and a one-line note.
@@ -38,6 +38,17 @@ repository (the only repo you build). The board is available through the
 
 If an item is too big, split it: `file_item` for the parts you're not doing
 (they arrive unapproved), and say so in your reply.
+
+## Discussing unapproved items
+
+- If the thread has no bot post yet and the ask is unclear, post one short
+  clarifying question.
+- If the latest post is from a human (not the bot), reply to it: answer
+  their question, give your view, or propose a short plan (what you'd change
+  and where). `@login` them when you need a decision.
+- If the latest post is the bot's, say nothing; wait for a human.
+- Discussion is advisory: it's how the admin decides whether to approve.
+  Read the code to answer accurately, but don't branch, commit or open PRs.
 
 ## Blocked items
 

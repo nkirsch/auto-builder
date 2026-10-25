@@ -1,6 +1,8 @@
 package board
 
 import (
+	"fmt"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -15,7 +17,7 @@ func TestIndexRunNowAdminOnly(t *testing.T) {
 	}
 	for role, want := range map[string]bool{"admin": true, "member": false} {
 		var sb strings.Builder
-		p := page{Title: "Board", Me: db.Member{Login: "x", Role: role}, Data: map[string]any{"Items": nil, "Show": ""}}
+		p := page{Title: "Board", Me: db.Member{Login: "x", Role: role}, Data: map[string]any{"Sections": nil, "Show": ""}}
 		if err := b.tmpl["index"].ExecuteTemplate(&sb, "layout", p); err != nil {
 			t.Fatal(err)
 		}
@@ -88,12 +90,12 @@ func TestIndexTags(t *testing.T) {
 	}
 	items := []db.Item{{ID: 8, Title: "Tags", Status: "open", Tags: []string{"feature"}}}
 	var sb strings.Builder
-	p := page{Title: "Board", Me: db.Member{Login: "x"}, Data: map[string]any{"Items": items, "Show": "", "Tag": "feature"}}
+	p := page{Title: "Board", Me: db.Member{Login: "x"}, Data: map[string]any{"Sections": sections(items, false), "Show": "", "Tag": "feature"}}
 	if err := b.tmpl["index"].ExecuteTemplate(&sb, "layout", p); err != nil {
 		t.Fatal(err)
 	}
 	for _, want := range []string{`<a class="tag" href="/?tag=feature">#feature</a>`, `<a href="/">All tags</a>`,
-		`<a href="/?show=done&amp;tag=feature">Done</a>`} {
+		`<a class="button secondary" href="/?show=done&amp;tag=feature">Done</a>`} {
 		if !strings.Contains(sb.String(), want) {
 			t.Errorf("index missing %s", want)
 		}
@@ -221,5 +223,59 @@ func TestRunsShowRelease(t *testing.T) {
 	}
 	if n := strings.Count(out, `class="version"`); n != 2 {
 		t.Errorf("versions shown = %d, want 2", n)
+	}
+}
+
+func TestIndexSections(t *testing.T) {
+	b := &Board{}
+	if err := b.parse(); err != nil {
+		t.Fatal(err)
+	}
+	items := []db.Item{
+		{ID: 1, Title: "PR open", Status: "building", Approved: true},
+		{ID: 2, Title: "Unapproved", Status: "open"},
+		{ID: 3, Title: "Queued", Status: "open", Approved: true},
+		{ID: 4, Title: "Merged", Status: "merged", Approved: true},
+		{ID: 5, Title: "Also unapproved", Status: "open"},
+	}
+	got := sections(items, false)
+	var titles []string
+	var ids [][]int
+	for _, s := range got {
+		titles = append(titles, s.Title)
+		var row []int
+		for _, it := range s.Items {
+			row = append(row, it.ID)
+		}
+		ids = append(ids, row)
+	}
+	if !slices.Equal(titles, []string{"Waiting for approval", "Approved, not started", "In progress"}) {
+		t.Fatalf("titles = %v", titles)
+	}
+	if fmt.Sprint(ids) != "[[2 5] [3] [1 4]]" {
+		t.Fatalf("ids = %v", ids)
+	}
+	if got := sections(items[1:2], false); len(got) != 1 || got[0].Title != "Waiting for approval" {
+		t.Fatalf("empty sections kept: %+v", got)
+	}
+	if got := sections(items, true); len(got) != 1 || got[0].Title != "" || len(got[0].Items) != 5 {
+		t.Fatalf("done view = %+v", got)
+	}
+	if len(sections(nil, true)) != 0 || len(sections(nil, false)) != 0 {
+		t.Fatal("empty board has sections")
+	}
+
+	var sb strings.Builder
+	p := page{Title: "Board", Me: db.Member{Login: "x"}, Data: map[string]any{"Sections": got, "Show": ""}}
+	if err := b.tmpl["index"].ExecuteTemplate(&sb, "layout", p); err != nil {
+		t.Fatal(err)
+	}
+	out := sb.String()
+	a, q, w := strings.Index(out, "<h2>Waiting for approval</h2>"), strings.Index(out, "<h2>Approved, not started</h2>"), strings.Index(out, "<h2>In progress</h2>")
+	if a < 0 || q < a || w < q || strings.Contains(out, "Nothing here.") {
+		t.Fatalf("sections out of order or missing:\n%s", out)
+	}
+	if !strings.Contains(out[q:w], `href="/items/3"`) || !strings.Contains(out[w:], `href="/items/4"`) {
+		t.Fatalf("items in wrong section")
 	}
 }

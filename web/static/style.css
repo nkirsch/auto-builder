@@ -50,7 +50,7 @@ input:not([type=file]), textarea, select { width: 100%; padding: 8px 10px; borde
 .row input:not([type=file]) { width: auto; flex: 1; min-width: 140px; }
 button, .button { padding: 7px 14px; border: 1px solid var(--accent); border-radius: 6px;
   background: var(--accent); color: #fff; cursor: pointer; display: inline-block; }
-button.secondary { background: transparent; color: var(--accent); }
+button.secondary, .button.secondary { background: transparent; color: var(--accent); }
 button.link { border: 0; background: none; color: var(--muted); padding: 0; }
 .items { list-style: none; padding: 0; margin: 0; }
 .items li { padding: 12px 0; border-bottom: 1px solid var(--line); }

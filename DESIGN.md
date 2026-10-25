@@ -173,6 +173,16 @@ instance + db + user; bucket; service accounts `builder-server`,
 `builder-runner`; Scheduler job for the tick; domain mapping
 `builder.nick.org`.
 
+IAM is least privilege, granted on the resource where possible:
+`builder-server` gets `cloudsql.client`, `run.developer` on the job, and
+`secretAccessor` on its own secrets only; `builder-runner` (it runs the agent
+on untrusted text) gets `secretAccessor` on `RUNNER_TOKEN`,
+`ANTHROPIC_API_KEY` and the `GH_APP_*` secrets and nothing else;
+`builder-deployer` gets `run.developer` and `artifactregistry.writer` on the
+repo. The WIF provider only accepts tokens for `refs/heads/master`, so a
+workflow on a branch can't reach GCP. Re-running bootstrap removes older,
+broader grants.
+
 ## Manual steps (browser / personal credentials)
 
 1. `gcloud auth login`; run `BILLING=<billing account ID> infra/bootstrap.sh`

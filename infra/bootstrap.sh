@@ -79,15 +79,39 @@ for a in builder-server builder-runner builder-deployer; do
   g iam service-accounts describe "$(sa $a)" >/dev/null 2>&1 ||
     g iam service-accounts create "$a"
 done
+# Least privilege: each SA gets only the roles and secrets it uses, scoped to
+# the resource where IAM allows it. Older broad grants are removed on re-run.
+SERVER_SECRETS="DATABASE_URL SESSION_KEY RUNNER_TOKEN TICK_TOKEN GITHUB_CLIENT_ID GITHUB_CLIENT_SECRET GH_APP_ID GH_APP_INSTALLATION_ID GH_APP_PRIVATE_KEY PUSHOVER_TOKEN PUSHOVER_USER"
+RUNNER_SECRETS="RUNNER_TOKEN ANTHROPIC_API_KEY GH_APP_ID GH_APP_INSTALLATION_ID GH_APP_PRIVATE_KEY"
+mounts() { for s in $1; do printf '%s=%s:latest,' "$s" "$s"; done | sed 's/,$//'; }
 proj_role() { retry g projects add-iam-policy-binding "$PROJECT" --member "serviceAccount:$(sa $1)" \
   --role "$2" --condition None >/dev/null; }
+drop_proj_role() { g projects remove-iam-policy-binding "$PROJECT" --member "serviceAccount:$(sa $1)" \
+  --role "$2" --condition None >/dev/null 2>&1 || true; }
+secret_access() { # sa secrets
+  for s in $2; do
+    retry g secrets add-iam-policy-binding "$s" --member "serviceAccount:$(sa $1)" \
+      --role roles/secretmanager.secretAccessor >/dev/null
+  done
+}
 proj_role builder-server roles/cloudsql.client
-proj_role builder-server roles/secretmanager.secretAccessor
-proj_role builder-runner roles/secretmanager.secretAccessor
-proj_role builder-deployer roles/run.admin
-proj_role builder-deployer roles/artifactregistry.writer
+secret_access builder-server "$SERVER_SECRETS"
+# The runner executes the agent on untrusted item text: no DATABASE_URL,
+# SESSION_KEY, TICK_TOKEN or OAuth secret, and no other GCP access.
+secret_access builder-runner "$RUNNER_SECRETS"
+drop_proj_role builder-server roles/secretmanager.secretAccessor
+drop_proj_role builder-runner roles/secretmanager.secretAccessor
+# Deploys only update the existing service and job (no IAM changes): run.developer.
+proj_role builder-deployer roles/run.developer
+drop_proj_role builder-deployer roles/run.admin
+retry g artifacts repositories add-iam-policy-binding "$AR_REPO" --location "$REGION" \
+  --member "serviceAccount:$(sa builder-deployer)" --role roles/artifactregistry.writer >/dev/null
+drop_proj_role builder-deployer roles/artifactregistry.writer
+# The server only writes and reads objects.
 retry gcloud storage buckets add-iam-policy-binding "gs://$BUCKET" \
-  --member "serviceAccount:$(sa builder-server)" --role roles/storage.objectAdmin >/dev/null
+  --member "serviceAccount:$(sa builder-server)" --role roles/storage.objectUser >/dev/null
+gcloud storage buckets remove-iam-policy-binding "gs://$BUCKET" \
+  --member "serviceAccount:$(sa builder-server)" --role roles/storage.objectAdmin >/dev/null 2>&1 || true
 # Deployer deploys as the server/runner SAs.
 for a in builder-server builder-runner; do
   retry g iam service-accounts add-iam-policy-binding "$(sa $a)" \
@@ -97,12 +121,19 @@ done
 log "workload identity for $REPO"
 g iam workload-identity-pools describe github --location global >/dev/null 2>&1 ||
   g iam workload-identity-pools create github --location global --display-name GitHub
-g iam workload-identity-pools providers describe github --location global \
-  --workload-identity-pool github >/dev/null 2>&1 ||
+# Only master (the deploy workflow) may impersonate the deployer: the agent
+# pushes branches to this repo, and a workflow on one must not reach GCP.
+WIF_CONDITION="assertion.repository == '$REPO' && assertion.ref == 'refs/heads/master'"
+if g iam workload-identity-pools providers describe github --location global \
+  --workload-identity-pool github >/dev/null 2>&1; then
+  g iam workload-identity-pools providers update-oidc github --location global \
+    --workload-identity-pool github --attribute-condition "$WIF_CONDITION" >/dev/null
+else
   g iam workload-identity-pools providers create-oidc github --location global \
     --workload-identity-pool github --issuer-uri https://token.actions.githubusercontent.com \
     --attribute-mapping 'google.subject=assertion.sub,attribute.repository=assertion.repository,attribute.ref=assertion.ref' \
-    --attribute-condition "assertion.repository == '$REPO'"
+    --attribute-condition "$WIF_CONDITION"
+fi
 retry g iam service-accounts add-iam-policy-binding "$(sa builder-deployer)" \
   --role roles/iam.workloadIdentityUser \
   --member "principalSet://iam.googleapis.com/projects/$NUMBER/locations/global/workloadIdentityPools/github/attribute.repository/$REPO" >/dev/null
@@ -115,7 +146,7 @@ if ! g run services describe "$SERVICE" --region "$REGION" >/dev/null 2>&1; then
     --service-account "$(sa builder-server)" --allow-unauthenticated \
     --add-cloudsql-instances "$PROJECT:$REGION:$SQL_INSTANCE" \
     --set-env-vars "BASE_URL=https://$DOMAIN,GCS_BUCKET=$BUCKET,GCP_PROJECT=$PROJECT,GCP_REGION=$REGION,RUNNER_JOB=$JOB,GIT_SHA=$(git -C "$(dirname "$0")" rev-parse HEAD)" \
-    --set-secrets "DATABASE_URL=DATABASE_URL:latest,SESSION_KEY=SESSION_KEY:latest,RUNNER_TOKEN=RUNNER_TOKEN:latest,TICK_TOKEN=TICK_TOKEN:latest,GITHUB_CLIENT_ID=GITHUB_CLIENT_ID:latest,GITHUB_CLIENT_SECRET=GITHUB_CLIENT_SECRET:latest,GH_APP_ID=GH_APP_ID:latest,GH_APP_INSTALLATION_ID=GH_APP_INSTALLATION_ID:latest,GH_APP_PRIVATE_KEY=GH_APP_PRIVATE_KEY:latest,PUSHOVER_TOKEN=PUSHOVER_TOKEN:latest,PUSHOVER_USER=PUSHOVER_USER:latest" \
+    --set-secrets "$(mounts "$SERVER_SECRETS")" \
     --min-instances 0 --max-instances 2 --memory 512Mi
 fi
 
@@ -126,7 +157,7 @@ if ! g run jobs describe "$JOB" --region "$REGION" >/dev/null 2>&1; then
     --service-account "$(sa builder-runner)" --task-timeout 60m --max-retries 0 \
     --cpu 2 --memory 4Gi \
     --set-env-vars "BASE_URL=https://$DOMAIN" \
-    --set-secrets "RUNNER_TOKEN=RUNNER_TOKEN:latest,ANTHROPIC_API_KEY=ANTHROPIC_API_KEY:latest,GH_APP_ID=GH_APP_ID:latest,GH_APP_INSTALLATION_ID=GH_APP_INSTALLATION_ID:latest,GH_APP_PRIVATE_KEY=GH_APP_PRIVATE_KEY:latest"
+    --set-secrets "$(mounts "$RUNNER_SECRETS")"
 fi
 # Server launches the job with a RUN_ID override.
 retry g run jobs add-iam-policy-binding "$JOB" --region "$REGION" \

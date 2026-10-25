@@ -2,6 +2,8 @@ package github
 
 import (
 	"context"
+	"crypto/rand"
+	"crypto/rsa"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -171,5 +173,44 @@ func TestReleaseCalls(t *testing.T) {
 	}
 	if latest, err := New(srv.URL, "").LatestRelease(ctx, "o/none"); err != nil || latest != "" {
 		t.Errorf("no releases: %q, %v", latest, err)
+	}
+}
+
+func TestBotIdentityAuthenticatedAndCached(t *testing.T) {
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatal(err)
+	}
+	users := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/app":
+			w.Write([]byte(`{"slug":"bot"}`))
+		case "/app/installations/9/access_tokens":
+			w.Write([]byte(`{"token":"inst","expires_at":"2099-01-01T00:00:00Z"}`))
+		case "/users/bot[bot]":
+			users++
+			if got := r.Header.Get("Authorization"); got != "Bearer inst" {
+				t.Errorf("users auth = %q", got)
+			}
+			w.Write([]byte(`{"id":42}`))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+
+	a := &App{ID: "1", InstallationID: "9", key: key, API: srv.URL, client: srv.Client()}
+	for range 2 {
+		name, email, err := a.BotIdentity(context.Background())
+		if err != nil {
+			t.Fatal(err)
+		}
+		if name != "bot[bot]" || email != "42+bot[bot]@users.noreply.github.com" {
+			t.Fatalf("identity = %q, %q", name, email)
+		}
+	}
+	if users != 1 {
+		t.Fatalf("user lookups = %d, want 1", users)
 	}
 }

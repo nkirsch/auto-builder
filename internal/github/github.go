@@ -33,6 +33,10 @@ type App struct {
 	mu      sync.Mutex
 	token   string
 	expires time.Time
+
+	idMu     sync.Mutex
+	botName  string
+	botEmail string
 }
 
 // NewApp parses a PEM private key. Returns nil, nil when any part is unset.
@@ -90,8 +94,15 @@ func (a *App) Mint(ctx context.Context) (token string, expires time.Time, err er
 	return out.Token, out.ExpiresAt, nil
 }
 
-// BotIdentity returns the app's commit identity: "<slug>[bot]" and its noreply email.
+// BotIdentity returns the app's commit identity: "<slug>[bot]" and its noreply
+// email. Looked up once, authenticated: anonymous calls share Cloud Run's
+// egress IP rate limit.
 func (a *App) BotIdentity(ctx context.Context) (name, email string, err error) {
+	a.idMu.Lock()
+	defer a.idMu.Unlock()
+	if a.botName != "" {
+		return a.botName, a.botEmail, nil
+	}
 	j, err := a.JWT()
 	if err != nil {
 		return "", "", err
@@ -106,10 +117,11 @@ func (a *App) BotIdentity(ctx context.Context) (name, email string, err error) {
 	var user struct {
 		ID int64 `json:"id"`
 	}
-	if err := New(a.API, "").do(ctx, http.MethodGet, "/users/"+name, nil, &user); err != nil {
+	if err := ForApp(a).do(ctx, http.MethodGet, "/users/"+name, nil, &user); err != nil {
 		return "", "", err
 	}
-	return name, fmt.Sprintf("%d+%s@users.noreply.github.com", user.ID, name), nil
+	a.botName, a.botEmail = name, fmt.Sprintf("%d+%s@users.noreply.github.com", user.ID, name)
+	return a.botName, a.botEmail, nil
 }
 
 // Client calls the REST API with an optional token source.

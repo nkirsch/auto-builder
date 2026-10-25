@@ -67,6 +67,10 @@ func (b *Board) Routes(mux *http.ServeMux) error {
 	admin := func(h http.HandlerFunc) http.Handler { return b.Auth.RequireAdmin(h) }
 
 	mux.Handle("GET /static/", http.FileServerFS(web.FS))
+	mux.HandleFunc("GET /auth/login", b.login)
+	mux.HandleFunc("GET /favicon.ico", func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, "/static/icon.svg", http.StatusMovedPermanently)
+	})
 	mux.Handle("GET /{$}", member(b.index))
 	mux.Handle("GET /items/new", member(b.newItem))
 	mux.Handle("POST /items", member(b.createItem))
@@ -155,14 +159,18 @@ type page struct {
 	BotName string
 	Theme   string // "light", "dark" or "" (system)
 	Path    string // current page, for forms that return here
+	BaseURL string // absolute links for link previews
 	Data    any
 }
 
 func (b *Board) render(w http.ResponseWriter, r *http.Request, name, title string, data any) {
 	me := auth.Member(r.Context())
-	unread, err := b.Store.UnreadCount(r.Context(), me.Login)
-	if err != nil {
-		slog.Warn("unread count", "err", err)
+	var unread int
+	if me.Login != "" {
+		var err error
+		if unread, err = b.Store.UnreadCount(r.Context(), me.Login); err != nil {
+			slog.Warn("unread count", "err", err)
+		}
 	}
 	t, ok := b.tmpl[name]
 	if !ok {
@@ -171,7 +179,7 @@ func (b *Board) render(w http.ResponseWriter, r *http.Request, name, title strin
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	p := page{Me: me, Unread: unread, Title: title, GitSHA: b.GitSHA, Flash: r.URL.Query().Get("m"),
-		BotName: b.BotLogin, Theme: theme(r), Path: r.URL.RequestURI(), Data: data}
+		BotName: b.BotLogin, Theme: theme(r), Path: r.URL.RequestURI(), BaseURL: strings.TrimSuffix(b.BaseURL, "/"), Data: data}
 	if v := b.version.Load(); v != nil {
 		p.Version = *v
 	}
@@ -656,4 +664,15 @@ func (b *Board) runNow(w http.ResponseWriter, r *http.Request) {
 
 func (b *Board) itemURL(id int) string {
 	return fmt.Sprintf("%s/items/%d", strings.TrimSuffix(b.BaseURL, "/"), id)
+}
+
+// login is the signed-out landing page; its link preview is generic on purpose
+// so item titles never reach Slack or iMessage.
+func (b *Board) login(w http.ResponseWriter, r *http.Request) {
+	next := auth.SafeNext(r.URL.Query().Get("next"))
+	if b.Auth.SignedIn(r) != "" {
+		http.Redirect(w, r, next, http.StatusFound)
+		return
+	}
+	b.render(w, r, "login", "Sign in", map[string]string{"Next": next})
 }

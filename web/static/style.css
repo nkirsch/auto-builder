@@ -72,3 +72,6 @@ button.link { border: 0; background: none; color: var(--muted); padding: 0; }
 .note { color: var(--muted); font-style: italic; }
 .empty { color: var(--muted); }
 .avatar { width: 24px; height: 24px; border-radius: 50%; }
+.signin { max-width: 440px; margin: 48px auto; text-align: center; display: grid; gap: 14px; justify-items: center; }
+.signin h1 { font-size: 28px; margin: 0; }
+.signin .button { padding: 10px 20px; font-weight: 600; }

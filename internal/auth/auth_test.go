@@ -115,3 +115,15 @@ func TestBearer(t *testing.T) {
 		t.Error("empty token accepted")
 	}
 }
+
+func TestRequireRedirectsSignedOutGetAndHead(t *testing.T) {
+	a := testAuth(t)
+	h := a.Require(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+	for _, m := range []string{http.MethodGet, http.MethodHead} {
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, httptest.NewRequest(m, "/items/3", nil))
+		if w.Code != http.StatusFound || w.Header().Get("Location") != "/auth/login?next=%2Fitems%2F3" {
+			t.Errorf("%s: %d %q", m, w.Code, w.Header().Get("Location"))
+		}
+	}
+}

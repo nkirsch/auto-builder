@@ -63,6 +63,9 @@ non-bot change (create, reply, approve) and drives the gate.
 - `/` open items (approved badge, status, reply count), `/items/{id}` thread,
   `/items/new`, `/inbox` (mentions + replies to your items, unread count in nav),
   `/runs` (history, summary, log link), `/admin` (members, Run now).
+- Signed-out visitors land on `/auth/login` (our page, generic Open Graph
+  preview so item titles never unfurl); its button starts the GitHub redirect
+  at `/auth/github`.
 - `@login` in a body creates a notification for that member.
 - New items and replies from non-admins Pushover the admin when
   `PUSHOVER_TOKEN` / `PUSHOVER_USER` are set; otherwise log only.

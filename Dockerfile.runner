@@ -1,4 +1,4 @@
-# deploy.yml passes this from app.env.
+# deploy.yml passes this from app.defaults.env + app.env.
 ARG HUGO_VERSION=0.147.3
 FROM golang:1.26 AS build
 WORKDIR /src

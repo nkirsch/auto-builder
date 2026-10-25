@@ -1,4 +1,4 @@
-include app.env
+include app.defaults.env app.env
 include board.mk
 
 .PHONY: all build view clean

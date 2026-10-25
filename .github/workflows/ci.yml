@@ -27,7 +27,8 @@ jobs:
         with:
           go-version-file: go.mod
       - id: app
-        run: grep -E '^[A-Z_]+=' app.env >> "$GITHUB_OUTPUT"
+        # app.env overrides app.defaults.env, key by key.
+        run: awk -F= '/^[A-Z_]+=/ {v[$1]=$0} END {for (k in v) print v[k]}' app.defaults.env app.env >> "$GITHUB_OUTPUT"
       - uses: peaceiris/actions-hugo@v3
         with:
           hugo-version: ${{ steps.app.outputs.HUGO_VERSION }}

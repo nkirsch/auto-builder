@@ -597,13 +597,32 @@ func (b *Board) markAllRead(w http.ResponseWriter, r *http.Request) {
 
 // Runs
 
+// runRow is a run with the items it acted on.
+type runRow struct {
+	db.Run
+	Items []db.RunItem
+}
+
 func (b *Board) runs(w http.ResponseWriter, r *http.Request) {
 	runs, err := b.Store.Runs(r.Context(), 50)
 	if err != nil {
 		b.fail(w, err)
 		return
 	}
-	b.render(w, r, "runs", "Runs", runs)
+	ids := make([]int, len(runs))
+	for i, run := range runs {
+		ids[i] = run.ID
+	}
+	items, err := b.Store.RunItems(r.Context(), ids)
+	if err != nil {
+		b.fail(w, err)
+		return
+	}
+	rows := make([]runRow, len(runs))
+	for i, run := range runs {
+		rows[i] = runRow{Run: run, Items: items[run.ID]}
+	}
+	b.render(w, r, "runs", "Runs", rows)
 }
 
 func (b *Board) runLog(w http.ResponseWriter, r *http.Request) {

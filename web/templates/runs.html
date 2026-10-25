@@ -15,6 +15,9 @@
       <span class="spacer"></span>
       {{if .LogObject}}<a href="/runs/{{.ID}}/log">log</a>{{end}}
     </div>
+    {{with .Items}}<ul class="run-items">{{range .}}
+      <li><a href="/items/{{.ItemID}}">#{{.ItemID}} {{.Title}}</a> <span class="status s-{{.Status}}">{{.Status}}</span></li>
+    {{end}}</ul>{{end}}
     {{with .Summary}}<details><summary>Summary</summary><pre>{{.}}</pre></details>{{end}}
   </li>
   {{end}}

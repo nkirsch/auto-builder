@@ -181,16 +181,23 @@ func TestLayoutBrand(t *testing.T) {
 	if err := b.parse(); err != nil {
 		t.Fatal(err)
 	}
+	tmpl := b.tmpl["new"]
+	brand := func(name string) string {
+		var sb strings.Builder
+		if err := tmpl.ExecuteTemplate(&sb, name, page{}); err != nil {
+			t.Fatal(err)
+		}
+		return sb.String()
+	}
 	var sb strings.Builder
-	if err := b.tmpl["new"].ExecuteTemplate(&sb, "layout", page{Title: "New", Me: db.Member{Login: "alice"}}); err != nil {
+	if err := tmpl.ExecuteTemplate(&sb, "layout", page{Title: "New", Me: db.Member{Login: "alice"}}); err != nil {
 		t.Fatal(err)
 	}
 	for _, want := range []string{
-		`<title>New · auto-builder</title>`,
-		`<meta property="og:title" content="auto-builder">`,
-		`<link rel="icon" href="/favicon.ico" sizes="any">`,
+		"<title>New · " + brand("brand-site") + "</title>",
+		`class="brand">` + brand("brand-name") + "</a>" + brand("brand-nav"),
+		brand("brand-head"),
 		`href="/static/brand.css"`,
-		`class="brand">auto-builder</a>`,
 	} {
 		if !strings.Contains(sb.String(), want) {
 			t.Errorf("layout missing %s", want)

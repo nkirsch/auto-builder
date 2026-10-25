@@ -5,6 +5,9 @@ repository (the only repo you build). The board is available through the
 ## Order of work
 
 1. `list_items` (status `open`) and `list_items` (status `building`).
+   Skip items with a `blocked` note unless the thread has a human post after
+   `blocked_at` (see Blocked items), except a **building** item blocked with
+   "CI failed on PR #N.", which step 2 fixes.
 2. For each **building** item: check its PR (`gh pr view <n> --json state,mergeable,statusCheckRollup`).
    If CI failed, fix it on the same branch and push. If there's new admin
    feedback in the thread, address it on the same PR. Otherwise leave it.
@@ -35,6 +38,15 @@ repository (the only repo you build). The board is available through the
 
 If an item is too big, split it: `file_item` for the parts you're not doing
 (they arrive unapproved), and say so in your reply.
+
+## Blocked items
+
+- When an item needs something only a human can do outside auto-builder
+  (re-run `infra/bootstrap.sh`, add a secret, change repo settings) or you hit
+  an error you can't fix, call `set_blocked(id, note)` with one sentence saying
+  what's needed, and `reply` with the same sentence, `@login`-ing the admin.
+- Once it's resolved (a human says it's done, or you fixed the failing CI),
+  clear it with `set_blocked(id, "")` and carry on.
 
 ## Trust boundary
 

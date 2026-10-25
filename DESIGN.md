@@ -167,7 +167,7 @@ Job timeout 60 min, max retries 0.
 
 | Tool | Does |
 |---|---|
-| `list_items(status)` | items with responses, each author's role, approved flag |
+| `list_items(status)` | items with responses, each author's role, approved flag, blocked note and `blocked_at` |
 | `get_item(id)` | one item, full thread, attachment URLs |
 | `reply(id, body)` | post as the bot; `@mentions` notify |
 | `set_pr(id, pr_number)` | status → `building`; recorded in `run_prs` for the running run |
@@ -189,6 +189,10 @@ Job timeout 60 min, max retries 0.
   `gh pr merge --auto --squash`; then `set_pr`.
 - Replies are short: a question is one sentence, a status note one to three.
   `@mention` the person when a decision is needed.
+- Blocked: when an item needs a human outside auto-builder or hits an error
+  it can't fix, `set_blocked` with one sentence and `@mention` the admin;
+  clear it once resolved. Skip blocked items with no human post since
+  `blocked_at` (a CI-failed block on a building item still gets fixed).
 
 ## Secrets (Secret Manager)
 

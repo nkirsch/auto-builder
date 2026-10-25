@@ -2,7 +2,9 @@
   --bg: #fbfbf9; --fg: #1d1d1b; --muted: #6b6b66; --line: #e3e2dc; --card: #fff;
   --accent: #2456c9; --ok: #1c7c43; --warn: #a15c00; --bad: #b42318; --bot: #f3f5fb;
 }
-:root { color-scheme: light; }
+:root { color-scheme: light dark; }
+/* "only light" stops Chrome's auto dark mode from darkening a page the member set to light. */
+:root[data-theme=light] { color-scheme: only light; }
 /* Dark palette: the system preference unless the member chose light, or their explicit choice. */
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme=light]) {

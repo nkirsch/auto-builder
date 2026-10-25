@@ -222,6 +222,9 @@ func (b *Board) getItem(ctx context.Context, _ *mcp.CallToolRequest, in IDIn) (*
 		return nil, ItemOut{}, err
 	}
 	out, err := b.itemOut(ctx, it, roles, true)
+	if err == nil {
+		b.noteRunItem(ctx, in.ID)
+	}
 	return nil, out, err
 }
 
@@ -279,6 +282,7 @@ func (b *Board) setTags(ctx context.Context, _ *mcp.CallToolRequest, in SetTagsI
 	if err := b.Store.SetTags(ctx, in.ID, tags, true); err != nil {
 		return nil, OK{}, fmt.Errorf("item %d is missing or already tagged", in.ID)
 	}
+	b.noteRunItem(ctx, in.ID)
 	return nil, OK{OK: true}, nil
 }
 

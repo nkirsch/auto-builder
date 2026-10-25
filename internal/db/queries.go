@@ -3,6 +3,8 @@ package db
 import (
 	"context"
 	"errors"
+	"regexp"
+	"strconv"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -401,12 +403,40 @@ func (s *Store) ClaimRun(ctx context.Context, id int) error {
 	return s.execOne(ctx, `UPDATE runs SET status = 'running', started_at = now() WHERE id = $1 AND status = 'requested'`, id)
 }
 
-// FinishRun records the outcome of an active run; cost may be nil.
+// FinishRun records the outcome of an active run; cost may be nil. Items the
+// summary lists (lines starting "#N") join the run's items, so ones the agent
+// only checked or skipped show up too.
 func (s *Store) FinishRun(ctx context.Context, id int, status, summary, logObject string, cost *float64) error {
-	return s.execOne(ctx, `UPDATE runs SET status = $2, summary = $3, log_object = $4, cost_usd = $5,
+	if err := s.execOne(ctx, `UPDATE runs SET status = $2, summary = $3, log_object = $4, cost_usd = $5,
 		finished_at = now(), started_at = coalesce(started_at, now())
 		WHERE id = $1 AND status IN ('requested', 'running')`,
-		id, status, summary, logObject, cost)
+		id, status, summary, logObject, cost); err != nil {
+		return err
+	}
+	ids := SummaryItems(summary)
+	if len(ids) == 0 {
+		return nil
+	}
+	_, err := s.Pool.Exec(ctx, `INSERT INTO run_items (run_id, item_id)
+		SELECT $1, id FROM items WHERE id = ANY($2) ON CONFLICT DO NOTHING`, id, ids)
+	return err
+}
+
+// summaryItemRE matches an item reference at the start of a summary line,
+// after any list marker or bold, e.g. "- **#12** (open): skipped".
+var summaryItemRE = regexp.MustCompile(`(?m)^[\s*•-]*#(\d{1,9})\b`)
+
+// SummaryItems returns the item ids a run summary lists, in order, once each.
+func SummaryItems(summary string) []int {
+	var ids []int
+	seen := map[int]bool{}
+	for _, m := range summaryItemRE.FindAllStringSubmatch(summary, -1) {
+		if id, err := strconv.Atoi(m[1]); err == nil && !seen[id] {
+			seen[id] = true
+			ids = append(ids, id)
+		}
+	}
+	return ids
 }
 
 // RunCosts is the reported spend across runs.

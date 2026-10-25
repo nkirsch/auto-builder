@@ -3,6 +3,8 @@ package db
 import (
 	"context"
 	"errors"
+	"fmt"
+	"slices"
 	"testing"
 	"time"
 )
@@ -212,15 +214,26 @@ func TestRunItems(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	s.FinishRun(ctx, run, "done", "", "", nil)
+	c, _ := s.CreateItem(ctx, "Costs", "", "alice")
+	summary := fmt.Sprintf("Built nothing.\n- **#%d** (open): skipped\n- **#%d**: replied\n- PR #9999 merged", c, a)
+	if err := s.FinishRun(ctx, run, "done", summary, "", nil); err != nil {
+		t.Fatal(err)
+	}
 	s.NoteRunItem(ctx, a) // after the run
 	got, err := s.RunItems(ctx, []int{run, 99})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(got) != 1 || len(got[run]) != 2 || got[run][0].ItemID != b || got[run][1].ItemID != a ||
-		got[run][0].Title != "Dupes" || got[run][1].Status != "open" {
+	if len(got) != 1 || len(got[run]) != 3 || got[run][0].ItemID != b || got[run][1].ItemID != a ||
+		got[run][2].ItemID != c || got[run][0].Title != "Dupes" || got[run][1].Status != "open" {
 		t.Fatalf("run items = %+v", got)
+	}
+}
+
+func TestSummaryItems(t *testing.T) {
+	got := SummaryItems("Nothing built (#4 was skipped).\n\n- **#10** (building): left\n  * #13: tagged\n#11 skipped\n- **#10** again\n- PR #16 merged\n#abc")
+	if !slices.Equal(got, []int{10, 13, 11}) {
+		t.Fatalf("SummaryItems = %v", got)
 	}
 }
 

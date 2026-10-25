@@ -9,8 +9,6 @@ Replies go to the admin (`nkirsch`) and members, who read code: be technical.
 
 ## Things that must keep working
 
-- **Forks merge cleanly.** Keep fork-specific settings in `app.env` (new settings get a
-  default in `app.defaults.env`; never edit `app.env` upstream), branding
-  in `web/templates/brand.html` + `web/static/brand.css`, and site content in
-  the Hugo tree (`config.toml`, `layouts/`, `content/`, `static/`). Don't add
-  per-site values anywhere else.
+- **Forks merge cleanly.** Forks own the files `.claude/board.md` lists
+  under Forks; don't edit those here beyond this repo's own values, and put
+  board docs in `.claude/board.md`.

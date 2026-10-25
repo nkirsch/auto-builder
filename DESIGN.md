@@ -67,7 +67,9 @@ non-bot change (create, reply, approve) and drives the gate.
   `/runs` (history, items the agent read/tagged/replied on/opened a PR
   for/closed/filed during each run via MCP or listed as `#N` lines in its
   summary, summary, log link, cost), `/admin` (members, Run now,
-  agent cost over the last 30 days and in total).
+  agent cost over the last 30 days and in total, the spend limit, and cost
+  by member: each run's cost split evenly across its run items and charged
+  to each item's author; runs with no items stay unattributed).
 - Signed-out visitors land on `/auth/login` (our page, generic Open Graph
   preview so item titles never unfurl); its button starts the GitHub redirect
   at `/auth/github`.
@@ -90,7 +92,10 @@ tick (`POST /api/gate/tick` every 10 min, bearer `TICK_TOKEN`):
 2. Any open item with `human_activity_at` > last successful run's `started_at`.
 3. Last successful run older than `IDLE_HOURS` (6) and an open approved item exists.
 
-Held off when: a run is `requested`/`running` (the tick fails a `running`
+Held off when the reported agent cost over the last 30 days has reached the
+admin-set spend limit (`settings.spend_limit_usd`, default $20; Run now
+doesn't override it, and a run in flight can go over since its cost lands
+at finish). Also held off when: a run is `requested`/`running` (the tick fails a `running`
 row older than 70 min and a `requested` row never claimed within 15 min), or
 the last run failed < 30 min ago (activity triggers only; Run now overrides).
 Trigger 2 counts items in `open` or `building`, so feedback on an open PR

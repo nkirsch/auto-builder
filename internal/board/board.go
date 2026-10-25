@@ -89,6 +89,7 @@ func (b *Board) Routes(mux *http.ServeMux) error {
 	mux.Handle("POST /admin/members", admin(b.addMember))
 	mux.Handle("POST /admin/members/{login}/delete", admin(b.deleteMember))
 	mux.Handle("POST /admin/run", admin(b.runNow))
+	mux.Handle("POST /admin/spend-limit", admin(b.setSpendLimit))
 	mux.Handle("POST /theme", member(b.setTheme))
 	return nil
 }
@@ -668,7 +669,32 @@ func (b *Board) admin(w http.ResponseWriter, r *http.Request) {
 		b.fail(w, err)
 		return
 	}
-	b.render(w, r, "admin", "Admin", map[string]any{"Members": members, "Costs": costs})
+	limit, err := b.Store.SpendLimit(r.Context())
+	if err != nil {
+		b.fail(w, err)
+		return
+	}
+	byMember, err := b.Store.MemberCosts(r.Context())
+	if err != nil {
+		b.fail(w, err)
+		return
+	}
+	b.render(w, r, "admin", "Admin", map[string]any{"Members": members, "Costs": costs,
+		"Limit": limit, "MemberCosts": byMember})
+}
+
+func (b *Board) setSpendLimit(w http.ResponseWriter, r *http.Request) {
+	v, err := strconv.ParseFloat(strings.TrimPrefix(strings.TrimSpace(r.FormValue("limit")), "$"), 64)
+	if err != nil || !(v >= 0.01 && v < 1e6) {
+		redirect(w, r, "/admin", "Enter a spend limit in dollars, at least $0.01")
+		return
+	}
+	if err := b.Store.SetSpendLimit(r.Context(), v); err != nil {
+		b.fail(w, err)
+		return
+	}
+	b.Gate.Activity() // raising the limit may release held work
+	redirect(w, r, "/admin", fmt.Sprintf("Spend limit set to $%.2f", v))
 }
 
 var loginRE = regexp.MustCompile(`^[A-Za-z0-9](?:[A-Za-z0-9]|-[A-Za-z0-9]){0,38}$`)
@@ -709,6 +735,8 @@ func (b *Board) runNow(w http.ResponseWriter, r *http.Request) {
 	switch {
 	case errors.Is(err, db.ErrRunActive):
 		redirect(w, r, "/runs", "A run is already active")
+	case errors.Is(err, db.ErrSpendLimit):
+		redirect(w, r, "/admin", "Spend limit reached; raise it to run")
 	case err != nil:
 		slog.Error("run now", "err", err)
 		redirect(w, r, "/runs", "Launch failed: "+err.Error())

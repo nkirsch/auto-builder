@@ -116,13 +116,33 @@ func TestRunsAndAdminShowCost(t *testing.T) {
 
 	sb.Reset()
 	p = page{Title: "Admin", Me: db.Member{Login: "x", Role: "admin"}, Data: map[string]any{
-		"Members": []db.Member{{Login: "x", Role: "admin"}},
-		"Costs":   db.RunCosts{Total: 12.5, Last30Days: 3, Runs: 4},
+		"Members":     []db.Member{{Login: "x", Role: "admin"}},
+		"Costs":       db.RunCosts{Total: 12.5, Last30Days: 3, Runs: 4},
+		"Limit":       20.0,
+		"MemberCosts": []db.MemberCost{{Login: "alice", Total: 2.5, Last30Days: 1}},
 	}}
 	if err := b.tmpl["admin"].ExecuteTemplate(&sb, "layout", p); err != nil {
 		t.Fatal(err)
 	}
-	if want := "Agent cost: $3.00 in the last 30 days, $12.50 in total (4 runs reported a cost)."; !strings.Contains(sb.String(), want) {
-		t.Errorf("admin page missing %q", want)
+	for _, want := range []string{
+		"Agent cost: $3.00 in the last 30 days, $12.50 in total (4 runs reported a cost).",
+		`name="limit" type="number" min="0.01" step="0.01" value="20.00"`,
+		"<b>alice</b> <span class=\"muted\">$1.00 in the last 30 days, $2.50 in total</span>",
+	} {
+		if !strings.Contains(sb.String(), want) {
+			t.Errorf("admin page missing %q", want)
+		}
+	}
+	if strings.Contains(sb.String(), "Spend limit reached") {
+		t.Error("admin page says limit reached at $3 of $20")
+	}
+
+	sb.Reset()
+	p.Data.(map[string]any)["Costs"] = db.RunCosts{Total: 30, Last30Days: 20, Runs: 9}
+	if err := b.tmpl["admin"].ExecuteTemplate(&sb, "layout", p); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(sb.String(), "Spend limit reached") {
+		t.Error("admin page doesn't say limit reached at $20 of $20")
 	}
 }

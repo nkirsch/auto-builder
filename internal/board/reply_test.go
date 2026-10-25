@@ -31,7 +31,8 @@ func dbBoard(t *testing.T) (*Board, *stubGate) {
 		t.Fatal(err)
 	}
 	t.Cleanup(pool.Close)
-	if _, err := pool.Exec(ctx, `TRUNCATE members, items, responses, attachments, notifications, runs RESTART IDENTITY CASCADE`); err != nil {
+	if _, err := pool.Exec(ctx, `TRUNCATE members, items, responses, attachments, notifications, runs RESTART IDENTITY CASCADE;
+		UPDATE settings SET spend_limit_usd = 20`); err != nil {
 		t.Fatal(err)
 	}
 	g := &stubGate{}

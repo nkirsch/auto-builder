@@ -21,5 +21,19 @@
 </form>
 <h2>Builder</h2>
 {{with .Data.Costs}}<p class="muted">Agent cost: {{usd .Last30Days}} in the last 30 days, {{usd .Total}} in total ({{.Runs}} runs reported a cost).</p>{{end}}
+{{if ge .Data.Costs.Last30Days .Data.Limit}}<p class="flash">Spend limit reached: no runs, Run now included, until the last 30 days' cost drops below it or you raise it.</p>{{end}}
+<form method="post" action="/admin/spend-limit" class="row">
+  <label for="limit">Spend limit over 30 days ($)</label>
+  <input id="limit" name="limit" type="number" min="0.01" step="0.01" value="{{printf "%.2f" .Data.Limit}}" required>
+  <button>Save</button>
+</form>
+{{with .Data.MemberCosts}}
+<h3>Cost by member</h3>
+<p class="hint">Each run's cost is split evenly across the items it acted on and charged to each item's author.</p>
+<ul class="items">
+  {{range .}}<li class="row"><b>{{.Login}}</b> <span class="muted">{{usd .Last30Days}} in the last 30 days, {{usd .Total}} in total</span></li>
+  {{end}}
+</ul>
+{{end}}
 <form method="post" action="/admin/run"><button>Run now</button></form>
 {{end}}

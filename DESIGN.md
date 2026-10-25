@@ -124,8 +124,12 @@ The tick also walks items in `building`/`merged`:
 1. `POST /api/runner/runs/{RUN_ID}/claim` (bearer `RUNNER_TOKEN`) → `running`; the
    server records its own `GIT_SHA` and version name on the run, shown on
    `/runs` as the run's release (the runner job deploys with the server).
-2. Mint a GitHub App installation token (JWT RS256 from `GH_APP_ID` +
-   `GH_APP_PRIVATE_KEY`, installation `GH_APP_INSTALLATION_ID`), 1 h.
+2. `POST /api/runner/runs/{id}/token` → a fresh 1 h GitHub App installation
+   token plus the bot's commit name/email. The server holds `GH_APP_*` and
+   mints it (JWT RS256), once per `running` run (`runs.token_at`), so the
+   agent, which holds `RUNNER_TOKEN`, can't mint more. The
+   runner never sees the App's private key and strips `GH_APP_*` from the
+   environment it passes on.
 3. Fresh `git clone` of `master`; commits authored as the App's bot user.
 4. `claude -p "/build-board" --dangerously-skip-permissions --mcp-config <file>`
    with the board MCP server at `BASE_URL/mcp` (bearer `RUNNER_TOKEN`) and
@@ -191,7 +195,8 @@ IAM is least privilege, granted on the resource where possible:
 `builder-server` gets `cloudsql.client`, `run.developer` on the job, and
 `secretAccessor` on its own secrets only; `builder-runner` (it runs the agent
 on untrusted text) gets `secretAccessor` on `RUNNER_TOKEN`,
-`ANTHROPIC_API_KEY` and the `GH_APP_*` secrets and nothing else;
+`ANTHROPIC_API_KEY` and nothing else (not the `GH_APP_*` secrets, which
+re-running bootstrap unmounts from the job and revokes);
 `builder-deployer` gets `run.developer` and `artifactregistry.writer` on the
 repo. The WIF provider only accepts tokens for `refs/heads/master`, so a
 workflow on a branch can't reach GCP. Re-running bootstrap removes older,

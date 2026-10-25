@@ -97,6 +97,7 @@ type server struct {
 	store   *db.Store
 	storage store.Storage
 	gate    *gate.Gate
+	app     *github.App   // nil when the GitHub App isn't configured
 	version func() string // release name, "" until resolved
 }
 
@@ -169,7 +170,7 @@ func run() error {
 	}
 	tools := &mcp.Board{Store: st, BotLogin: cfg.BotLogin, BaseURL: cfg.BaseURL, GitSHA: cfg.GitSHA, Reply: b.BotReply}
 
-	s := &server{cfg: cfg, store: st, storage: storage, gate: g, version: b.Version}
+	s := &server{cfg: cfg, store: st, storage: storage, gate: g, app: app, version: b.Version}
 	mux := http.NewServeMux()
 	a.Routes(mux)
 	if err := b.Routes(mux); err != nil {
@@ -179,6 +180,7 @@ func run() error {
 	mux.HandleFunc("GET /health", s.health)
 	mux.Handle("/mcp", auth.Bearer(cfg.RunnerToken, tools.Handler()))
 	mux.Handle("POST /api/runner/runs/{id}/claim", auth.Bearer(cfg.RunnerToken, http.HandlerFunc(s.claim)))
+	mux.Handle("POST /api/runner/runs/{id}/token", auth.Bearer(cfg.RunnerToken, http.HandlerFunc(s.token)))
 	mux.Handle("POST /api/runner/runs/{id}/stage", auth.Bearer(cfg.RunnerToken, http.HandlerFunc(s.stage)))
 	mux.Handle("POST /api/runner/runs/{id}/finish", auth.Bearer(cfg.RunnerToken, http.HandlerFunc(s.finish)))
 	mux.Handle("GET /api/runner/attachments/{id}", auth.Bearer(cfg.RunnerToken, http.HandlerFunc(s.attachment)))
@@ -246,6 +248,49 @@ func (s *server) claim(w http.ResponseWriter, r *http.Request) {
 	}
 	slog.Info("run claimed", "run", id)
 	writeJSON(w, http.StatusOK, map[string]any{"run_id": id, "repo": s.cfg.Repo, "bot_login": s.cfg.BotLogin})
+}
+
+// token mints a run's one GitHub installation token, so the App's private
+// key stays on the server and away from the agent.
+func (s *server) token(w http.ResponseWriter, r *http.Request) {
+	id, err := strconv.Atoi(r.PathValue("id"))
+	if err != nil {
+		http.Error(w, "bad run id", http.StatusBadRequest)
+		return
+	}
+	if s.app == nil {
+		http.Error(w, "GitHub App not configured", http.StatusServiceUnavailable)
+		return
+	}
+	if err := s.store.TakeRunToken(r.Context(), id); errors.Is(err, db.ErrNotFound) {
+		http.Error(w, "run is not running or already has its token", http.StatusConflict)
+		return
+	} else if err != nil {
+		slog.Error("token", "run", id, "err", err)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	token, expires, err := s.app.Mint(r.Context())
+	if err != nil {
+		slog.Error("token", "run", id, "err", err)
+		http.Error(w, "minting token failed", http.StatusBadGateway)
+		return
+	}
+	name, email, err := s.app.BotIdentity(r.Context())
+	if err != nil {
+		slog.Error("bot identity", "run", id, "err", err)
+		http.Error(w, "bot identity lookup failed", http.StatusBadGateway)
+		return
+	}
+	slog.Info("run token", "run", id, "expires", expires)
+	writeJSON(w, http.StatusOK, tokenResp{Token: token, ExpiresAt: expires, Name: name, Email: email})
+}
+
+type tokenResp struct {
+	Token     string    `json:"token"`
+	ExpiresAt time.Time `json:"expires_at"`
+	Name      string    `json:"name"`  // commit author, "<slug>[bot]"
+	Email     string    `json:"email"` // its noreply address
 }
 
 // stage records that the runner reached a stage (agent or report).

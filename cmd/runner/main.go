@@ -1,5 +1,6 @@
-// Command runner is the Cloud Run Job entrypoint: claim the run, mint a
-// GitHub token, clone, run Claude Code with /build-board, report back.
+// Command runner is the Cloud Run Job entrypoint: claim the run, get a
+// GitHub token from the server, clone, run Claude Code with /build-board,
+// report back. It never holds the GitHub App's private key.
 package main
 
 import (
@@ -17,8 +18,6 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
-
-	"github.com/nkirsch/auto-builder/internal/github"
 )
 
 const (
@@ -29,7 +28,6 @@ const (
 
 type config struct {
 	RunID, BaseURL, Token, WorkDir string
-	AppID, AppInstallation, AppKey string
 }
 
 func env(key, def string) string {
@@ -42,13 +40,10 @@ func env(key, def string) string {
 func main() {
 	slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stderr, nil)))
 	cfg := config{
-		RunID:           env("RUN_ID", ""),
-		BaseURL:         strings.TrimSuffix(env("BASE_URL", ""), "/"),
-		Token:           env("RUNNER_TOKEN", ""),
-		WorkDir:         env("WORK_DIR", os.TempDir()),
-		AppID:           env("GH_APP_ID", ""),
-		AppInstallation: env("GH_APP_INSTALLATION_ID", ""),
-		AppKey:          env("GH_APP_PRIVATE_KEY", ""),
+		RunID:   env("RUN_ID", ""),
+		BaseURL: strings.TrimSuffix(env("BASE_URL", ""), "/"),
+		Token:   env("RUNNER_TOKEN", ""),
+		WorkDir: env("WORK_DIR", os.TempDir()),
 	}
 	if cfg.RunID == "" || cfg.BaseURL == "" || cfg.Token == "" {
 		slog.Error("RUN_ID, BASE_URL and RUNNER_TOKEN are required")
@@ -84,31 +79,20 @@ func main() {
 }
 
 func build(ctx context.Context, cfg config, api *api, claim claimResp, log io.Writer) error {
-	app, err := github.NewApp(cfg.AppID, cfg.AppInstallation, cfg.AppKey)
+	gh, err := api.githubToken(ctx, cfg.RunID)
 	if err != nil {
-		return err
-	}
-	if app == nil {
-		return errors.New("GH_APP_ID, GH_APP_INSTALLATION_ID and GH_APP_PRIVATE_KEY are required")
-	}
-	token, err := app.Token(ctx)
-	if err != nil {
-		return err
-	}
-	name, email, err := app.BotIdentity(ctx)
-	if err != nil {
-		return fmt.Errorf("bot identity: %w", err)
+		return fmt.Errorf("github token: %w", err)
 	}
 
 	repoDir := filepath.Join(cfg.WorkDir, "repo")
 	os.RemoveAll(repoDir)
-	gitEnv := append(os.Environ(), "GH_TOKEN="+token, "GIT_TERMINAL_PROMPT=0")
+	gitEnv := append(childEnv(os.Environ()), "GH_TOKEN="+gh.Token, "GIT_TERMINAL_PROMPT=0")
 	// gh serves git credentials from GH_TOKEN, so the token never lands in .git/config.
 	steps := [][]string{
 		{"gh", "auth", "setup-git"},
 		{"git", "clone", "--depth", "50", "https://github.com/" + claim.Repo + ".git", repoDir},
-		{"git", "-C", repoDir, "config", "user.name", name},
-		{"git", "-C", repoDir, "config", "user.email", email},
+		{"git", "-C", repoDir, "config", "user.name", gh.Name},
+		{"git", "-C", repoDir, "config", "user.email", gh.Email},
 	}
 	for _, s := range steps {
 		if err := runCmd(ctx, "", gitEnv, log, s...); err != nil {
@@ -136,6 +120,18 @@ func build(ctx context.Context, cfg config, api *api, claim claimResp, log io.Wr
 		return fmt.Errorf("agent timed out after %s", agentTimeout)
 	}
 	return err
+}
+
+// childEnv drops GH_APP_* (a job still mounting the App secrets) so neither
+// git nor the agent ever sees the App's private key.
+func childEnv(environ []string) []string {
+	var out []string
+	for _, kv := range environ {
+		if !strings.HasPrefix(kv, "GH_APP_") {
+			out = append(out, kv)
+		}
+	}
+	return out
 }
 
 func runCmd(ctx context.Context, dir string, env []string, log io.Writer, args ...string) error {
@@ -210,6 +206,25 @@ func (a *api) claim(ctx context.Context, id string) (claimResp, error) {
 	var out claimResp
 	err := a.post(ctx, "/api/runner/runs/"+id+"/claim", nil, &out)
 	return out, err
+}
+
+type tokenResp struct {
+	Token string `json:"token"`
+	Name  string `json:"name"`
+	Email string `json:"email"`
+}
+
+// githubToken asks the server for a 1 h installation token and the bot's commit
+// identity; the server hands out one per run.
+func (a *api) githubToken(ctx context.Context, id string) (tokenResp, error) {
+	var out tokenResp
+	if err := a.post(ctx, "/api/runner/runs/"+id+"/token", nil, &out); err != nil {
+		return out, err
+	}
+	if out.Token == "" || out.Name == "" || out.Email == "" {
+		return out, errors.New("incomplete token response")
+	}
+	return out, nil
 }
 
 // stage tells the server the run reached a stage; it's only for display, so

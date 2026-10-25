@@ -499,6 +499,13 @@ func (s *Store) ClaimRun(ctx context.Context, id int, sha, version string) error
 		WHERE id = $1 AND status = 'requested'`, id, sha, version)
 }
 
+// TakeRunToken marks a running run's one GitHub token as issued; ErrNotFound
+// if the run isn't running or already had it, so the agent (which holds the
+// runner token) can't mint more.
+func (s *Store) TakeRunToken(ctx context.Context, id int) error {
+	return s.execOne(ctx, `UPDATE runs SET token_at = now() WHERE id = $1 AND status = 'running' AND token_at IS NULL`, id)
+}
+
 // SetRunStage records when a running run reached stage agent or report; the
 // first report wins.
 func (s *Store) SetRunStage(ctx context.Context, id int, stage string) error {

@@ -1,6 +1,10 @@
 package main
 
 import (
+	"context"
+	"net/http"
+	"net/http/httptest"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -34,5 +38,34 @@ func TestCapped(t *testing.T) {
 	c.Write([]byte("defg"))
 	if c.String() != "abcde" {
 		t.Fatalf("got %q", c.String())
+	}
+}
+
+func TestGitHubToken(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost || r.URL.Path != "/api/runner/runs/7/token" || r.Header.Get("Authorization") != "Bearer rt" {
+			http.Error(w, "no", http.StatusConflict)
+			return
+		}
+		w.Write([]byte(`{"token":"ghs_x","expires_at":"2026-10-25T03:00:00Z","name":"app[bot]","email":"1+app[bot]@users.noreply.github.com"}`))
+	}))
+	defer srv.Close()
+	a := &api{base: srv.URL, token: "rt", client: srv.Client()}
+	got, err := a.githubToken(context.Background(), "7")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Token != "ghs_x" || got.Name != "app[bot]" || got.Email != "1+app[bot]@users.noreply.github.com" {
+		t.Fatalf("got %+v", got)
+	}
+	if _, err := a.githubToken(context.Background(), "8"); err == nil || !strings.Contains(err.Error(), "409") {
+		t.Fatalf("refused token: err = %v", err)
+	}
+}
+
+func TestChildEnvDropsAppSecrets(t *testing.T) {
+	got := childEnv([]string{"PATH=/bin", "GH_APP_PRIVATE_KEY=k", "GH_APP_ID=1", "RUNNER_TOKEN=rt"})
+	if !slices.Equal(got, []string{"PATH=/bin", "RUNNER_TOKEN=rt"}) {
+		t.Fatalf("got %v", got)
 	}
 }

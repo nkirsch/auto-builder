@@ -43,7 +43,7 @@ DB tests skip without `TEST_DATABASE_URL` and truncate tables — never point it
 
 ## Deploy
 
-Push to `master` (or a published release, with `DEPLOY_ON=release`) → `deploy.yml`: CI, amd64-only images
+Push to `master` (or a published release, with `DEPLOY_ON=release`; never with `none`) → `deploy.yml`: CI, amd64-only images
 (no arm64: Cloud Run runs amd64) to Artifact Registry, a `vYY.M.D-N` tag passed as `VERSION`,
 `gcloud run deploy $SERVICE`, `gcloud run jobs update $JOB` (repo variables; WIF auth), then Pushover if
 `PUSHOVER_*` secrets are set. GCP project `nkirsch-auto-builder`, region `us-central1`, host `builder.nick.org`
@@ -52,5 +52,5 @@ Push to `master` (or a published release, with `DEPLOY_ON=release`) → `deploy.
 ## Forks
 
 Site forks (`kirsch/momo`, `kirsch/katrina`, `kirsch/youkoh.org`, `nkirsch/nick.org`) are git-level forks
-that `git merge upstream/master`. They change only `app.env`, branding, `.claude/site.md`, docs and their
+that `git merge upstream/master`; `kirsch/extreme` (multi-tenant, `TENANCY.md`, not deployed) merges the same way. They change only `app.env`, branding, `.claude/site.md`, docs and their
 Hugo site, so upstream changes merge without conflicts; keep per-site values out of every other file.

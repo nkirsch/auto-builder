@@ -32,10 +32,6 @@ func TestBlockedShown(t *testing.T) {
 	if !strings.Contains(out, `<span class="badge blocked" title="Re-run &lt;bootstrap&gt;.">blocked</span>`) {
 		t.Errorf("index missing blocked badge:\n%s", out)
 	}
-	out = render("inbox", member, map[string]any{"Notifications": []db.Notification{{ItemID: 4, ItemTitle: it.Title, Blocked: it.Blocked}}, "Show": ""})
-	if !strings.Contains(out, `class="badge blocked"`) {
-		t.Errorf("inbox missing blocked badge")
-	}
 	clear := `action="/items/4/unblock"`
 	for _, c := range []struct {
 		me        db.Member

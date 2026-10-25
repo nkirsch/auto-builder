@@ -40,7 +40,7 @@ func TestLoginPagePreview(t *testing.T) {
 			t.Errorf("missing %s", want)
 		}
 	}
-	for _, leak := range []string{`href="/inbox"`, `action="/auth/logout"`, `action="/theme"`} {
+	for _, leak := range []string{`href="/items/new"`, `action="/auth/logout"`, `action="/theme"`} {
 		if strings.Contains(body, leak) {
 			t.Errorf("signed-out page shows member nav: %s", leak)
 		}

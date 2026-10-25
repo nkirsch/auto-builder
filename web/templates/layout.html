@@ -22,8 +22,8 @@
 <header>
   {{if .Me.Login}}<nav>
     <a href="/" class="brand">auto-builder{{with .Version}} <span class="version" title="{{$.GitSHA}}">{{.}}</span>{{end}}</a>
+    <a href="/">Board{{if .Unread}} <span class="count" title="Items with unread updates">{{.Unread}}</span>{{end}}</a>
     <a href="/items/new">New</a>
-    <a href="/inbox">Inbox{{if .Unread}} <span class="count">{{.Unread}}</span>{{end}}</a>
     <a href="/runs">Runs</a>
     {{if .Me.IsAdmin}}<a href="/admin">Admin</a>{{end}}
     <form method="post" action="/theme" class="theme">

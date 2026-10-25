@@ -40,6 +40,11 @@ func Decide(s db.GateState, now time.Time, trigger string, idle time.Duration) (
 	if s.Active {
 		return false, "a run is active"
 	}
+	// Run now doesn't override the limit; a running run's cost lands when it
+	// finishes, so the last run may go over.
+	if s.Spend30 >= s.SpendLimit {
+		return false, "spend limit reached"
+	}
 	if trigger == "now" {
 		return true, "now"
 	}
@@ -66,7 +71,7 @@ func (g *Gate) Check(ctx context.Context, trigger string) (int, error) {
 	ok, reason := Decide(s, time.Now(), trigger, g.Idle)
 	if !ok {
 		if trigger == "now" {
-			return 0, db.ErrRunActive
+			return 0, holdErr(s)
 		}
 		slog.Debug("gate hold", "trigger", trigger, "reason", reason)
 		return 0, nil
@@ -83,9 +88,17 @@ func (g *Gate) RunNow(ctx context.Context, by string) (int, error) {
 		return 0, err
 	}
 	if ok, _ := Decide(s, time.Now(), "now", g.Idle); !ok {
-		return 0, db.ErrRunActive
+		return 0, holdErr(s)
 	}
 	return g.launch(ctx, "now", by)
+}
+
+// holdErr says why Run now was held.
+func holdErr(s db.GateState) error {
+	if s.Active {
+		return db.ErrRunActive
+	}
+	return db.ErrSpendLimit
 }
 
 // Activity schedules a background check; bursts of activity coalesce into one.

@@ -17,7 +17,8 @@ func testStore(t *testing.T) *Store {
 		t.Fatal(err)
 	}
 	t.Cleanup(pool.Close)
-	if _, err := pool.Exec(ctx, `TRUNCATE members, items, responses, attachments, notifications, runs, run_items RESTART IDENTITY CASCADE`); err != nil {
+	if _, err := pool.Exec(ctx, `TRUNCATE members, items, responses, attachments, notifications, runs, run_items RESTART IDENTITY CASCADE;
+		UPDATE settings SET spend_limit_usd = 20`); err != nil {
 		t.Fatal(err)
 	}
 	return &Store{Pool: pool}
@@ -313,6 +314,67 @@ func TestRunCosts(t *testing.T) {
 	}
 	if c != (RunCosts{Total: 1.75, Last30Days: 0.5, Runs: 2}) {
 		t.Fatalf("RunCosts = %+v", c)
+	}
+}
+
+func TestSpendLimit(t *testing.T) {
+	ctx := context.Background()
+	s := testStore(t)
+	if v, err := s.SpendLimit(ctx); err != nil || v != 20 {
+		t.Fatalf("default limit = %v, %v; want 20", v, err)
+	}
+	if err := s.SetSpendLimit(ctx, 35.5); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetSpendLimit(ctx, 0); err == nil {
+		t.Error("SetSpendLimit(0) succeeded")
+	}
+	for _, cost := range []float64{4, 6} {
+		run, _ := s.CreateRun(ctx, "tick", "")
+		s.FinishRun(ctx, run, "done", "", "", &cost)
+	}
+	s.Pool.Exec(ctx, `UPDATE runs SET created_at = now() - interval '31 days' WHERE cost_usd = 4`)
+	g, err := s.GateState(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if g.Spend30 != 6 || g.SpendLimit != 35.5 {
+		t.Fatalf("GateState spend = %v of %v, want 6 of 35.5", g.Spend30, g.SpendLimit)
+	}
+}
+
+func TestMemberCosts(t *testing.T) {
+	ctx := context.Background()
+	s := testStore(t)
+	a, _ := s.CreateItem(ctx, "A", "", "alice")
+	b, _ := s.CreateItem(ctx, "B", "", "bob")
+	finish := func(cost *float64, items ...int) int {
+		t.Helper()
+		run, err := s.CreateRun(ctx, "tick", "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		s.ClaimRun(ctx, run)
+		for _, id := range items {
+			s.NoteRunItem(ctx, id)
+		}
+		if err := s.FinishRun(ctx, run, "done", "", "", cost); err != nil {
+			t.Fatal(err)
+		}
+		return run
+	}
+	finish(ptr(3.0), a, b)     // 1.5 each
+	old := finish(ptr(2.0), a) // alice, 40 days ago
+	finish(ptr(9.0))           // no items: unattributed
+	finish(nil, b)             // no cost reported
+	s.Pool.Exec(ctx, `UPDATE runs SET created_at = now() - interval '40 days' WHERE id = $1`, old)
+	got, err := s.MemberCosts(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []MemberCost{{"alice", 3.5, 1.5}, {"bob", 1.5, 1.5}}
+	if !slices.Equal(got, want) {
+		t.Fatalf("MemberCosts = %+v, want %+v", got, want)
 	}
 }
 

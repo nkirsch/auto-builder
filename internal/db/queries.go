@@ -18,6 +18,9 @@ var ErrNotFound = errors.New("not found")
 // ErrRunActive is returned by CreateRun when a run is already in flight.
 var ErrRunActive = errors.New("a run is already active")
 
+// ErrSpendLimit is returned when the last 30 days' agent cost has reached the limit.
+var ErrSpendLimit = errors.New("spend limit reached")
+
 // Store wraps the pool with the app's queries.
 type Store struct{ Pool *pgxpool.Pool }
 
@@ -456,6 +459,41 @@ func (s *Store) RunCosts(ctx context.Context) (RunCosts, error) {
 	return c, err
 }
 
+// MemberCost is the agent spend attributed to one item author. A run's cost
+// is split evenly across the items it acted on (run_items); runs that acted
+// on no item stay unattributed.
+type MemberCost struct {
+	Login             string
+	Total, Last30Days float64
+}
+
+func (s *Store) MemberCosts(ctx context.Context) ([]MemberCost, error) {
+	rows, err := s.Pool.Query(ctx, `
+		WITH share AS (
+			SELECT ri.item_id, r.created_at, r.cost_usd / count(*) OVER (PARTITION BY r.id) AS usd
+			FROM runs r JOIN run_items ri ON ri.run_id = r.id
+			WHERE r.cost_usd IS NOT NULL)
+		SELECT i.author, sum(sh.usd)::float8,
+			coalesce(sum(sh.usd) FILTER (WHERE sh.created_at > now() - interval '30 days'), 0)::float8
+		FROM share sh JOIN items i ON i.id = sh.item_id
+		GROUP BY i.author ORDER BY 2 DESC, 1`)
+	if err != nil {
+		return nil, err
+	}
+	return pgx.CollectRows(rows, pgx.RowToStructByPos[MemberCost])
+}
+
+// SpendLimit is the admin-set cap on agent cost over the last 30 days.
+func (s *Store) SpendLimit(ctx context.Context) (float64, error) {
+	var v float64
+	err := s.Pool.QueryRow(ctx, `SELECT spend_limit_usd::float8 FROM settings`).Scan(&v)
+	return v, err
+}
+
+func (s *Store) SetSpendLimit(ctx context.Context, usd float64) error {
+	return s.execOne(ctx, `UPDATE settings SET spend_limit_usd = $1`, usd)
+}
+
 // FailStale fails runs stuck running longer than running, or never claimed within requested.
 func (s *Store) FailStale(ctx context.Context, running, requested time.Duration) (int64, error) {
 	tag, err := s.Pool.Exec(ctx, `UPDATE runs SET status = 'failed', finished_at = now(),
@@ -472,6 +510,8 @@ type GateState struct {
 	LastFailure  *time.Time // finished_at of the newest failed run
 	NewActivity  bool       // an open/building item has human activity after LastSuccess
 	ApprovedOpen bool       // an approved open item exists
+	Spend30      float64    // reported agent cost over the last 30 days
+	SpendLimit   float64    // cap on Spend30
 }
 
 func (s *Store) GateState(ctx context.Context) (GateState, error) {
@@ -485,8 +525,10 @@ func (s *Store) GateState(ctx context.Context) (GateState, error) {
 			EXISTS (SELECT 1 FROM items WHERE status IN ('open', 'building')
 				AND human_activity_at > 'epoch' -- bot-filed items carry epoch
 				AND human_activity_at > coalesce((SELECT t FROM last_ok), '-infinity')),
-			EXISTS (SELECT 1 FROM items WHERE status = 'open' AND approved)`).
-		Scan(&g.Active, &g.LastSuccess, &g.LastFailure, &g.NewActivity, &g.ApprovedOpen)
+			EXISTS (SELECT 1 FROM items WHERE status = 'open' AND approved),
+			(SELECT coalesce(sum(cost_usd), 0)::float8 FROM runs WHERE created_at > now() - interval '30 days'),
+			(SELECT spend_limit_usd::float8 FROM settings)`).
+		Scan(&g.Active, &g.LastSuccess, &g.LastFailure, &g.NewActivity, &g.ApprovedOpen, &g.Spend30, &g.SpendLimit)
 	return g, err
 }
 

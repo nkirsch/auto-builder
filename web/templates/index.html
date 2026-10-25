@@ -3,6 +3,7 @@
   <h1>{{if eq .Data.Show "done"}}Done{{else}}Open{{end}}</h1>
   <span class="spacer"></span>
   {{if eq .Data.Show "done"}}<a href="/">Open</a>{{else}}<a href="/?show=done">Done</a>{{end}}
+  {{if .Me.IsAdmin}}<form method="post" action="/admin/run"><button class="secondary">Run now</button></form>{{end}}
   <a class="button" href="/items/new">New ask</a>
 </div>
 {{with .Data.Items}}

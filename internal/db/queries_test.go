@@ -162,19 +162,21 @@ func TestNotifications(t *testing.T) {
 		t.Fatalf("notifications = %+v, %v", ns, err)
 	}
 
-	// Closing an item moves it to done once all its notifications are read.
+	// Closing an item moves it to done right away, unread or not.
 	s.CloseItem(ctx, id, "dup", true)
-	s.CloseItem(ctx, other, "dup", true)
 	inbox, _ := s.Notifications(ctx, "alice", false, 10)
 	done, _ := s.Notifications(ctx, "alice", true, 10)
-	if len(inbox) != 1 || inbox[0].ItemID != id || len(done) != 1 || done[0].ItemID != other {
+	if len(inbox) != 1 || inbox[0].ItemID != other || len(done) != 1 || done[0].ItemID != id || done[0].ReadAt != nil {
 		t.Fatalf("inbox = %+v, done = %+v", inbox, done)
 	}
-	s.MarkRead(ctx, "alice", 0)
+	if n, _ := s.UnreadCount(ctx, "alice"); n != 0 {
+		t.Fatalf("unread after close = %d", n)
+	}
+	s.CloseItem(ctx, other, "dup", true)
 	inbox, _ = s.Notifications(ctx, "alice", false, 10)
 	done, _ = s.Notifications(ctx, "alice", true, 10)
 	if len(inbox) != 0 || len(done) != 2 {
-		t.Fatalf("after read: inbox = %+v, done = %+v", inbox, done)
+		t.Fatalf("after close: inbox = %+v, done = %+v", inbox, done)
 	}
 }
 

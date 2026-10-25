@@ -62,7 +62,7 @@ non-bot change (create, reply, approve) and drives the gate.
 
 - `/` open items (approved badge, status, reply count), `/items/{id}` thread,
   `/items/new`, `/inbox` (mentions + replies to your items, unread count in nav;
-  one row per item; fully read ones on shipped/closed items move to
+  one row per item; shipped/closed items, read or not, move to
   `/inbox?show=done`),
   `/runs` (history, items the agent replied on/opened a PR for/closed/filed
   during each run via MCP, summary, log link, cost), `/admin` (members, Run now,

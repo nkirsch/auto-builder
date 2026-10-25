@@ -105,14 +105,14 @@ func TestGateState(t *testing.T) {
 		t.Fatalf("second run: %v", err)
 	}
 	s.ClaimRun(ctx, run)
-	if err := s.FinishRun(ctx, run, "done", "ok", ""); err != nil {
+	if err := s.FinishRun(ctx, run, "done", "ok", "", nil); err != nil {
 		t.Fatal(err)
 	}
 	g, _ = s.GateState(ctx)
 	if g.Active || g.NewActivity || !g.ApprovedOpen || g.LastSuccess == nil {
 		t.Fatalf("after run: %+v", g)
 	}
-	if err := s.FinishRun(ctx, run, "failed", "", ""); !errors.Is(err, ErrNotFound) {
+	if err := s.FinishRun(ctx, run, "failed", "", "", nil); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("finished twice: %v", err)
 	}
 
@@ -212,7 +212,7 @@ func TestRunItems(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	s.FinishRun(ctx, run, "done", "", "")
+	s.FinishRun(ctx, run, "done", "", "", nil)
 	s.NoteRunItem(ctx, a) // after the run
 	got, err := s.RunItems(ctx, []int{run, 99})
 	if err != nil {
@@ -274,3 +274,31 @@ func TestSetTags(t *testing.T) {
 		t.Fatalf("items = %+v", items)
 	}
 }
+
+func TestRunCosts(t *testing.T) {
+	ctx := context.Background()
+	s := testStore(t)
+	for _, cost := range []*float64{ptr(1.25), nil, ptr(0.5)} {
+		run, err := s.CreateRun(ctx, "tick", "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := s.FinishRun(ctx, run, "done", "", "", cost); err != nil {
+			t.Fatal(err)
+		}
+		r, _ := s.Run(ctx, run)
+		if (r.CostUSD == nil) != (cost == nil) || (cost != nil && *r.CostUSD != *cost) {
+			t.Fatalf("run %d cost = %v, want %v", run, r.CostUSD, cost)
+		}
+	}
+	s.Pool.Exec(ctx, `UPDATE runs SET created_at = now() - interval '40 days' WHERE cost_usd = 1.25`)
+	c, err := s.RunCosts(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c != (RunCosts{Total: 1.75, Last30Days: 0.5, Runs: 2}) {
+		t.Fatalf("RunCosts = %+v", c)
+	}
+}
+
+func ptr[T any](v T) *T { return &v }

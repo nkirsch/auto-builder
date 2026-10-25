@@ -71,7 +71,8 @@ func main() {
 		fmt.Fprintf(log, "\nrunner: %v\n", err)
 		slog.Error("build", "err", err)
 	}
-	if err := api.finish(ctx, cfg.RunID, status, summary(log.Bytes()), log.String()); err != nil {
+	text, cost := result(log.Bytes())
+	if err := api.finish(ctx, cfg.RunID, status, text, log.String(), cost); err != nil {
 		slog.Error("finish", "err", err)
 		os.Exit(1)
 	}
@@ -147,28 +148,36 @@ func runCmd(ctx context.Context, dir string, env []string, log io.Writer, args .
 	return nil
 }
 
-// summary prefers the agent's final result message, else the log's tail.
-func summary(log []byte) string {
-	var result string
+// result reads the agent's final result event: the summary prefers its
+// message, else the log's tail; cost is its total_cost_usd, nil if absent.
+func result(log []byte) (summary string, cost *float64) {
+	var msg string
 	sc := bufio.NewScanner(bytes.NewReader(log))
 	sc.Buffer(make([]byte, 1<<20), 16<<20)
 	for sc.Scan() {
 		var ev struct {
-			Type   string `json:"type"`
-			Result string `json:"result"`
+			Type    string   `json:"type"`
+			Result  string   `json:"result"`
+			CostUSD *float64 `json:"total_cost_usd"`
 		}
-		if json.Unmarshal(sc.Bytes(), &ev) == nil && ev.Type == "result" && ev.Result != "" {
-			result = ev.Result
+		if json.Unmarshal(sc.Bytes(), &ev) != nil || ev.Type != "result" {
+			continue
+		}
+		if ev.Result != "" {
+			msg = ev.Result
+		}
+		if ev.CostUSD != nil {
+			cost = ev.CostUSD
 		}
 	}
-	tail := string(log)
-	if result != "" {
-		tail = result
+	summary = string(log)
+	if msg != "" {
+		summary = msg
 	}
-	if len(tail) > summaryLen {
-		tail = tail[len(tail)-summaryLen:]
+	if len(summary) > summaryLen {
+		summary = summary[len(summary)-summaryLen:]
 	}
-	return tail
+	return summary, cost
 }
 
 // capped is a buffer that keeps the first max bytes.
@@ -201,11 +210,14 @@ func (a *api) claim(ctx context.Context, id string) (claimResp, error) {
 	return out, err
 }
 
-func (a *api) finish(ctx context.Context, id, status, summary, log string) error {
+func (a *api) finish(ctx context.Context, id, status, summary, log string, cost *float64) error {
+	body := map[string]any{"status": status, "summary": summary, "log": log}
+	if cost != nil {
+		body["cost_usd"] = *cost
+	}
 	var err error
 	for attempt := range 3 {
-		if err = a.post(ctx, "/api/runner/runs/"+id+"/finish",
-			map[string]string{"status": status, "summary": summary, "log": log}, nil); err == nil {
+		if err = a.post(ctx, "/api/runner/runs/"+id+"/finish", body, nil); err == nil {
 			return nil
 		}
 		time.Sleep(time.Duration(attempt+1) * 5 * time.Second)

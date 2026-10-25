@@ -98,3 +98,31 @@ func TestIndexTags(t *testing.T) {
 		}
 	}
 }
+
+func TestRunsAndAdminShowCost(t *testing.T) {
+	b := &Board{}
+	if err := b.parse(); err != nil {
+		t.Fatal(err)
+	}
+	cost := 1.234
+	var sb strings.Builder
+	p := page{Title: "Runs", Me: db.Member{Login: "x"}, Data: []runRow{{Run: db.Run{ID: 2, Status: "done", CostUSD: &cost}}, {Run: db.Run{ID: 1, Status: "done"}}}}
+	if err := b.tmpl["runs"].ExecuteTemplate(&sb, "layout", p); err != nil {
+		t.Fatal(err)
+	}
+	if n := strings.Count(sb.String(), "$"); n != 1 || !strings.Contains(sb.String(), " · $1.23</span>") {
+		t.Errorf("runs page: %d costs, want one $1.23", n)
+	}
+
+	sb.Reset()
+	p = page{Title: "Admin", Me: db.Member{Login: "x", Role: "admin"}, Data: map[string]any{
+		"Members": []db.Member{{Login: "x", Role: "admin"}},
+		"Costs":   db.RunCosts{Total: 12.5, Last30Days: 3, Runs: 4},
+	}}
+	if err := b.tmpl["admin"].ExecuteTemplate(&sb, "layout", p); err != nil {
+		t.Fatal(err)
+	}
+	if want := "Agent cost: $3.00 in the last 30 days, $12.50 in total (4 runs reported a cost)."; !strings.Contains(sb.String(), want) {
+		t.Errorf("admin page missing %q", want)
+	}
+}

@@ -1,7 +1,7 @@
 {{define "content"}}
 <h1>Members</h1>
 <ul class="items">
-  {{range .Data}}
+  {{range .Data.Members}}
   <li class="row">
     {{if .AvatarURL}}<img src="{{.AvatarURL}}&s=48" alt="" class="avatar">{{end}}
     <b>{{.Login}}</b> <span class="badge">{{.Role}}</span>
@@ -20,5 +20,6 @@
   <button>Save</button>
 </form>
 <h2>Builder</h2>
+{{with .Data.Costs}}<p class="muted">Agent cost: {{usd .Last30Days}} in the last 30 days, {{usd .Total}} in total ({{.Runs}} runs reported a cost).</p>{{end}}
 <form method="post" action="/admin/run"><button>Run now</button></form>
 {{end}}

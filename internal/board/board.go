@@ -94,7 +94,8 @@ func (b *Board) Routes(mux *http.ServeMux) error {
 }
 
 var funcs = template.FuncMap{
-	"md": Markdown,
+	"md":  Markdown,
+	"usd": func(v float64) string { return fmt.Sprintf("$%.2f", v) },
 	"ago": func(t time.Time) string {
 		d := time.Since(t)
 		switch {
@@ -662,7 +663,12 @@ func (b *Board) admin(w http.ResponseWriter, r *http.Request) {
 		b.fail(w, err)
 		return
 	}
-	b.render(w, r, "admin", "Admin", members)
+	costs, err := b.Store.RunCosts(r.Context())
+	if err != nil {
+		b.fail(w, err)
+		return
+	}
+	b.render(w, r, "admin", "Admin", map[string]any{"Members": members, "Costs": costs})
 }
 
 var loginRE = regexp.MustCompile(`^[A-Za-z0-9](?:[A-Za-z0-9]|-[A-Za-z0-9]){0,38}$`)

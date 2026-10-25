@@ -65,7 +65,8 @@ non-bot change (create, reply, approve) and drives the gate.
   one row per item; fully read ones on shipped/closed items move to
   `/inbox?show=done`),
   `/runs` (history, items the agent replied on/opened a PR for/closed/filed
-  during each run via MCP, summary, log link), `/admin` (members, Run now).
+  during each run via MCP, summary, log link, cost), `/admin` (members, Run now,
+  agent cost over the last 30 days and in total).
 - Signed-out visitors land on `/auth/login` (our page, generic Open Graph
   preview so item titles never unfurl); its button starts the GitHub redirect
   at `/auth/github`.
@@ -118,7 +119,9 @@ The tick also walks items in `building`/`merged`:
    with the board MCP server at `BASE_URL/mcp` (bearer `RUNNER_TOKEN`) and
    `GH_TOKEN` for `gh`. Non-root user (the flag refuses root). 55 min timeout.
 5. `POST /api/runner/runs/{id}/finish` with status, last 4,000 chars as
-   summary, full log → GCS.
+   summary, full log → GCS, and `cost_usd` from the result event's
+   `total_cost_usd` (stored in `runs.cost_usd`; NULL when the agent didn't
+   finish, e.g. timed out).
 
 Image: Go toolchain + git + gh + Node + `@anthropic-ai/claude-code`.
 Job timeout 60 min, max retries 0.

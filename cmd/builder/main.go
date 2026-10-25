@@ -247,9 +247,10 @@ func (s *server) claim(w http.ResponseWriter, r *http.Request) {
 }
 
 type finishReq struct {
-	Status  string `json:"status"`
-	Summary string `json:"summary"`
-	Log     string `json:"log"`
+	Status  string   `json:"status"`
+	Summary string   `json:"summary"`
+	Log     string   `json:"log"`
+	CostUSD *float64 `json:"cost_usd"` // omitted when the agent reported none
 }
 
 func (s *server) finish(w http.ResponseWriter, r *http.Request) {
@@ -267,6 +268,10 @@ func (s *server) finish(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "status must be done or failed", http.StatusBadRequest)
 		return
 	}
+	if req.CostUSD != nil && (*req.CostUSD < 0 || *req.CostUSD >= 1e6) {
+		http.Error(w, "cost_usd out of range", http.StatusBadRequest)
+		return
+	}
 	object := ""
 	if req.Log != "" {
 		object = fmt.Sprintf("runs/%d.log", id)
@@ -275,7 +280,7 @@ func (s *server) finish(w http.ResponseWriter, r *http.Request) {
 			object = ""
 		}
 	}
-	if err := s.store.FinishRun(r.Context(), id, req.Status, req.Summary, object); errors.Is(err, db.ErrNotFound) {
+	if err := s.store.FinishRun(r.Context(), id, req.Status, req.Summary, object, req.CostUSD); errors.Is(err, db.ErrNotFound) {
 		http.Error(w, "run is not active", http.StatusConflict)
 		return
 	} else if err != nil {
@@ -283,7 +288,7 @@ func (s *server) finish(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
-	slog.Info("run finished", "run", id, "status", req.Status)
+	slog.Info("run finished", "run", id, "status", req.Status, "cost_usd", req.CostUSD)
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }
 
@@ -331,7 +336,7 @@ type statusWriter struct {
 	code int
 }
 
-func (w *statusWriter) WriteHeader(code int) { w.code = code; w.ResponseWriter.WriteHeader(code) }
+func (w *statusWriter) WriteHeader(code int)        { w.code = code; w.ResponseWriter.WriteHeader(code) }
 func (w *statusWriter) Unwrap() http.ResponseWriter { return w.ResponseWriter }
 
 func logRequests(next http.Handler) http.Handler {

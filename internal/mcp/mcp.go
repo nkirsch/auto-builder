@@ -79,6 +79,7 @@ type ItemOut struct {
 	MergeSHA    string          `json:"merge_sha,omitempty"`
 	CloseNote   string          `json:"close_note,omitempty"`
 	Blocked     string          `json:"blocked,omitempty" jsonschema:"why the item is blocked; empty when it isn't"`
+	BlockedAt   *time.Time      `json:"blocked_at,omitempty" jsonschema:"when it was blocked; thread posts after this are new"`
 	Tags        []string        `json:"tags" jsonschema:"lower-case #tags; empty means untagged"`
 	Thread      []Post          `json:"thread" jsonschema:"the item body first, then replies in order"`
 	Attachments []AttachmentOut `json:"attachments,omitempty"`
@@ -164,7 +165,7 @@ func role(roles map[string]string, login string) string {
 
 func (b *Board) itemOut(ctx context.Context, it db.Item, roles map[string]string, attachments bool) (ItemOut, error) {
 	out := ItemOut{ID: it.ID, Title: it.Title, Status: it.Status, Approved: it.Approved, ApprovedBy: it.ApprovedBy,
-		MergeSHA: it.MergeSHA, CloseNote: it.CloseNote, Blocked: it.Blocked, Tags: it.Tags}
+		MergeSHA: it.MergeSHA, CloseNote: it.CloseNote, Blocked: it.Blocked, BlockedAt: it.BlockedAt, Tags: it.Tags}
 	if out.Tags == nil {
 		out.Tags = []string{}
 	}

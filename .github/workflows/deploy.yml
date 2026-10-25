@@ -9,12 +9,19 @@ concurrency:
 permissions:
   contents: read
   id-token: write
+# Tests and both image builds run in parallel; deploy waits for all three.
 jobs:
   test:
     uses: ./.github/workflows/ci.yml
-  deploy:
-    needs: test
+  image:
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - name: server
+            file: Dockerfile
+          - name: runner
+            file: Dockerfile.runner
     steps:
       - uses: actions/checkout@v4
       - uses: google-github-actions/auth@v2
@@ -24,21 +31,28 @@ jobs:
       - uses: google-github-actions/setup-gcloud@v2
       - run: gcloud auth configure-docker ${{ vars.GCP_REGION }}-docker.pkg.dev --quiet
       - uses: docker/setup-buildx-action@v3
-      - name: server image
-        uses: docker/build-push-action@v6
+      # Weekly value: refreshes the runner's Claude Code install despite layer caching.
+      - id: week
+        run: echo "week=$(date -u +%G-W%V)" >> "$GITHUB_OUTPUT"
+      - uses: docker/build-push-action@v6
         with:
           context: .
+          file: ${{ matrix.file }}
           platforms: linux/amd64
           push: true
-          tags: ${{ vars.IMAGE }}/server:${{ github.sha }}
-      - name: runner image
-        uses: docker/build-push-action@v6
+          tags: ${{ vars.IMAGE }}/${{ matrix.name }}:${{ github.sha }}
+          build-args: TOOLS_WEEK=${{ steps.week.outputs.week }}
+          cache-from: type=gha,scope=${{ matrix.name }}
+          cache-to: type=gha,scope=${{ matrix.name }},mode=max
+  deploy:
+    needs: [test, image]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: google-github-actions/auth@v2
         with:
-          context: .
-          file: Dockerfile.runner
-          platforms: linux/amd64
-          push: true
-          tags: ${{ vars.IMAGE }}/runner:${{ github.sha }}
+          workload_identity_provider: ${{ vars.GCP_WIF_PROVIDER }}
+          service_account: ${{ vars.GCP_DEPLOYER }}
+      - uses: google-github-actions/setup-gcloud@v2
       - name: deploy server
         run: >
           gcloud run deploy builder --project ${{ vars.GCP_PROJECT }} --region ${{ vars.GCP_REGION }}

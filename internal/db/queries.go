@@ -78,6 +78,7 @@ type Notification struct {
 	Kind      string
 	ReadAt    *time.Time
 	CreatedAt time.Time
+	Count     int // notifications on this item, when listed per item
 }
 
 type Run struct {
@@ -162,7 +163,7 @@ func (s *Store) Item(ctx context.Context, id int) (Item, error) {
 // Items lists items in the given statuses (all when empty), newest activity first.
 func (s *Store) Items(ctx context.Context, statuses ...string) ([]Item, error) {
 	rows, err := s.Pool.Query(ctx, `SELECT `+itemCols+`, (SELECT count(*) FROM responses r WHERE r.item_id = i.id)
-		FROM items i WHERE cardinality($1::text[]) = 0 OR i.status = ANY($1)
+		FROM items i WHERE coalesce(cardinality($1::text[]), 0) = 0 OR i.status = ANY($1)
 		ORDER BY i.updated_at DESC`, statuses)
 	if err != nil {
 		return nil, err
@@ -184,8 +185,9 @@ func (s *Store) CreateItem(ctx context.Context, title, body, author string) (int
 // CreateBotItem files an item without counting as human activity.
 func (s *Store) CreateBotItem(ctx context.Context, title, body, author string) (int, error) {
 	var id int
+	// epoch, not -infinity: pgx can't scan infinite timestamps into time.Time.
 	err := s.Pool.QueryRow(ctx, `INSERT INTO items (title, body, author, human_activity_at)
-		VALUES ($1, $2, $3, '-infinity') RETURNING id`, title, body, author).Scan(&id)
+		VALUES ($1, $2, $3, 'epoch') RETURNING id`, title, body, author).Scan(&id)
 	return id, err
 }
 
@@ -320,24 +322,31 @@ func (s *Store) Notify(ctx context.Context, login string, itemID int, actor, kin
 	return err
 }
 
-// Notifications lists the login's notifications, newest first. done selects
-// read notifications on shipped or closed items; the rest are the inbox, so
-// unread ones stay there until read.
+// Notifications lists the login's inbox, one row per item, newest activity
+// first: the item's latest notification, with ReadAt nil while any of its
+// notifications is unread and Count the number collapsed into the row. done
+// selects fully read items that are shipped or closed; the rest are the inbox,
+// so unread ones stay there until read.
 func (s *Store) Notifications(ctx context.Context, login string, done bool, limit int) ([]Notification, error) {
-	rows, err := s.Pool.Query(ctx, `SELECT n.id, n.login, n.item_id, i.title, n.actor, n.kind, n.read_at, n.created_at
-		FROM notifications n JOIN items i ON i.id = n.item_id
-		WHERE lower(n.login) = lower($1)
-		  AND (n.read_at IS NOT NULL AND i.status IN ('shipped', 'closed')) = $2
-		ORDER BY n.id DESC LIMIT $3`, login, done, limit)
+	rows, err := s.Pool.Query(ctx, `SELECT l.id, l.login, l.item_id, i.title, l.actor, l.kind,
+			CASE WHEN g.unread > 0 THEN NULL ELSE g.last_read END, l.created_at, g.n
+		FROM (SELECT item_id, count(*) AS n, count(*) FILTER (WHERE read_at IS NULL) AS unread,
+				max(read_at) AS last_read, max(id) AS last_id
+			FROM notifications WHERE lower(login) = lower($1) GROUP BY item_id) g
+		JOIN notifications l ON l.id = g.last_id
+		JOIN items i ON i.id = g.item_id
+		WHERE (g.unread = 0 AND i.status IN ('shipped', 'closed')) = $2
+		ORDER BY l.id DESC LIMIT $3`, login, done, limit)
 	if err != nil {
 		return nil, err
 	}
 	return pgx.CollectRows(rows, pgx.RowToStructByPos[Notification])
 }
 
+// UnreadCount is the number of items with unread notifications for the login.
 func (s *Store) UnreadCount(ctx context.Context, login string) (int, error) {
 	var n int
-	err := s.Pool.QueryRow(ctx, `SELECT count(*) FROM notifications WHERE lower(login) = lower($1) AND read_at IS NULL`,
+	err := s.Pool.QueryRow(ctx, `SELECT count(DISTINCT item_id) FROM notifications WHERE lower(login) = lower($1) AND read_at IS NULL`,
 		login).Scan(&n)
 	return n, err
 }
@@ -425,6 +434,7 @@ func (s *Store) GateState(ctx context.Context) (GateState, error) {
 			(SELECT t FROM last_ok),
 			(SELECT max(finished_at) FROM runs WHERE status = 'failed'),
 			EXISTS (SELECT 1 FROM items WHERE status IN ('open', 'building')
+				AND human_activity_at > 'epoch' -- bot-filed items carry epoch
 				AND human_activity_at > coalesce((SELECT t FROM last_ok), '-infinity')),
 			EXISTS (SELECT 1 FROM items WHERE status = 'open' AND approved)`).
 		Scan(&g.Active, &g.LastSuccess, &g.LastFailure, &g.NewActivity, &g.ApprovedOpen)

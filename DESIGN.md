@@ -25,7 +25,7 @@ steps are the manual ones below.
 | Storage | GCS bucket: item attachments (`attachments/…`) and run logs (`runs/{id}.log`). Private; the server proxies reads. Local dev uses a directory. Plain JSON API + `google.DefaultTokenSource`, no heavy client libs. |
 | Agent auth | `ANTHROPIC_API_KEY` in Secret Manager. |
 | Autonomy | Agent opens a PR and enables auto-merge (squash); CI green → merge → deploy. Branch protection requires CI. |
-| CI/CD | GitHub Actions: `go vet` + `go test` on PRs; on push to `master` build amd64-only server and runner images (Cloud Run runs amd64) to Artifact Registry, `gcloud run deploy` the server with `GIT_SHA`, `gcloud run jobs update` the runner. Auth via Workload Identity Federation (no JSON keys). |
+| CI/CD | GitHub Actions: `go vet` + `go test` on PRs; on push to `master` run tests and build amd64-only server and runner images in parallel (pushed to Artifact Registry, layer-cached, Claude Code refreshed weekly), then `gcloud run deploy` the server with `GIT_SHA`, `gcloud run jobs update` the runner. Auth via Workload Identity Federation (no JSON keys). |
 
 ## Components
 
@@ -62,7 +62,8 @@ non-bot change (create, reply, approve) and drives the gate.
 
 - `/` open items (approved badge, status, reply count), `/items/{id}` thread,
   `/items/new`, `/inbox` (mentions + replies to your items, unread count in nav;
-  read ones on shipped/closed items move to `/inbox?show=done`),
+  one row per item; fully read ones on shipped/closed items move to
+  `/inbox?show=done`),
   `/runs` (history, items the agent replied on/opened a PR for/closed/filed
   during each run via MCP, summary, log link), `/admin` (members, Run now).
 - Signed-out visitors land on `/auth/login` (our page, generic Open Graph

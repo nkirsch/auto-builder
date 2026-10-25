@@ -143,28 +143,38 @@ func TestNotifications(t *testing.T) {
 	s := testStore(t)
 	id, _ := s.CreateItem(ctx, "x", "", "alice")
 	s.Notify(ctx, "Alice", id, "bob", "reply")
-	s.Notify(ctx, "alice", id, "bob", "mention")
+	s.Notify(ctx, "alice", id, "carol", "mention")
+	other, _ := s.CreateItem(ctx, "y", "", "alice")
+	s.Notify(ctx, "alice", other, "bob", "reply")
 	if n, _ := s.UnreadCount(ctx, "ALICE"); n != 2 {
 		t.Fatalf("unread = %d", n)
 	}
-	if err := s.MarkRead(ctx, "alice", id); err != nil {
+	if err := s.MarkRead(ctx, "alice", other); err != nil {
 		t.Fatal(err)
 	}
-	if n, _ := s.UnreadCount(ctx, "alice"); n != 0 {
+	if n, _ := s.UnreadCount(ctx, "alice"); n != 1 {
 		t.Fatalf("unread after read = %d", n)
 	}
+	// One row per item: its latest notification, newest item first.
 	ns, err := s.Notifications(ctx, "alice", false, 10)
-	if err != nil || len(ns) != 2 || ns[0].ItemTitle != "x" {
+	if err != nil || len(ns) != 2 || ns[0].ItemID != other || ns[0].ReadAt == nil ||
+		ns[1].ItemID != id || ns[1].Actor != "carol" || ns[1].Count != 2 || ns[1].ReadAt != nil {
 		t.Fatalf("notifications = %+v, %v", ns, err)
 	}
 
-	// Closing the item moves read notifications to done; unread ones stay in the inbox.
+	// Closing an item moves it to done once all its notifications are read.
 	s.CloseItem(ctx, id, "dup", true)
-	s.Notify(ctx, "alice", id, "bob", "reply")
+	s.CloseItem(ctx, other, "dup", true)
 	inbox, _ := s.Notifications(ctx, "alice", false, 10)
 	done, _ := s.Notifications(ctx, "alice", true, 10)
-	if len(inbox) != 1 || inbox[0].ReadAt != nil || len(done) != 2 {
+	if len(inbox) != 1 || inbox[0].ItemID != id || len(done) != 1 || done[0].ItemID != other {
 		t.Fatalf("inbox = %+v, done = %+v", inbox, done)
+	}
+	s.MarkRead(ctx, "alice", 0)
+	inbox, _ = s.Notifications(ctx, "alice", false, 10)
+	done, _ = s.Notifications(ctx, "alice", true, 10)
+	if len(inbox) != 0 || len(done) != 2 {
+		t.Fatalf("after read: inbox = %+v, done = %+v", inbox, done)
 	}
 }
 
@@ -211,6 +221,33 @@ func TestRunItems(t *testing.T) {
 	if len(got) != 1 || len(got[run]) != 2 || got[run][0].ItemID != b || got[run][1].ItemID != a ||
 		got[run][0].Title != "Dupes" || got[run][1].Status != "open" {
 		t.Fatalf("run items = %+v", got)
+	}
+}
+
+func TestBotItemReadable(t *testing.T) {
+	ctx := context.Background()
+	s := testStore(t)
+	id, err := s.CreateBotItem(ctx, "split out", "", "builder-bot")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Item(ctx, id); err != nil {
+		t.Fatalf("Item: %v", err)
+	}
+	if items, err := s.Items(ctx); err != nil || len(items) != 1 {
+		t.Fatalf("Items = %d, %v", len(items), err)
+	}
+	if g, _ := s.GateState(ctx); g.NewActivity {
+		t.Fatal("bot-filed item counts as human activity")
+	}
+	// Rows written before the fix are repaired by migration 003.
+	s.Pool.Exec(ctx, `UPDATE items SET human_activity_at = '-infinity' WHERE id = $1`, id)
+	s.Pool.Exec(ctx, `DELETE FROM schema_migrations WHERE version = '003_bot_item_activity'`)
+	if err := Migrate(ctx, s.Pool); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Items(ctx); err != nil {
+		t.Fatalf("Items after migration: %v", err)
 	}
 }
 

@@ -24,6 +24,7 @@ import (
 
 	"github.com/nkirsch/auto-builder/internal/auth"
 	"github.com/nkirsch/auto-builder/internal/db"
+	"github.com/nkirsch/auto-builder/internal/github"
 	"github.com/nkirsch/auto-builder/internal/notify"
 	"github.com/nkirsch/auto-builder/internal/store"
 	"github.com/nkirsch/auto-builder/web"
@@ -48,7 +49,10 @@ type Board struct {
 	Auth     *auth.Auth
 	Pushover *notify.Pushover
 	// Quiet is the login whose own actions don't Pushover (the person receiving them).
-	Quiet    string
+	Quiet string
+	// GitHub and Releases enable the admin page's Release button.
+	GitHub   *github.Client
+	Releases bool
 	Gate     Gate
 	BaseURL  string
 	BotLogin string
@@ -104,6 +108,7 @@ func (b *Board) Routes(mux *http.ServeMux) error {
 	mux.Handle("POST /admin/members", admin(b.addMember))
 	mux.Handle("POST /admin/members/{login}/delete", admin(b.deleteMember))
 	mux.Handle("POST /admin/run", admin(b.runNow))
+	mux.Handle("POST /admin/release", admin(b.release))
 	mux.Handle("POST /admin/spend-limit", admin(b.setSpendLimit))
 	mux.Handle("POST /admin/auto-approve", admin(b.setAutoApprove))
 	mux.Handle("POST /theme", member(b.setTheme))
@@ -159,7 +164,7 @@ func (b *Board) parse() error {
 		return err
 	}
 	for _, p := range pages {
-		t, err := template.New("").Funcs(funcs).Funcs(template.FuncMap{"base": b.prefix}).ParseFS(web.FS, "templates/layout.html", "templates/"+p)
+		t, err := template.New("").Funcs(funcs).Funcs(template.FuncMap{"base": b.prefix}).ParseFS(web.FS, "templates/layout.html", "templates/brand.html", "templates/"+p)
 		if err != nil {
 			return fmt.Errorf("template %s: %w", p, err)
 		}
@@ -767,7 +772,8 @@ func (b *Board) admin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	b.render(w, r, "admin", "Admin", map[string]any{"Members": members, "Costs": costs,
-		"Limit": limit, "MemberCosts": byMember, "Stats": []db.RunStats{recent, all}})
+		"Limit": limit, "MemberCosts": byMember, "Stats": []db.RunStats{recent, all},
+		"Release": b.releaseInfo(r.Context())})
 }
 
 func (b *Board) setSpendLimit(w http.ResponseWriter, r *http.Request) {

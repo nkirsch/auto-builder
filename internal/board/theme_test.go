@@ -120,7 +120,7 @@ func TestLayoutVersion(t *testing.T) {
 		t.Fatal("version shown before it is known")
 	}
 	b.SetVersion("v26.10.25-2")
-	if want := `auto-builder <span class="version" title="abc123">v26.10.25-2</span></a>`; !strings.Contains(layout(), want) {
+	if want := `<span class="version" title="abc123">v26.10.25-2</span></a>`; !strings.Contains(layout(), want) {
 		t.Fatalf("layout missing %s", want)
 	}
 }
@@ -170,6 +170,28 @@ func TestLayoutLinksUnderPath(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, want := range []string{`href="/iterate/static/style.css"`, `href="/iterate/items/new"`, `action="/iterate/auth/logout"`} {
+		if !strings.Contains(sb.String(), want) {
+			t.Errorf("layout missing %s", want)
+		}
+	}
+}
+
+func TestLayoutBrand(t *testing.T) {
+	b := &Board{}
+	if err := b.parse(); err != nil {
+		t.Fatal(err)
+	}
+	var sb strings.Builder
+	if err := b.tmpl["new"].ExecuteTemplate(&sb, "layout", page{Title: "New", Me: db.Member{Login: "alice"}}); err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		`<title>New · auto-builder</title>`,
+		`<meta property="og:title" content="auto-builder">`,
+		`<link rel="icon" href="/favicon.ico" sizes="any">`,
+		`href="/static/brand.css"`,
+		`class="brand">auto-builder</a>`,
+	} {
 		if !strings.Contains(sb.String(), want) {
 			t.Errorf("layout missing %s", want)
 		}

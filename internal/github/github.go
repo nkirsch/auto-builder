@@ -403,3 +403,66 @@ func (c *Client) CloseIssue(ctx context.Context, repo string, n int, comment str
 	return c.do(ctx, http.MethodPatch, fmt.Sprintf("/repos/%s/issues/%d", repo, n),
 		map[string]string{"state": "closed", "state_reason": reason}, nil)
 }
+
+// LatestRelease returns the latest published release's tag, or "" if there is none.
+func (c *Client) LatestRelease(ctx context.Context, repo string) (string, error) {
+	var rel struct {
+		Tag string `json:"tag_name"`
+	}
+	if err := c.do(ctx, http.MethodGet, fmt.Sprintf("/repos/%s/releases/latest", repo), nil, &rel); err != nil {
+		if IsNotFound(err) {
+			return "", nil
+		}
+		return "", err
+	}
+	return rel.Tag, nil
+}
+
+// Unreleased returns the default branch's head and how many commits it is
+// ahead of tag (all of them when tag is "").
+func (c *Client) Unreleased(ctx context.Context, repo, tag string) (head string, ahead int, err error) {
+	var commit struct {
+		SHA string `json:"sha"`
+	}
+	if err := c.do(ctx, http.MethodGet, fmt.Sprintf("/repos/%s/commits/HEAD", repo), nil, &commit); err != nil {
+		return "", 0, err
+	}
+	if tag == "" {
+		return commit.SHA, 1, nil
+	}
+	var cmp struct {
+		Ahead int `json:"ahead_by"`
+	}
+	if err := c.do(ctx, http.MethodGet, fmt.Sprintf("/repos/%s/compare/%s...%s", repo, tag, commit.SHA), nil, &cmp); err != nil {
+		return "", 0, err
+	}
+	return commit.SHA, cmp.Ahead, nil
+}
+
+// TagsWithPrefix lists tag names starting with prefix.
+func (c *Client) TagsWithPrefix(ctx context.Context, repo, prefix string) ([]string, error) {
+	var refs []struct {
+		Ref string `json:"ref"`
+	}
+	if err := c.do(ctx, http.MethodGet, fmt.Sprintf("/repos/%s/git/matching-refs/tags/%s", repo, prefix), nil, &refs); err != nil {
+		return nil, err
+	}
+	tags := make([]string, len(refs))
+	for i, r := range refs {
+		tags[i] = strings.TrimPrefix(r.Ref, "refs/tags/")
+	}
+	return tags, nil
+}
+
+// CreateRelease publishes release tag at sha with generated notes. Made with
+// an App token, it triggers the repo's release workflows.
+func (c *Client) CreateRelease(ctx context.Context, repo, tag, sha string) (string, error) {
+	in := map[string]any{"tag_name": tag, "target_commitish": sha, "name": tag, "generate_release_notes": true}
+	var out struct {
+		URL string `json:"html_url"`
+	}
+	if err := c.do(ctx, http.MethodPost, fmt.Sprintf("/repos/%s/releases", repo), in, &out); err != nil {
+		return "", err
+	}
+	return out.URL, nil
+}

@@ -37,6 +37,7 @@ type config struct {
 	Launcher, Project, Region, Job           string
 	AppID, AppInstallation, AppKey           string
 	PushoverToken, PushoverUser, Quiet       string
+	Releases                                 bool
 	Version                                  string // set by a deploy that tags the commit
 	IdleHours                                int
 	IssueSync                                bool // ISSUE_SYNC=off disables importing GitHub issues
@@ -78,6 +79,7 @@ func loadConfig() (config, error) {
 		PushoverToken:   env("PUSHOVER_TOKEN", ""),
 		PushoverUser:    env("PUSHOVER_USER", ""),
 		Quiet:           env("PUSHOVER_QUIET", "nkirsch"),
+		Releases:        env("RELEASES", "false") == "true",
 		IdleHours:       idle,
 		IssueSync:       env("ISSUE_SYNC", "on") != "off",
 	}
@@ -187,8 +189,10 @@ func run() error {
 		Store: st, Storage: storage, Auth: a, Gate: g,
 		Pushover: notify.NewPushover(cfg.PushoverToken, cfg.PushoverUser), Quiet: cfg.Quiet,
 		BaseURL: cfg.BaseURL, BotLogin: cfg.BotLogin, GitSHA: cfg.GitSHA, Repo: cfg.Repo,
+		GitHub: gh, Releases: cfg.Releases,
 	}
 	g.Ship = &gate.Shipper{Store: st, GitHub: gh, Repo: cfg.Repo, GitSHA: cfg.GitSHA, Reply: b.BotReply}
+	g.ShipSoon()
 	if app != nil && cfg.IssueSync {
 		g.Issues = &gate.IssueSync{Store: st, GitHub: gh, Repo: cfg.Repo, BaseURL: cfg.BaseURL, Notified: b.Notified}
 	}
@@ -208,6 +212,9 @@ func run() error {
 	// Not /healthz: Cloud Run's front end reserves it.
 	mux.HandleFunc("GET /health", s.health)
 	mux.HandleFunc("GET /version", s.versionJSON) // public: a site footer can show it
+	if cfg.SiteDir != "" {
+		mux.Handle("GET /logs", a.RequireAdmin(newTraffic(cfg.BaseURL, cfg.Project, os.Getenv("K_SERVICE")))) // site traffic
+	}
 	mux.Handle("/mcp", auth.Bearer(cfg.RunnerToken, tools.Handler()))
 	mux.Handle("POST /api/runner/runs/{id}/claim", auth.Bearer(cfg.RunnerToken, http.HandlerFunc(s.claim)))
 	mux.Handle("POST /api/runner/runs/{id}/token", auth.Bearer(cfg.RunnerToken, http.HandlerFunc(s.token)))
@@ -428,6 +435,7 @@ func (s *server) finish(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	slog.Info("run finished", "run", id, "status", req.Status, "cost_usd", req.CostUSD)
+	s.gate.ShipSoon()
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }
 

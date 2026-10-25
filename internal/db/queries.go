@@ -326,8 +326,7 @@ func (s *Store) Notify(ctx context.Context, login string, itemID int, actor, kin
 // Notifications lists the login's inbox, one row per item, newest activity
 // first: the item's latest notification, with ReadAt nil while any of its
 // notifications is unread and Count the number collapsed into the row. done
-// selects fully read items that are shipped or closed; the rest are the inbox,
-// so unread ones stay there until read.
+// selects items that are shipped or closed, read or not; the rest are the inbox.
 func (s *Store) Notifications(ctx context.Context, login string, done bool, limit int) ([]Notification, error) {
 	rows, err := s.Pool.Query(ctx, `SELECT l.id, l.login, l.item_id, i.title, l.actor, l.kind,
 			CASE WHEN g.unread > 0 THEN NULL ELSE g.last_read END, l.created_at, g.n
@@ -336,7 +335,7 @@ func (s *Store) Notifications(ctx context.Context, login string, done bool, limi
 			FROM notifications WHERE lower(login) = lower($1) GROUP BY item_id) g
 		JOIN notifications l ON l.id = g.last_id
 		JOIN items i ON i.id = g.item_id
-		WHERE (g.unread = 0 AND i.status IN ('shipped', 'closed')) = $2
+		WHERE (i.status IN ('shipped', 'closed')) = $2
 		ORDER BY l.id DESC LIMIT $3`, login, done, limit)
 	if err != nil {
 		return nil, err
@@ -344,10 +343,12 @@ func (s *Store) Notifications(ctx context.Context, login string, done bool, limi
 	return pgx.CollectRows(rows, pgx.RowToStructByPos[Notification])
 }
 
-// UnreadCount is the number of items with unread notifications for the login.
+// UnreadCount is the number of inbox items (not shipped or closed) with unread
+// notifications for the login.
 func (s *Store) UnreadCount(ctx context.Context, login string) (int, error) {
 	var n int
-	err := s.Pool.QueryRow(ctx, `SELECT count(DISTINCT item_id) FROM notifications WHERE lower(login) = lower($1) AND read_at IS NULL`,
+	err := s.Pool.QueryRow(ctx, `SELECT count(DISTINCT n.item_id) FROM notifications n JOIN items i ON i.id = n.item_id
+		WHERE lower(n.login) = lower($1) AND n.read_at IS NULL AND i.status NOT IN ('shipped', 'closed')`,
 		login).Scan(&n)
 	return n, err
 }

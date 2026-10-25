@@ -175,8 +175,9 @@ func (s *Store) Items(ctx context.Context, statuses ...string) ([]Item, error) {
 		return nil, err
 	}
 	return pgx.CollectRows(rows, func(r pgx.CollectableRow) (Item, error) {
-		var it Item
-		it, err := scanItem(r, &it.Replies)
+		var replies int
+		it, err := scanItem(r, &replies)
+		it.Replies = replies
 		return it, err
 	})
 }

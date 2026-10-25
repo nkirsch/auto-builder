@@ -58,6 +58,27 @@ func TestItemLifecycle(t *testing.T) {
 	}
 }
 
+func TestItemsReplyCount(t *testing.T) {
+	ctx := context.Background()
+	s := testStore(t)
+	id, err := s.CreateItem(ctx, "Dark mode", "please", "alice")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, body := range []string{"+1", "me too"} {
+		if _, err := s.AddResponse(ctx, id, "bob", body, true); err != nil {
+			t.Fatal(err)
+		}
+	}
+	items, err := s.Items(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(items) != 1 || items[0].ID != id || items[0].Replies != 2 {
+		t.Fatalf("items = %+v", items)
+	}
+}
+
 func TestBotActivityDoesNotCount(t *testing.T) {
 	ctx := context.Background()
 	s := testStore(t)

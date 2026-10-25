@@ -419,3 +419,38 @@ func (s *Store) GateState(ctx context.Context) (GateState, error) {
 		Scan(&g.Active, &g.LastSuccess, &g.LastFailure, &g.NewActivity, &g.ApprovedOpen)
 	return g, err
 }
+
+// RunItem is an item the agent acted on during a run.
+type RunItem struct {
+	RunID  int
+	ItemID int
+	Title  string
+	Status string
+}
+
+// NoteRunItem records that the running run acted on an item. It does nothing
+// when no run is running (e.g. the MCP server used by hand).
+func (s *Store) NoteRunItem(ctx context.Context, itemID int) error {
+	_, err := s.Pool.Exec(ctx, `INSERT INTO run_items (run_id, item_id)
+		SELECT id, $1 FROM runs WHERE status = 'running' ON CONFLICT DO NOTHING`, itemID)
+	return err
+}
+
+// RunItems returns the items each of the given runs acted on, in the order it
+// first touched them.
+func (s *Store) RunItems(ctx context.Context, runIDs []int) (map[int][]RunItem, error) {
+	rows, err := s.Pool.Query(ctx, `SELECT ri.run_id, i.id, i.title, i.status FROM run_items ri
+		JOIN items i ON i.id = ri.item_id WHERE ri.run_id = ANY($1) ORDER BY ri.run_id, ri.created_at, i.id`, runIDs)
+	if err != nil {
+		return nil, err
+	}
+	items, err := pgx.CollectRows(rows, pgx.RowToStructByPos[RunItem])
+	if err != nil {
+		return nil, err
+	}
+	out := map[int][]RunItem{}
+	for _, it := range items {
+		out[it.RunID] = append(out[it.RunID], it)
+	}
+	return out, nil
+}

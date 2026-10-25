@@ -23,13 +23,12 @@ jobs:
           service_account: ${{ vars.GCP_DEPLOYER }}
       - uses: google-github-actions/setup-gcloud@v2
       - run: gcloud auth configure-docker ${{ vars.GCP_REGION }}-docker.pkg.dev --quiet
-      - uses: docker/setup-qemu-action@v3
       - uses: docker/setup-buildx-action@v3
       - name: server image
         uses: docker/build-push-action@v6
         with:
           context: .
-          platforms: linux/amd64,linux/arm64
+          platforms: linux/amd64
           push: true
           tags: ${{ vars.IMAGE }}/server:${{ github.sha }}
       - name: runner image
@@ -37,7 +36,7 @@ jobs:
         with:
           context: .
           file: Dockerfile.runner
-          platforms: linux/amd64,linux/arm64
+          platforms: linux/amd64
           push: true
           tags: ${{ vars.IMAGE }}/runner:${{ github.sha }}
       - name: deploy server

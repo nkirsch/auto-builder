@@ -10,7 +10,8 @@ permissions:
   id-token: write
 # Tests and both image builds run in parallel; deploy waits for all three.
 jobs:
-  # app.env's DEPLOY_ON picks push or release; the other trigger stops here.
+  # app.env's DEPLOY_ON picks push or release; the other trigger stops here,
+  # and none (a fork not deployed yet) stops all three.
   config:
     runs-on: ubuntu-latest
     outputs:
@@ -28,7 +29,7 @@ jobs:
           grep -E '^[A-Z_]+=' app.env >> "$GITHUB_OUTPUT"
           . ./app.env
           case "$GITHUB_EVENT_NAME" in
-            workflow_dispatch) deploy=true ;;
+            workflow_dispatch) deploy=$([ "$DEPLOY_ON" != none ] && echo true || echo false) ;;
             release) deploy=$([ "$DEPLOY_ON" = release ] && echo true || echo false) ;;
             *) deploy=$([ "$DEPLOY_ON" = push ] && echo true || echo false) ;;
           esac

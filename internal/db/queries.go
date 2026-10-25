@@ -33,6 +33,9 @@ type Member struct {
 	AddedBy   string
 	AddedAt   time.Time
 	LastSeen  *time.Time
+	// AutoApprove (admins only): their new asks, and items the agent files
+	// from their comments, start approved.
+	AutoApprove bool
 }
 
 func (m Member) IsAdmin() bool { return m.Role == "admin" }
@@ -200,11 +203,11 @@ func notFound(err error) error {
 
 // Members
 
-const memberCols = `login, role, name, avatar_url, added_by, added_at, last_seen`
+const memberCols = `login, role, name, avatar_url, added_by, added_at, last_seen, auto_approve`
 
 func scanMember(row pgx.Row) (Member, error) {
 	var m Member
-	err := row.Scan(&m.Login, &m.Role, &m.Name, &m.AvatarURL, &m.AddedBy, &m.AddedAt, &m.LastSeen)
+	err := row.Scan(&m.Login, &m.Role, &m.Name, &m.AvatarURL, &m.AddedBy, &m.AddedAt, &m.LastSeen, &m.AutoApprove)
 	return m, notFound(err)
 }
 
@@ -226,6 +229,33 @@ func (s *Store) UpsertMember(ctx context.Context, login, role, addedBy string) e
 	_, err := s.Pool.Exec(ctx, `INSERT INTO members (login, role, added_by) VALUES ($1, $2, $3)
 		ON CONFLICT (login) DO UPDATE SET role = EXCLUDED.role`, login, role, addedBy)
 	return err
+}
+
+// SetAutoApprove turns auto-approve on or off for a member.
+func (s *Store) SetAutoApprove(ctx context.Context, login string, on bool) error {
+	return s.execOne(ctx, `UPDATE members SET auto_approve = $2 WHERE lower(login) = lower($1)`, login, on)
+}
+
+// AutoApprover returns the admin whose auto-approve covers an item split from
+// item id: the latest author of the item or a reply on it who is an admin with
+// auto-approve on, provided the item itself is approved; "" when none is.
+func (s *Store) AutoApprover(ctx context.Context, id int) (string, error) {
+	var login string
+	err := s.Pool.QueryRow(ctx, `SELECT m.login FROM items i
+		JOIN (SELECT item_id, author, created_at, id FROM responses
+			UNION ALL SELECT id, author, created_at, 0 FROM items) p ON p.item_id = i.id
+		JOIN members m ON lower(m.login) = lower(p.author) AND m.role = 'admin' AND m.auto_approve
+		WHERE i.id = $1 AND i.approved
+		ORDER BY p.created_at DESC, p.id DESC LIMIT 1`, id).Scan(&login)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", nil
+	}
+	return login, err
+}
+
+// ApproveBotItem approves an item the bot filed; not human activity.
+func (s *Store) ApproveBotItem(ctx context.Context, id int, by string) error {
+	return s.execOne(ctx, `UPDATE items SET approved = true, approved_by = $2 WHERE id = $1`, id, by)
 }
 
 func (s *Store) DeleteMember(ctx context.Context, login string) error {

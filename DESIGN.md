@@ -87,6 +87,11 @@ non-bot change (create, reply, approve) and drives the gate.
   so the agent picks it up again; member replies only notify.
 - New items and replies from non-admins Pushover the admin when
   `PUSHOVER_TOKEN` / `PUSHOVER_USER` are set; otherwise log only.
+- Admins can turn on auto-approve for themselves on `/admin`
+  (`members.auto_approve`): their new asks start approved by them, and an
+  item the agent files with `file_item(..., from_item)` starts approved when
+  `from_item` is approved and its latest post by an auto-approving admin
+  names who approved it (not human activity).
 - Agent replies are authored as the bot login (`BOT_LOGIN`, default `builder-bot`).
 - Blocked items (`items.blocked` note + `blocked_at`) need action outside
   auto-builder (e.g. re-run bootstrap) or hit an error. The agent sets or
@@ -169,7 +174,7 @@ Job timeout 60 min, max retries 0.
 | `set_tags(id, tags)` | tag an untagged item (agent's guess) |
 | `set_blocked(id, note)` | flag an item blocked (red) with a note; empty note clears |
 | `close_item(id, note)` | close a duplicate/obsolete item with a note |
-| `file_item(title, body)` | split work into a new item (unapproved) |
+| `file_item(title, body, from_item?)` | split work into a new item (unapproved, unless auto-approved via `from_item`) |
 | `deploy_status()` | deployed `GIT_SHA`, items awaiting ship |
 
 ## Agent rules (`.claude/commands/build-board.md`)

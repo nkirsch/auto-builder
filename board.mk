@@ -1,4 +1,5 @@
-# Board targets; include app.defaults.env and app.env first.
+# Board targets for any site's Makefile: include board.mk.
+include app.defaults.env app.env
 # Postgres runs wherever Docker does (DOCKER_HOST=host:2375 → host).
 DB_HOST  ?= $(or $(shell echo "$$DOCKER_HOST" | sed -nE 's|^(tcp://)?([^:/]+).*|\2|p'),localhost)
 LOCAL_DB := postgres://builder:builder@$(DB_HOST):$(PG_PORT)/builder?sslmode=disable

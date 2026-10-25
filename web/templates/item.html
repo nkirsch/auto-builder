@@ -6,7 +6,7 @@
   <span class="status s-{{$it.Status}}">{{$it.Status}}</span>
   {{if $it.Approved}}<span class="badge approved">approved by {{$it.ApprovedBy}}</span>{{else}}<span class="badge">not approved</span>{{end}}
   {{if $it.Blocked}}<span class="badge blocked">blocked</span>{{end}}
-  {{range $it.Tags}}<a class="tag" href="/?tag={{.}}">#{{.}}</a>{{end}}
+  {{range $it.Tags}}<a class="tag" href="{{base}}/?tag={{.}}">#{{.}}</a>{{end}}
   {{with $it.IssueNumber}}<a href="https://github.com/{{$.Data.Repo}}/issues/{{.}}">issue #{{.}}</a>{{end}}
   {{with $it.PRNumber}}<a href="https://github.com/{{$.Data.Repo}}/pull/{{.}}">PR #{{.}}</a>{{end}}
   {{with $it.MergeSHA}}<a href="https://github.com/{{$.Data.Repo}}/commit/{{.}}">{{short .}}</a>{{end}}
@@ -14,7 +14,7 @@
 {{with $it.Blocked}}
 <div class="row blocked-note">
   <span><b>Blocked:</b> {{.}}</span>
-  {{if $me.IsAdmin}}<span class="spacer"></span><form method="post" action="/items/{{$it.ID}}/unblock"><button class="secondary">Clear</button></form>{{end}}
+  {{if $me.IsAdmin}}<span class="spacer"></span><form method="post" action="{{base}}/items/{{$it.ID}}/unblock"><button class="secondary">Clear</button></form>{{end}}
 </div>
 {{end}}
 
@@ -25,7 +25,7 @@
 
 {{with .Attachments}}
 <ul class="attachments">
-  {{range .}}<li><a href="/attachments/{{.ID}}">{{.Name}}</a> <span class="muted">{{size .Size}} · {{.UploadedBy}}</span></li>{{end}}
+  {{range .}}<li><a href="{{base}}/attachments/{{.ID}}">{{.Name}}</a> <span class="muted">{{size .Size}} · {{.UploadedBy}}</span></li>{{end}}
 </ul>
 {{end}}
 
@@ -38,7 +38,7 @@
 {{with $it.CloseNote}}<p class="note">Closed: {{.}}</p>{{end}}
 <a id="end"></a>
 
-<form method="post" action="/items/{{$it.ID}}/responses" enctype="multipart/form-data" class="stack">
+<form method="post" action="{{base}}/items/{{$it.ID}}/responses" enctype="multipart/form-data" class="stack">
   {{if and $me.IsAdmin (eq $it.Status "closed" "shipped")}}<p class="hint">Replying reopens this item so the agent picks it up again.</p>{{end}}
   <textarea name="body" rows="4" placeholder="Reply (markdown, @login)"></textarea>
   <div class="row">
@@ -50,16 +50,16 @@
 
 <div class="row actions">
   {{if $me.IsAdmin}}
-  <form method="post" action="/items/{{$it.ID}}/approve">
+  <form method="post" action="{{base}}/items/{{$it.ID}}/approve">
     {{if $it.Approved}}<input type="hidden" name="approved" value="false"><button class="secondary">Unapprove</button>
     {{else}}<button>Approve</button>{{end}}
   </form>
   {{end}}
   {{if .CanClose}}
     {{if eq $it.Status "closed" "shipped"}}
-    <form method="post" action="/items/{{$it.ID}}/reopen"><button class="secondary">Reopen</button></form>
+    <form method="post" action="{{base}}/items/{{$it.ID}}/reopen"><button class="secondary">Reopen</button></form>
     {{else}}
-    <form method="post" action="/items/{{$it.ID}}/close" class="row">
+    <form method="post" action="{{base}}/items/{{$it.ID}}/close" class="row">
       <input name="note" placeholder="Why close? (optional)">
       <button class="secondary">Close</button>
     </form>

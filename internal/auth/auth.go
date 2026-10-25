@@ -61,6 +61,8 @@ type Auth struct {
 	google   *oauth2.Config
 	secure   bool
 	dev      bool
+	origin   string // scheme://host of BaseURL
+	prefix   string // BaseURL's path, e.g. "/iterate"; "" at the root
 	api      string // GitHub API base, overridable in tests
 	userinfo string // Google OpenID userinfo endpoint, overridable in tests
 }
@@ -97,6 +99,8 @@ func New(cfg Config, store *db.Store) (*Auth, error) {
 		},
 		secure:   u.Scheme == "https",
 		dev:      local && cfg.DevLogin != "",
+		origin:   u.Scheme + "://" + u.Host,
+		prefix:   strings.TrimSuffix(u.Path, "/"),
 		api:      "https://api.github.com",
 		userinfo: "https://openidconnect.googleapis.com/v1/userinfo",
 	}, nil
@@ -165,7 +169,7 @@ func (a *Auth) sameOrigin(r *http.Request) bool {
 		// Browsers send Origin on cross-site POSTs; its absence plus SameSite=Lax is safe.
 		return r.Header.Get("Sec-Fetch-Site") != "cross-site"
 	}
-	return strings.TrimSuffix(origin, "/") == strings.TrimSuffix(a.cfg.BaseURL, "/")
+	return strings.TrimSuffix(origin, "/") == a.origin
 }
 
 // GitHub and Google report which sign-in buttons to offer; GitHub is the
@@ -264,7 +268,7 @@ func (a *Auth) start(w http.ResponseWriter, r *http.Request, oc *oauth2.Config) 
 	rand.Read(b)
 	state := hex.EncodeToString(b)
 	http.SetCookie(w, &http.Cookie{
-		Name: stateCookie, Value: state + "|" + next, Path: "/auth", MaxAge: 600,
+		Name: stateCookie, Value: state + "|" + next, Path: a.prefix + "/auth", MaxAge: 600,
 		HttpOnly: true, Secure: a.secure, SameSite: http.SameSiteLaxMode,
 	})
 	http.Redirect(w, r, oc.AuthCodeURL(state), http.StatusFound)
@@ -282,7 +286,7 @@ func (a *Auth) checkState(w http.ResponseWriter, r *http.Request) (string, bool)
 		http.Error(w, "bad sign-in state; try again", http.StatusBadRequest)
 		return "", false
 	}
-	http.SetCookie(w, &http.Cookie{Name: stateCookie, Path: "/auth", MaxAge: -1})
+	http.SetCookie(w, &http.Cookie{Name: stateCookie, Path: a.prefix + "/auth", MaxAge: -1})
 	return next, true
 }
 

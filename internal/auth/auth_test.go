@@ -127,3 +127,25 @@ func TestRequireRedirectsSignedOutGetAndHead(t *testing.T) {
 		}
 	}
 }
+
+func TestMountedUnderPath(t *testing.T) {
+	a, err := New(Config{BaseURL: "https://site.example/iterate", SessionKey: []byte("0123456789abcdef0123")}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := httptest.NewRequest(http.MethodPost, "/items", nil)
+	r.Header.Set("Origin", "https://site.example")
+	if !a.sameOrigin(r) {
+		t.Error("own origin refused when BaseURL has a path")
+	}
+	if a.oauth.RedirectURL != "https://site.example/iterate/auth/callback" {
+		t.Errorf("RedirectURL = %q", a.oauth.RedirectURL)
+	}
+	w := httptest.NewRecorder()
+	a.cfg.ClientID = "id"
+	a.oauth.ClientID = "id"
+	a.handleGitHub(w, httptest.NewRequest(http.MethodGet, "/auth/github?next=/items/1", nil))
+	if c := w.Result().Cookies(); len(c) != 1 || c[0].Path != "/iterate/auth" {
+		t.Errorf("state cookie = %+v, want Path /iterate/auth", c)
+	}
+}

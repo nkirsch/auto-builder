@@ -35,5 +35,19 @@
   {{end}}
 </ul>
 {{end}}
+{{with .Data.Stats}}
+<h3>Run stats</h3>
+<p class="hint">Finished runs. PRs are those the agent opened during them; merged counts ones whose item merged or shipped with that PR. Times are averages over runs that recorded them.</p>
+<table class="stats">
+  <tr><th></th><th>Last 30 days</th><th>All time</th></tr>
+  <tr><td>Runs (done / failed)</td>{{range .}}<td>{{.Runs}} ({{.Done}} / {{.Failed}})</td>{{end}}</tr>
+  <tr><td>PRs opened (merged)</td>{{range .}}<td>{{.PRs}} ({{.PRsMerged}})</td>{{end}}</tr>
+  <tr><td>Cost per PR</td>{{range .}}<td>{{with .CostPerPR}}{{usd .}}{{else}}–{{end}}</td>{{end}}</tr>
+  <tr><td>Runtime (median)</td>{{range .}}<td>{{if .Runtime}}{{dur .Runtime}} ({{dur .MedianRuntime}}){{else}}–{{end}}</td>{{end}}</tr>
+  {{range (index . 0).Stages}}{{$name := .Name}}
+  <tr><td class="stage">{{$name}}</td>{{range $.Data.Stats}}{{range .Stages}}{{if eq .Name $name}}<td>{{if .Duration}}{{dur .Duration}}{{else}}–{{end}}</td>{{end}}{{end}}{{end}}</tr>
+  {{end}}
+</table>
+{{end}}
 <form method="post" action="/admin/run"><button>Run now</button></form>
 {{end}}

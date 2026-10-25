@@ -259,6 +259,9 @@ func (b *Board) setPR(ctx context.Context, _ *mcp.CallToolRequest, in SetPRIn) (
 		return nil, OK{}, fmt.Errorf("item %d is %s; set_pr needs open or building", in.ID, it.Status)
 	}
 	b.noteRunItem(ctx, in.ID)
+	if err := b.Store.NoteRunPR(ctx, in.ID, in.PRNumber); err != nil {
+		slog.Warn("note run pr", "item", in.ID, "err", err)
+	}
 	return nil, OK{OK: true, Message: "item is building"}, nil
 }
 

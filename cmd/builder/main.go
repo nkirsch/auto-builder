@@ -163,6 +163,9 @@ func run() error {
 		BaseURL:  cfg.BaseURL, BotLogin: cfg.BotLogin, GitSHA: cfg.GitSHA, Repo: cfg.Repo,
 	}
 	g.Ship = &gate.Shipper{Store: st, GitHub: gh, Repo: cfg.Repo, GitSHA: cfg.GitSHA, Reply: b.BotReply}
+	if cfg.GitSHA != "dev" {
+		go resolveVersion(ctx, gh, cfg.Repo, cfg.GitSHA, b)
+	}
 	tools := &mcp.Board{Store: st, BotLogin: cfg.BotLogin, BaseURL: cfg.BaseURL, GitSHA: cfg.GitSHA, Reply: b.BotReply}
 
 	s := &server{cfg: cfg, store: st, storage: storage, gate: g}
@@ -192,6 +195,27 @@ func run() error {
 		return err
 	}
 	return nil
+}
+
+// resolveVersion looks up the deployed commit's "vYY.MM.DD-N" name for the nav,
+// retrying briefly; the page simply omits it until then.
+func resolveVersion(ctx context.Context, gh *github.Client, repo, sha string, b *board.Board) {
+	for attempt := 1; attempt <= 5; attempt++ {
+		c, cancel := context.WithTimeout(ctx, 30*time.Second)
+		v, err := gh.Version(c, repo, sha)
+		cancel()
+		if err == nil {
+			b.SetVersion(v)
+			slog.Info("version", "version", v, "sha", sha)
+			return
+		}
+		slog.Warn("version", "attempt", attempt, "err", err)
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(time.Duration(attempt) * 10 * time.Second):
+		}
+	}
 }
 
 func (s *server) health(w http.ResponseWriter, r *http.Request) {

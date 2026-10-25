@@ -77,3 +77,28 @@ func TestLayoutTheme(t *testing.T) {
 		}
 	}
 }
+
+func TestLayoutVersion(t *testing.T) {
+	b := &Board{GitSHA: "abc123"}
+	if err := b.parse(); err != nil {
+		t.Fatal(err)
+	}
+	layout := func() string {
+		p := page{GitSHA: b.GitSHA}
+		if v := b.version.Load(); v != nil {
+			p.Version = *v
+		}
+		var sb strings.Builder
+		if err := b.tmpl["new"].ExecuteTemplate(&sb, "layout", p); err != nil {
+			t.Fatal(err)
+		}
+		return sb.String()
+	}
+	if strings.Contains(layout(), `class="version"`) {
+		t.Fatal("version shown before it is known")
+	}
+	b.SetVersion("v26.10.25-2")
+	if want := `auto-builder <span class="version" title="abc123">v26.10.25-2</span></a>`; !strings.Contains(layout(), want) {
+		t.Fatalf("layout missing %s", want)
+	}
+}

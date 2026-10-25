@@ -27,6 +27,7 @@ header { border-bottom: 1px solid var(--line); background: var(--card); }
 nav, main, footer { max-width: 760px; margin: 0 auto; padding: 0 16px; }
 nav { display: flex; gap: 16px; align-items: center; height: 52px; overflow-x: auto; white-space: nowrap; }
 nav .brand { font-weight: 700; color: var(--fg); }
+nav .version { font-weight: 400; font-size: 13px; color: var(--muted); }
 nav .theme { margin-left: auto; }
 nav .theme button { font-size: 18px; line-height: 1; }
 .theme .to-light, :root[data-theme=dark] .theme .to-dark { display: none; }

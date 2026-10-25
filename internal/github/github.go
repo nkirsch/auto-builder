@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 	"sync"
 	"time"
@@ -202,4 +203,29 @@ func (c *Client) Contains(ctx context.Context, repo, head, sha string) (bool, er
 		return false, err
 	}
 	return cmp.Status == "identical" || cmp.Status == "behind", nil
+}
+
+// Version names commit sha "vYY.MM.DD-N": the UTC day it was committed and its
+// position among that day's commits reachable from it.
+func (c *Client) Version(ctx context.Context, repo, sha string) (string, error) {
+	var commit struct {
+		Commit struct {
+			Committer struct {
+				Date time.Time `json:"date"`
+			} `json:"committer"`
+		} `json:"commit"`
+	}
+	if err := c.do(ctx, http.MethodGet, fmt.Sprintf("/repos/%s/commits/%s", repo, sha), nil, &commit); err != nil {
+		return "", err
+	}
+	at := commit.Commit.Committer.Date.UTC()
+	day := time.Date(at.Year(), at.Month(), at.Day(), 0, 0, 0, 0, time.UTC)
+	var list []struct {
+		SHA string `json:"sha"`
+	}
+	q := url.Values{"sha": {sha}, "since": {day.Format(time.RFC3339)}, "per_page": {"100"}}
+	if err := c.do(ctx, http.MethodGet, fmt.Sprintf("/repos/%s/commits?%s", repo, q.Encode()), nil, &list); err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("v%s-%d", at.Format("06.01.02"), max(len(list), 1)), nil
 }

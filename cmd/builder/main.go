@@ -37,6 +37,7 @@ type config struct {
 	Launcher, Project, Region, Job           string
 	AppID, AppInstallation, AppKey           string
 	PushoverToken, PushoverUser              string
+	Version                                  string // set by a deploy that tags the commit
 	IdleHours                                int
 }
 
@@ -50,6 +51,7 @@ func loadConfig() (config, error) {
 		DatabaseURL:     env("DATABASE_URL", ""),
 		BaseURL:         strings.TrimSuffix(env("BASE_URL", "http://localhost:8080"), "/"),
 		GitSHA:          env("GIT_SHA", "dev"),
+		Version:         env("VERSION", ""),
 		Repo:            env("REPO", "nkirsch/auto-builder"),
 		AdminLogin:      env("ADMIN_LOGIN", "nkirsch"),
 		BotLogin:        env("BOT_LOGIN", "builder-bot"),
@@ -168,7 +170,9 @@ func run() error {
 	if app != nil {
 		g.Issues = &gate.IssueSync{Store: st, GitHub: gh, Repo: cfg.Repo, BaseURL: cfg.BaseURL, Notified: b.Notified}
 	}
-	if cfg.GitSHA != "dev" {
+	if cfg.Version != "" {
+		b.SetVersion(cfg.Version)
+	} else if cfg.GitSHA != "dev" {
 		go resolveVersion(ctx, gh, cfg.Repo, cfg.GitSHA, app != nil, b)
 	}
 	tools := &mcp.Board{Store: st, BotLogin: cfg.BotLogin, BaseURL: cfg.BaseURL, GitSHA: cfg.GitSHA, Reply: b.BotReply}

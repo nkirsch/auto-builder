@@ -142,6 +142,8 @@ On startup the server names its `GIT_SHA` `vYY.MM.DD-N` (shown in the nav)
 and, when it has the GitHub App, tags that commit with it (lightweight tag
 via the refs API; an existing tag on the same commit is fine). The footer
 links the version to its tag and the short SHA to its commit.
+A `VERSION` env var, set by a deploy that tags the commit itself, takes
+precedence: the server shows it and neither names nor tags the commit.
 
 ## GitHub issues (deterministic, no agent)
 

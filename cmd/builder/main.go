@@ -33,15 +33,15 @@ type config struct {
 	AdminLogin, BotLogin, DevLogin           string
 	SessionKey, ClientID, ClientSecret       string
 	RunnerToken, TickToken                   string
-	Bucket, DataDir                          string
+	Bucket, DataDir, SiteDir                 string
 	Launcher, Project, Region, Job           string
 	AppID, AppInstallation, AppKey           string
-	PushoverToken, PushoverUser              string
+	PushoverToken, PushoverUser, Quiet       string
 	Version                                  string // set by a deploy that tags the commit
 	IdleHours                                int
 	IssueSync                                bool // ISSUE_SYNC=off disables importing GitHub issues
 
-	AdminEmail                         string // Google sign-in address for ADMIN_LOGIN
+	AdminEmail                         string // Google sign-in addresses, paired with ADMIN_LOGIN
 	GoogleClientID, GoogleClientSecret string
 }
 
@@ -67,6 +67,7 @@ func loadConfig() (config, error) {
 		TickToken:       env("TICK_TOKEN", ""),
 		Bucket:          env("GCS_BUCKET", ""),
 		DataDir:         env("DATA_DIR", "./data"),
+		SiteDir:         env("SITE_DIR", ""),
 		Launcher:        env("LAUNCHER", ""),
 		Project:         env("GCP_PROJECT", ""),
 		Region:          env("GCP_REGION", "us-central1"),
@@ -76,6 +77,7 @@ func loadConfig() (config, error) {
 		AppKey:          env("GH_APP_PRIVATE_KEY", ""),
 		PushoverToken:   env("PUSHOVER_TOKEN", ""),
 		PushoverUser:    env("PUSHOVER_USER", ""),
+		Quiet:           env("PUSHOVER_QUIET", "nkirsch"),
 		IdleHours:       idle,
 		IssueSync:       env("ISSUE_SYNC", "on") != "off",
 	}
@@ -132,12 +134,19 @@ func run() error {
 	}
 	defer pool.Close()
 	st := &db.Store{Pool: pool}
-	if err := st.UpsertMember(ctx, cfg.AdminLogin, "admin", "bootstrap"); err != nil {
-		return fmt.Errorf("seed admin: %w", err)
-	}
-	if cfg.AdminEmail != "" {
-		if err := st.SetMemberEmail(ctx, cfg.AdminLogin, cfg.AdminEmail); err != nil {
-			return fmt.Errorf("seed admin email: %w", err)
+	// ADMIN_EMAIL pairs with ADMIN_LOGIN by position.
+	emails := strings.Split(cfg.AdminEmail, ",")
+	for i, login := range strings.Split(cfg.AdminLogin, ",") {
+		if login = strings.TrimSpace(login); login == "" {
+			continue
+		}
+		if err := st.UpsertMember(ctx, login, "admin", "bootstrap"); err != nil {
+			return fmt.Errorf("seed admin %s: %w", login, err)
+		}
+		if i < len(emails) && strings.TrimSpace(emails[i]) != "" {
+			if err := st.SetMemberEmail(ctx, login, emails[i]); err != nil {
+				return fmt.Errorf("seed admin email %s: %w", login, err)
+			}
 		}
 	}
 
@@ -176,8 +185,8 @@ func run() error {
 	g := &gate.Gate{Store: st, Launcher: launcher, Idle: time.Duration(cfg.IdleHours) * time.Hour}
 	b := &board.Board{
 		Store: st, Storage: storage, Auth: a, Gate: g,
-		Pushover: notify.NewPushover(cfg.PushoverToken, cfg.PushoverUser),
-		BaseURL:  cfg.BaseURL, BotLogin: cfg.BotLogin, GitSHA: cfg.GitSHA, Repo: cfg.Repo,
+		Pushover: notify.NewPushover(cfg.PushoverToken, cfg.PushoverUser), Quiet: cfg.Quiet,
+		BaseURL: cfg.BaseURL, BotLogin: cfg.BotLogin, GitSHA: cfg.GitSHA, Repo: cfg.Repo,
 	}
 	g.Ship = &gate.Shipper{Store: st, GitHub: gh, Repo: cfg.Repo, GitSHA: cfg.GitSHA, Reply: b.BotReply}
 	if app != nil && cfg.IssueSync {
@@ -198,6 +207,7 @@ func run() error {
 	}
 	// Not /healthz: Cloud Run's front end reserves it.
 	mux.HandleFunc("GET /health", s.health)
+	mux.HandleFunc("GET /version", s.versionJSON) // public: a site footer can show it
 	mux.Handle("/mcp", auth.Bearer(cfg.RunnerToken, tools.Handler()))
 	mux.Handle("POST /api/runner/runs/{id}/claim", auth.Bearer(cfg.RunnerToken, http.HandlerFunc(s.claim)))
 	mux.Handle("POST /api/runner/runs/{id}/token", auth.Bearer(cfg.RunnerToken, http.HandlerFunc(s.token)))
@@ -206,7 +216,11 @@ func run() error {
 	mux.Handle("GET /api/runner/attachments/{id}", auth.Bearer(cfg.RunnerToken, http.HandlerFunc(s.attachment)))
 	mux.Handle("POST /api/gate/tick", auth.Bearer(cfg.TickToken, http.HandlerFunc(s.tick)))
 
-	srv := &http.Server{Addr: ":" + cfg.Port, Handler: logRequests(mux), ReadHeaderTimeout: 10 * time.Second}
+	handler, err := site(cfg.BaseURL, cfg.SiteDir, mux, b.Version)
+	if err != nil {
+		return err
+	}
+	srv := &http.Server{Addr: ":" + cfg.Port, Handler: logRequests(handler), ReadHeaderTimeout: 10 * time.Second}
 	go func() {
 		<-ctx.Done()
 		shutdown, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -273,6 +287,12 @@ func (s *server) health(w http.ResponseWriter, r *http.Request) {
 		status, code = "db: "+err.Error(), http.StatusServiceUnavailable
 	}
 	writeJSON(w, code, map[string]string{"status": status, "sha": s.cfg.GitSHA})
+}
+
+// versionJSON reports the release name, "" until resolved.
+func (s *server) versionJSON(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Cache-Control", "public, max-age=300")
+	writeJSON(w, http.StatusOK, map[string]string{"version": s.version()})
 }
 
 func (s *server) claim(w http.ResponseWriter, r *http.Request) {
@@ -463,7 +483,7 @@ func logRequests(next http.Handler) http.Handler {
 		start := time.Now()
 		sw := &statusWriter{ResponseWriter: w, code: http.StatusOK}
 		next.ServeHTTP(sw, r)
-		if r.URL.Path != "/health" {
+		if !strings.HasSuffix(r.URL.Path, "/health") {
 			slog.Info("http", "method", r.Method, "path", r.URL.Path, "status", sw.code, "ms", time.Since(start).Milliseconds())
 		}
 	})

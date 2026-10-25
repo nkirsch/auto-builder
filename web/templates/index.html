@@ -2,23 +2,23 @@
 <div class="row">
   <h1>{{if eq .Data.Show "done"}}Done{{else}}Open{{end}}{{with .Data.Tag}} <span class="tag">#{{.}}</span>{{end}}</h1>
   <span class="spacer"></span>
-  {{with .Data.Tag}}<a href="/{{if eq $.Data.Show "done"}}?show=done{{end}}">All tags</a>{{end}}
-  {{if eq .Data.Show "done"}}<a class="button secondary" href="/{{with .Data.Tag}}?tag={{.}}{{end}}">Open</a>{{else}}<a class="button secondary" href="/?show=done{{with .Data.Tag}}&amp;tag={{.}}{{end}}">Done</a>{{end}}
-  {{if .Data.Unread}}<form method="post" action="/read"><input type="hidden" name="back" value="{{.Path}}"><button class="secondary">Mark all read</button></form>{{end}}
-  {{if .Me.IsAdmin}}<form method="post" action="/admin/run"><button class="secondary">Run now</button></form>{{end}}
-  <a class="button" href="/items/new">New ask</a>
+  {{with .Data.Tag}}<a href="{{base}}/{{if eq $.Data.Show "done"}}?show=done{{end}}">All tags</a>{{end}}
+  {{if eq .Data.Show "done"}}<a class="button secondary" href="{{base}}/{{with .Data.Tag}}?tag={{.}}{{end}}">Open</a>{{else}}<a class="button secondary" href="{{base}}/?show=done{{with .Data.Tag}}&amp;tag={{.}}{{end}}">Done</a>{{end}}
+  {{if .Data.Unread}}<form method="post" action="{{base}}/read"><input type="hidden" name="back" value="{{.Path}}"><button class="secondary">Mark all read</button></form>{{end}}
+  {{if .Me.IsAdmin}}<form method="post" action="{{base}}/admin/run"><button class="secondary">Run now</button></form>{{end}}
+  <a class="button" href="{{base}}/items/new">New ask</a>
 </div>
 {{range .Data.Sections}}
 {{with .Title}}<h2>{{.}}</h2>{{end}}
 <ul class="items">
   {{range .Items}}
   <li{{if and $.Data.Unread (index $.Data.Unread .ID)}} class="unread" title="Unread updates"{{end}}>
-    <a href="/items/{{.ID}}" class="title">{{.Title}}</a>
+    <a href="{{base}}/items/{{.ID}}" class="title">{{.Title}}</a>
     <div class="meta">
       <span class="status s-{{.Status}}">{{.Status}}</span>
       {{if .Approved}}<span class="badge approved">approved</span>{{end}}
       {{with .Blocked}}<span class="badge blocked" title="{{.}}">blocked</span>{{end}}
-      {{range .Tags}}<a class="tag" href="/?{{if eq $.Data.Show "done"}}show=done&amp;{{end}}tag={{.}}">#{{.}}</a>{{end}}
+      {{range .Tags}}<a class="tag" href="{{base}}/?{{if eq $.Data.Show "done"}}show=done&amp;{{end}}tag={{.}}">#{{.}}</a>{{end}}
       #{{.ID}} by {{.Author}} · {{ago .UpdatedAt}}{{if .Replies}} · {{.Replies}} repl{{if eq .Replies 1}}y{{else}}ies{{end}}{{end}}
     </div>
   </li>

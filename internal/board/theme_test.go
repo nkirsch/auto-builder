@@ -159,3 +159,19 @@ func TestLayoutFooterTagLink(t *testing.T) {
 		t.Errorf("layout missing %s", want)
 	}
 }
+
+func TestLayoutLinksUnderPath(t *testing.T) {
+	b := &Board{BaseURL: "https://site.example/iterate"}
+	if err := b.parse(); err != nil {
+		t.Fatal(err)
+	}
+	var sb strings.Builder
+	if err := b.tmpl["new"].ExecuteTemplate(&sb, "layout", page{Me: db.Member{Login: "alice"}}); err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{`href="/iterate/static/style.css"`, `href="/iterate/items/new"`, `action="/iterate/auth/logout"`} {
+		if !strings.Contains(sb.String(), want) {
+			t.Errorf("layout missing %s", want)
+		}
+	}
+}

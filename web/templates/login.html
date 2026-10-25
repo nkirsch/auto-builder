@@ -1,10 +1,10 @@
 {{define "content"}}
 <section class="signin">
-  <img src="/static/icon.svg" alt="" width="72" height="72">
+  <img src="{{base}}/static/icon.svg" alt="" width="72" height="72">
   <h1>auto-builder</h1>
   <p class="muted">Members file asks. The admin approves them. An unattended Claude Code agent builds each one into a pull request that ships itself when CI passes.</p>
-  {{if .Data.Google}}<a class="button" href="/auth/google?next={{.Data.Next}}">Sign in with Google</a>{{end}}
-  {{if .Data.GitHub}}<a class="button{{if .Data.Google}} secondary{{end}}" href="/auth/github?next={{.Data.Next}}">Sign in with GitHub</a>{{end}}
+  {{if .Data.Google}}<a class="button" href="{{base}}/auth/google?next={{.Data.Next}}">Sign in with Google</a>{{end}}
+  {{if .Data.GitHub}}<a class="button{{if .Data.Google}} secondary{{end}}" href="{{base}}/auth/github?next={{.Data.Next}}">Sign in with GitHub</a>{{end}}
   <p class="hint">Members only. Not a member? Ask the admin to add you.</p>
 </section>
 {{end}}

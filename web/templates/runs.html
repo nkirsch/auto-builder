@@ -2,7 +2,7 @@
 <div class="row">
   <h1>Runs</h1>
   <span class="spacer"></span>
-  {{if .Me.IsAdmin}}<form method="post" action="/admin/run"><button>Run now</button></form>{{end}}
+  {{if .Me.IsAdmin}}<form method="post" action="{{base}}/admin/run"><button>Run now</button></form>{{end}}
 </div>
 {{with .Data}}
 <ul class="items">
@@ -15,11 +15,11 @@
       <span class="status r-{{.Status}}">{{.Status}}</span>
       <span class="muted">{{.Trigger}}{{with .RequestedBy}} by {{.}}{{end}} · {{ago .CreatedAt}}{{if .StartedAt}} · {{if .FinishedAt}}ran{{else}}running{{end}} {{dur .Runtime}}{{end}}{{with .CostUSD}} · {{usd .}}{{end}}</span>
       <span class="spacer"></span>
-      {{if .LogObject}}<a href="/runs/{{.ID}}/log">log</a>{{end}}
+      {{if .LogObject}}<a href="{{base}}/runs/{{.ID}}/log">log</a>{{end}}
     </div>
     {{with .Stages}}<div class="stages">{{range .}}<span class="st-{{.State}}">{{.Name}}{{if or (eq .State "done") (eq .State "active")}} {{dur .Duration}}{{end}}</span>{{end}}</div>{{end}}
     {{with .Items}}<ul class="run-items">{{range .}}
-      <li><a href="/items/{{.ItemID}}">#{{.ItemID}} {{.Title}}</a> <span class="status s-{{.Status}}">{{.Status}}</span></li>
+      <li><a href="{{base}}/items/{{.ItemID}}">#{{.ItemID}} {{.Title}}</a> <span class="status s-{{.Status}}">{{.Status}}</span></li>
     {{end}}</ul>{{end}}
     {{with .Summary}}<details><summary>Summary</summary><pre>{{.}}</pre></details>{{end}}
   </li>

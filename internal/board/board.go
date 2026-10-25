@@ -13,6 +13,7 @@ import (
 	"log/slog"
 	"mime"
 	"net/http"
+	"net/url"
 	"path"
 	"regexp"
 	"slices"
@@ -46,6 +47,8 @@ type Board struct {
 	Storage  store.Storage
 	Auth     *auth.Auth
 	Pushover *notify.Pushover
+	// Quiet is the login whose own actions don't Pushover (the person receiving them).
+	Quiet    string
 	Gate     Gate
 	BaseURL  string
 	BotLogin string
@@ -156,7 +159,7 @@ func (b *Board) parse() error {
 		return err
 	}
 	for _, p := range pages {
-		t, err := template.New("").Funcs(funcs).ParseFS(web.FS, "templates/layout.html", "templates/"+p)
+		t, err := template.New("").Funcs(funcs).Funcs(template.FuncMap{"base": b.prefix}).ParseFS(web.FS, "templates/layout.html", "templates/"+p)
 		if err != nil {
 			return fmt.Errorf("template %s: %w", p, err)
 		}
@@ -337,9 +340,7 @@ func (b *Board) createItem(w http.ResponseWriter, r *http.Request) {
 		slog.Warn("upload", "item", id, "err", err)
 	}
 	b.mention(r.Context(), id, me.Login, body)
-	if !me.IsAdmin() {
-		b.Pushover.Send(context.WithoutCancel(r.Context()), "New ask from "+me.Login, title, b.itemURL(id))
-	}
+	b.pushover(r.Context(), me.Login, "New ask from "+me.Login, title, b.itemURL(id))
 	b.Gate.Activity()
 	redirect(w, r, fmt.Sprintf("/items/%d", id), "")
 }
@@ -422,9 +423,7 @@ func (b *Board) reply(w http.ResponseWriter, r *http.Request) {
 		slog.Warn("upload", "item", id, "err", err)
 	}
 	b.Notified(r.Context(), it, me.Login, body)
-	if !me.IsAdmin() {
-		b.Pushover.Send(context.WithoutCancel(r.Context()), me.Login+" replied: "+it.Title, body, b.itemURL(id))
-	}
+	b.pushover(r.Context(), me.Login, me.Login+" replied: "+it.Title, body, b.itemURL(id))
 	b.Gate.Activity()
 	msg := ""
 	if reopened {
@@ -538,6 +537,10 @@ func (b *Board) approve(w http.ResponseWriter, r *http.Request) {
 	msg := "Unapproved"
 	if approved {
 		msg = "Approved"
+		me := auth.Member(r.Context()).Login
+		if it, err := b.Store.Item(r.Context(), id); err == nil {
+			b.pushover(r.Context(), me, me+" approved: "+it.Title, "The agent will build it on its next run.", b.itemURL(id))
+		}
 		b.Gate.Activity()
 	}
 	redirect(w, r, fmt.Sprintf("/items/%d", id), msg)
@@ -855,6 +858,23 @@ func (b *Board) runNow(w http.ResponseWriter, r *http.Request) {
 	default:
 		redirect(w, r, "/runs", fmt.Sprintf("Started run %d", id))
 	}
+}
+
+// prefix is the path the board is mounted at, from BaseURL: "/iterate", or "" at the root.
+func (b *Board) prefix() string {
+	u, err := url.Parse(b.BaseURL)
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSuffix(u.Path, "/")
+}
+
+// pushover sends board activity by anyone but Quiet.
+func (b *Board) pushover(ctx context.Context, actor, title, msg, url string) {
+	if strings.EqualFold(actor, b.Quiet) {
+		return
+	}
+	b.Pushover.Send(context.WithoutCancel(ctx), title, msg, url)
 }
 
 func (b *Board) itemURL(id int) string {

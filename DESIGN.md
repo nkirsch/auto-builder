@@ -18,9 +18,10 @@ steps are the manual ones below.
 | Language | Go (server, runner, MCP server). Server-rendered `html/template`, plain forms (POST-redirect-GET), no Node build. Mobile-friendly CSS. |
 | Scope | Builds only itself. |
 | Users | Admin (`nkirsch`) + allowlisted GitHub logins. Members file asks and reply; only admins approve, manage members, and press Run now. |
-| Auth | GitHub sign-in via the GitHub App's OAuth credentials and/or Google sign-in (OpenID, `GOOGLE_CLIENT_ID`), implemented in the app (no proxy sidecar). Members are keyed by login; Google finds the member whose `email` matches the verified address and signs them in as that login. A member with an email signs in with Google only (their login may be a made-up handle someone else owns on GitHub). GitHub is offered when configured or when Google isn't. `ADMIN_EMAIL` seeds the admin's email. Session = HMAC-signed cookie (`login|expiry`), `SameSite=Lax` + Origin check on POST. Non-members get a 403 naming their login or email. `DEV_LOGIN` bypass only when `BASE_URL` is localhost. |
+| Auth | GitHub sign-in via the GitHub App's OAuth credentials and/or Google sign-in (OpenID, `GOOGLE_CLIENT_ID`), implemented in the app (no proxy sidecar). Members are keyed by login; Google finds the member whose `email` matches the verified address and signs them in as that login. A member with an email signs in with Google only (their login may be a made-up handle someone else owns on GitHub). GitHub is offered when configured or when Google isn't. `ADMIN_LOGIN` may list several admins (comma-separated); `ADMIN_EMAIL` seeds their emails, paired by position. Session = HMAC-signed cookie (`login|expiry`), `SameSite=Lax` + Origin check on POST. Non-members get a 403 naming their login or email. `DEV_LOGIN` bypass only when `BASE_URL` is localhost. |
 | Hosting | GCP, new personal project, region `us-central1` (domain mappings supported). |
 | Host | `builder.nick.org` — CNAME to `ghs.googlehosted.com`, Cloud Run domain mapping. |
+| Sub-path | A `BASE_URL` with a path (e.g. `https://site.example/iterate`) mounts the board there: templates prefix links with `{{base}}`, root-relative redirects get the prefix, cookies are scoped to it. With `SITE_DIR` the server also serves that static site at every other path (`SITE_VERSION` in its `.html` replaced by the release name) and redirects other hosts to `BASE_URL`'s; without it, no host redirect (the board sits behind a proxy). Public `GET /version` returns `{"version": …}` for a site footer. |
 | Database | Cloud SQL Postgres (smallest tier, Postgres 16/17), via the Cloud Run Cloud SQL connector (`host=/cloudsql/PROJECT:REGION:INSTANCE`). pgx v5. Embedded SQL migrations + `schema_migrations` table. |
 | Storage | GCS bucket: item attachments (`attachments/…`) and run logs (`runs/{id}.log`). Private; the server proxies reads. Local dev uses a directory. Plain JSON API + `google.DefaultTokenSource`, no heavy client libs. |
 | Agent auth | `ANTHROPIC_API_KEY` in Secret Manager. |
@@ -89,8 +90,9 @@ non-bot change (create, reply, approve) and drives the gate.
   items with its guess via `set_tags`.
 - An admin reply on a `closed` or `shipped` item reopens it (approval kept),
   so the agent picks it up again; member replies only notify.
-- New items and replies from non-admins Pushover the admin when
-  `PUSHOVER_TOKEN` / `PUSHOVER_USER` are set; otherwise log only.
+- New items, replies and approvals Pushover the admin when
+  `PUSHOVER_TOKEN` / `PUSHOVER_USER` are set (otherwise log only), except
+  those by `PUSHOVER_QUIET` (default `nkirsch`), the person receiving them.
 - Admins can turn on auto-approve for themselves on `/admin`
   (`members.auto_approve`): their new asks start approved by them, and an
   item the agent files with `file_item(..., from_item)` starts approved when

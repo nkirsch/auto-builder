@@ -161,7 +161,7 @@ func (s *Store) Item(ctx context.Context, id int) (Item, error) {
 // Items lists items in the given statuses (all when empty), newest activity first.
 func (s *Store) Items(ctx context.Context, statuses ...string) ([]Item, error) {
 	rows, err := s.Pool.Query(ctx, `SELECT `+itemCols+`, (SELECT count(*) FROM responses r WHERE r.item_id = i.id)
-		FROM items i WHERE cardinality($1::text[]) = 0 OR i.status = ANY($1)
+		FROM items i WHERE coalesce(cardinality($1::text[]), 0) = 0 OR i.status = ANY($1)
 		ORDER BY i.updated_at DESC`, statuses)
 	if err != nil {
 		return nil, err
@@ -183,8 +183,9 @@ func (s *Store) CreateItem(ctx context.Context, title, body, author string) (int
 // CreateBotItem files an item without counting as human activity.
 func (s *Store) CreateBotItem(ctx context.Context, title, body, author string) (int, error) {
 	var id int
+	// epoch, not -infinity: pgx can't scan infinite timestamps into time.Time.
 	err := s.Pool.QueryRow(ctx, `INSERT INTO items (title, body, author, human_activity_at)
-		VALUES ($1, $2, $3, '-infinity') RETURNING id`, title, body, author).Scan(&id)
+		VALUES ($1, $2, $3, 'epoch') RETURNING id`, title, body, author).Scan(&id)
 	return id, err
 }
 
@@ -414,6 +415,7 @@ func (s *Store) GateState(ctx context.Context) (GateState, error) {
 			(SELECT t FROM last_ok),
 			(SELECT max(finished_at) FROM runs WHERE status = 'failed'),
 			EXISTS (SELECT 1 FROM items WHERE status IN ('open', 'building')
+				AND human_activity_at > 'epoch' -- bot-filed items carry epoch
 				AND human_activity_at > coalesce((SELECT t FROM last_ok), '-infinity')),
 			EXISTS (SELECT 1 FROM items WHERE status = 'open' AND approved)`).
 		Scan(&g.Active, &g.LastSuccess, &g.LastFailure, &g.NewActivity, &g.ApprovedOpen)

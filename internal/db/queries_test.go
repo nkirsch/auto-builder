@@ -213,3 +213,30 @@ func TestRunItems(t *testing.T) {
 		t.Fatalf("run items = %+v", got)
 	}
 }
+
+func TestBotItemReadable(t *testing.T) {
+	ctx := context.Background()
+	s := testStore(t)
+	id, err := s.CreateBotItem(ctx, "split out", "", "builder-bot")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Item(ctx, id); err != nil {
+		t.Fatalf("Item: %v", err)
+	}
+	if items, err := s.Items(ctx); err != nil || len(items) != 1 {
+		t.Fatalf("Items = %d, %v", len(items), err)
+	}
+	if g, _ := s.GateState(ctx); g.NewActivity {
+		t.Fatal("bot-filed item counts as human activity")
+	}
+	// Rows written before the fix are repaired by migration 003.
+	s.Pool.Exec(ctx, `UPDATE items SET human_activity_at = '-infinity' WHERE id = $1`, id)
+	s.Pool.Exec(ctx, `DELETE FROM schema_migrations WHERE version = '003_bot_item_activity'`)
+	if err := Migrate(ctx, s.Pool); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Items(ctx); err != nil {
+		t.Fatalf("Items after migration: %v", err)
+	}
+}

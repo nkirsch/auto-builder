@@ -205,11 +205,16 @@ func pathID(r *http.Request) (int, bool) {
 // redirect sends a POST-redirect-GET with an optional flash message.
 func redirect(w http.ResponseWriter, r *http.Request, to, msg string) {
 	if msg != "" {
+		// The flash goes in the query, which must precede any #fragment.
+		path, frag, hasFrag := strings.Cut(to, "#")
 		sep := "?"
-		if strings.Contains(to, "?") {
+		if strings.Contains(path, "?") {
 			sep = "&"
 		}
-		to += sep + "m=" + urlQuery(msg)
+		to = path + sep + "m=" + urlQuery(msg)
+		if hasFrag {
+			to += "#" + frag
+		}
 	}
 	http.Redirect(w, r, to, http.StatusSeeOther)
 }
@@ -327,6 +332,15 @@ func (b *Board) reply(w http.ResponseWriter, r *http.Request) {
 		b.fail(w, err)
 		return
 	}
+	// An admin replying on a finished item wants more work done on it.
+	reopened := false
+	if me.IsAdmin() && (it.Status == "closed" || it.Status == "shipped") {
+		if err := b.Store.ReopenItem(r.Context(), id); err != nil {
+			b.fail(w, err)
+			return
+		}
+		reopened = true
+	}
 	if body != "" {
 		if _, err := b.Store.AddResponse(r.Context(), id, me.Login, body, true); err != nil {
 			b.fail(w, err)
@@ -341,7 +355,11 @@ func (b *Board) reply(w http.ResponseWriter, r *http.Request) {
 		b.Pushover.Send(context.WithoutCancel(r.Context()), me.Login+" replied: "+it.Title, body, b.itemURL(id))
 	}
 	b.Gate.Activity()
-	redirect(w, r, fmt.Sprintf("/items/%d#end", id), "")
+	msg := ""
+	if reopened {
+		msg = "Reopened"
+	}
+	redirect(w, r, fmt.Sprintf("/items/%d#end", id), msg)
 }
 
 // Notified creates in-app notifications for a reply: the item's author and

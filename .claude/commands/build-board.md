@@ -22,7 +22,7 @@ repository (the only repo you build). The board is available through the
   `curl -H "Authorization: Bearer $RUNNER_TOKEN" <url>` if you need them.
 - Branch `item-<id>-<short-slug>` off the default branch. One PR per item.
 - Read `CLAUDE.md` and `DESIGN.md` first. Match the surrounding code.
-- `go vet ./... && go test ./...` must pass before you open the PR. Add tests
+- `go vet ./... && go test -p 1 ./...` must pass before you open the PR. Add tests
   for new behaviour. Tests that need Postgres read `TEST_DATABASE_URL`; start
   a local one with `initdb -D /tmp/pg && pg_ctl -D /tmp/pg -o "-k /tmp -h ''" -l /tmp/pg.log start`
   and use `TEST_DATABASE_URL="postgres:///postgres?host=/tmp"`.

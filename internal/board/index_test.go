@@ -41,6 +41,29 @@ func TestInboxDoneToggle(t *testing.T) {
 	}
 }
 
+func TestRunsListItems(t *testing.T) {
+	b := &Board{}
+	if err := b.parse(); err != nil {
+		t.Fatal(err)
+	}
+	rows := []runRow{
+		{Run: db.Run{ID: 2, Status: "running"}, Items: []db.RunItem{{RunID: 2, ItemID: 5, Title: "Chrome <toggle>", Status: "building"}}},
+		{Run: db.Run{ID: 1, Status: "done"}},
+	}
+	var sb strings.Builder
+	p := page{Title: "Runs", Me: db.Member{Login: "x"}, Data: rows}
+	if err := b.tmpl["runs"].ExecuteTemplate(&sb, "layout", p); err != nil {
+		t.Fatal(err)
+	}
+	out := sb.String()
+	if want := `<a href="/items/5">#5 Chrome &lt;toggle&gt;</a> <span class="status s-building">building</span>`; !strings.Contains(out, want) {
+		t.Errorf("runs page missing %s", want)
+	}
+	if n := strings.Count(out, `class="run-items"`); n != 1 {
+		t.Errorf("run-items lists = %d, want 1", n)
+	}
+}
+
 func TestInboxCollapsedCount(t *testing.T) {
 	b := &Board{}
 	if err := b.parse(); err != nil {

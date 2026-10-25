@@ -5,6 +5,7 @@ package mcp
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"strings"
 	"time"
@@ -223,6 +224,7 @@ func (b *Board) reply(ctx context.Context, _ *mcp.CallToolRequest, in ReplyIn) (
 	if err := b.Reply(ctx, it, body); err != nil {
 		return nil, OK{}, err
 	}
+	b.noteRunItem(ctx, in.ID)
 	return nil, OK{OK: true}, nil
 }
 
@@ -240,6 +242,7 @@ func (b *Board) setPR(ctx context.Context, _ *mcp.CallToolRequest, in SetPRIn) (
 	if err := b.Store.SetPR(ctx, in.ID, in.PRNumber); err != nil {
 		return nil, OK{}, fmt.Errorf("item %d is %s; set_pr needs open or building", in.ID, it.Status)
 	}
+	b.noteRunItem(ctx, in.ID)
 	return nil, OK{OK: true, Message: "item is building"}, nil
 }
 
@@ -251,6 +254,7 @@ func (b *Board) closeItem(ctx context.Context, _ *mcp.CallToolRequest, in CloseI
 	if err := b.Store.CloseItem(ctx, in.ID, note, false); err != nil {
 		return nil, OK{}, fmt.Errorf("item %d: %w", in.ID, err)
 	}
+	b.noteRunItem(ctx, in.ID)
 	return nil, OK{OK: true}, nil
 }
 
@@ -260,7 +264,18 @@ func (b *Board) fileItem(ctx context.Context, _ *mcp.CallToolRequest, in FileIn)
 		return nil, FileOut{}, fmt.Errorf("title must be 1–200 characters")
 	}
 	id, err := b.Store.CreateBotItem(ctx, title, strings.TrimSpace(in.Body), b.BotLogin)
-	return nil, FileOut{ID: id}, err
+	if err != nil {
+		return nil, FileOut{}, err
+	}
+	b.noteRunItem(ctx, id)
+	return nil, FileOut{ID: id}, nil
+}
+
+// noteRunItem lists the item under the current run on the Runs page.
+func (b *Board) noteRunItem(ctx context.Context, itemID int) {
+	if err := b.Store.NoteRunItem(ctx, itemID); err != nil {
+		slog.Warn("note run item", "item", itemID, "err", err)
+	}
 }
 
 func (b *Board) deployStatus(ctx context.Context, _ *mcp.CallToolRequest, _ struct{}) (*mcp.CallToolResult, DeployOut, error) {

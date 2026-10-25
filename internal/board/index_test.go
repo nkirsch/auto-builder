@@ -236,6 +236,8 @@ func TestIndexSections(t *testing.T) {
 		{ID: 3, Title: "Queued", Status: "open", Approved: true},
 		{ID: 4, Title: "Merged", Status: "merged", Approved: true},
 		{ID: 5, Title: "Also unapproved", Status: "open"},
+		{ID: 6, Title: "Shipped, needs bootstrap", Status: "shipped", Approved: true, Blocked: "Re-run bootstrap."},
+		{ID: 7, Title: "Building, CI failed", Status: "building", Approved: true, Blocked: "CI failed on PR #9."},
 	}
 	got := sections(items, false)
 	var titles []string
@@ -248,16 +250,16 @@ func TestIndexSections(t *testing.T) {
 		}
 		ids = append(ids, row)
 	}
-	if !slices.Equal(titles, []string{"Waiting for approval", "Approved, not started", "In progress"}) {
+	if !slices.Equal(titles, []string{"Blocked", "Waiting for approval", "Approved, not started", "In progress"}) {
 		t.Fatalf("titles = %v", titles)
 	}
-	if fmt.Sprint(ids) != "[[2 5] [3] [1 4]]" {
+	if fmt.Sprint(ids) != "[[6 7] [2 5] [3] [1 4]]" {
 		t.Fatalf("ids = %v", ids)
 	}
 	if got := sections(items[1:2], false); len(got) != 1 || got[0].Title != "Waiting for approval" {
 		t.Fatalf("empty sections kept: %+v", got)
 	}
-	if got := sections(items, true); len(got) != 1 || got[0].Title != "" || len(got[0].Items) != 5 {
+	if got := sections(items, true); len(got) != 1 || got[0].Title != "" || len(got[0].Items) != 7 {
 		t.Fatalf("done view = %+v", got)
 	}
 	if len(sections(nil, true)) != 0 || len(sections(nil, false)) != 0 {
@@ -276,5 +278,24 @@ func TestIndexSections(t *testing.T) {
 	}
 	if !strings.Contains(out[q:w], `href="/items/3"`) || !strings.Contains(out[w:], `href="/items/4"`) {
 		t.Fatalf("items in wrong section")
+	}
+}
+
+func TestIsDone(t *testing.T) {
+	for _, tc := range []struct {
+		it   db.Item
+		want bool
+	}{
+		{db.Item{Status: "open"}, false},
+		{db.Item{Status: "building"}, false},
+		{db.Item{Status: "merged"}, false},
+		{db.Item{Status: "shipped"}, true},
+		{db.Item{Status: "closed"}, true},
+		{db.Item{Status: "shipped", Blocked: "Re-run bootstrap."}, false},
+		{db.Item{Status: "closed", Blocked: "Re-run bootstrap."}, false},
+	} {
+		if got := isDone(tc.it); got != tc.want {
+			t.Errorf("isDone(%s, blocked %q) = %v, want %v", tc.it.Status, tc.it.Blocked, got, tc.want)
+		}
 	}
 }

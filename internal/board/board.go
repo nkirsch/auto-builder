@@ -241,15 +241,12 @@ func urlQuery(s string) string { return strings.ReplaceAll(template.URLQueryEsca
 
 func (b *Board) index(w http.ResponseWriter, r *http.Request) {
 	show := r.URL.Query().Get("show")
-	statuses := []string{"open", "building", "merged"}
-	if show == "done" {
-		statuses = []string{"shipped", "closed"}
-	}
-	items, err := b.Store.Items(r.Context(), statuses...)
+	items, err := b.Store.Items(r.Context())
 	if err != nil {
 		b.fail(w, err)
 		return
 	}
+	items = slices.DeleteFunc(items, func(it db.Item) bool { return isDone(it) != (show == "done") })
 	tag := strings.ToLower(r.URL.Query().Get("tag"))
 	if tag != "" {
 		items = slices.DeleteFunc(items, func(it db.Item) bool { return !slices.Contains(it.Tags, tag) })
@@ -262,15 +259,22 @@ func (b *Board) index(w http.ResponseWriter, r *http.Request) {
 		"Unread": unread})
 }
 
+// isDone reports whether an item belongs in the Done view: shipped or closed
+// and not blocked. Blocked items stay on the Open view whatever their status,
+// since they still need someone to act.
+func isDone(it db.Item) bool {
+	return (it.Status == "shipped" || it.Status == "closed") && it.Blocked == ""
+}
+
 // section is a titled group of items on the board.
 type section struct {
 	Title string
 	Items []db.Item
 }
 
-// sections groups the Open view into waiting for approval, approved but not
-// started, and in progress (a PR is open or merged); empty groups are left
-// out. The Done view is one untitled list.
+// sections groups the Open view into blocked (any status), waiting for
+// approval, approved but not started, and in progress (a PR is open or
+// merged); empty groups are left out. The Done view is one untitled list.
 func sections(items []db.Item, done bool) []section {
 	if done {
 		if len(items) == 0 {
@@ -278,14 +282,16 @@ func sections(items []db.Item, done bool) []section {
 		}
 		return []section{{Items: items}}
 	}
-	out := []section{{Title: "Waiting for approval"}, {Title: "Approved, not started"}, {Title: "In progress"}}
+	out := []section{{Title: "Blocked"}, {Title: "Waiting for approval"}, {Title: "Approved, not started"}, {Title: "In progress"}}
 	for _, it := range items {
-		i := 2
-		if it.Status == "open" {
+		i := 3
+		switch {
+		case it.Blocked != "":
 			i = 0
-			if it.Approved {
-				i = 1
-			}
+		case it.Status == "open" && it.Approved:
+			i = 2
+		case it.Status == "open":
+			i = 1
 		}
 		out[i].Items = append(out[i].Items, it)
 	}

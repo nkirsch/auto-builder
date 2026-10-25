@@ -16,7 +16,7 @@ import (
 // pacific is the zone release tags are dated in.
 var pacific, _ = time.LoadLocation("America/Los_Angeles")
 
-// releaseInfo is the admin page's release section.
+// releaseInfo is the runs page's release section, shown to admins.
 type releaseInfo struct {
 	Latest string // latest release tag, "" if none
 	Ahead  int    // commits on the default branch since it
@@ -52,31 +52,31 @@ func (b *Board) release(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	latest, err := b.GitHub.LatestRelease(ctx, b.Repo)
 	if err != nil {
-		redirect(w, r, "/admin", "Release failed: "+err.Error())
+		redirect(w, r, "/runs", "Release failed: "+err.Error())
 		return
 	}
 	head, ahead, err := b.GitHub.Unreleased(ctx, b.Repo, latest)
 	if err != nil {
-		redirect(w, r, "/admin", "Release failed: "+err.Error())
+		redirect(w, r, "/runs", "Release failed: "+err.Error())
 		return
 	}
 	if ahead == 0 {
-		redirect(w, r, "/admin", "Nothing to release since "+latest)
+		redirect(w, r, "/runs", "Nothing to release since "+latest)
 		return
 	}
 	day := releaseDay(time.Now())
 	existing, err := b.GitHub.TagsWithPrefix(ctx, b.Repo, day)
 	if err != nil {
-		redirect(w, r, "/admin", "Release failed: "+err.Error())
+		redirect(w, r, "/runs", "Release failed: "+err.Error())
 		return
 	}
 	tag := nextTag(day, existing)
 	if _, err := b.GitHub.CreateRelease(ctx, b.Repo, tag, head); err != nil {
-		redirect(w, r, "/admin", "Release failed: "+err.Error())
+		redirect(w, r, "/runs", "Release failed: "+err.Error())
 		return
 	}
 	slog.Info("release", "tag", tag, "sha", head, "by", auth.Member(ctx).Login)
-	redirect(w, r, "/admin", fmt.Sprintf("Released %s (%d commits); deploying", tag, ahead))
+	redirect(w, r, "/runs", fmt.Sprintf("Released %s (%d commits); deploying", tag, ahead))
 }
 
 // releaseDay is the date part of a release tag, e.g. "v26.10.24" (Pacific, no zero padding).

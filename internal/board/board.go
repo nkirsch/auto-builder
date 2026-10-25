@@ -17,6 +17,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/nkirsch/auto-builder/internal/auth"
@@ -50,8 +51,12 @@ type Board struct {
 	GitSHA   string
 	Repo     string
 
-	tmpl map[string]*template.Template
+	tmpl    map[string]*template.Template
+	version atomic.Pointer[string]
 }
+
+// SetVersion sets the release name shown next to the brand, e.g. "v26.10.25-2".
+func (b *Board) SetVersion(v string) { b.version.Store(&v) }
 
 // Routes registers the board's pages.
 func (b *Board) Routes(mux *http.ServeMux) error {
@@ -145,6 +150,7 @@ type page struct {
 	Unread  int
 	Title   string
 	GitSHA  string
+	Version string // "vYY.MM.DD-N", or "" until known
 	Flash   string
 	BotName string
 	Theme   string // "light", "dark" or "" (system)
@@ -166,6 +172,9 @@ func (b *Board) render(w http.ResponseWriter, r *http.Request, name, title strin
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	p := page{Me: me, Unread: unread, Title: title, GitSHA: b.GitSHA, Flash: r.URL.Query().Get("m"),
 		BotName: b.BotLogin, Theme: theme(r), Path: r.URL.RequestURI(), Data: data}
+	if v := b.version.Load(); v != nil {
+		p.Version = *v
+	}
 	if err := t.ExecuteTemplate(w, "layout", p); err != nil {
 		slog.Error("render", "page", name, "err", err)
 	}

@@ -1,5 +1,5 @@
-// Package board serves the item board: items, threads, attachments, inbox,
-// run history and admin.
+// Package board serves the item board: items, threads, attachments, unread
+// markers, run history and admin.
 package board
 
 import (
@@ -90,8 +90,10 @@ func (b *Board) Routes(mux *http.ServeMux) error {
 	mux.Handle("POST /items/{id}/approve", admin(b.approve))
 	mux.Handle("POST /items/{id}/unblock", admin(b.unblock))
 	mux.Handle("GET /attachments/{id}", member(b.attachment))
-	mux.Handle("GET /inbox", member(b.inbox))
-	mux.Handle("POST /inbox/read", member(b.markAllRead))
+	mux.HandleFunc("GET /inbox", func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, "/", http.StatusMovedPermanently)
+	})
+	mux.Handle("POST /read", member(b.markAllRead))
 	mux.Handle("GET /runs", member(b.runs))
 	mux.Handle("GET /runs/{id}/log", member(b.runLog))
 	mux.Handle("GET /admin", admin(b.admin))
@@ -251,7 +253,12 @@ func (b *Board) index(w http.ResponseWriter, r *http.Request) {
 	if tag != "" {
 		items = slices.DeleteFunc(items, func(it db.Item) bool { return !slices.Contains(it.Tags, tag) })
 	}
-	b.render(w, r, "index", "Board", map[string]any{"Sections": sections(items, show == "done"), "Show": show, "Tag": tag})
+	unread, err := b.Store.UnreadItems(r.Context(), auth.Member(r.Context()).Login)
+	if err != nil {
+		slog.Warn("unread items", "err", err)
+	}
+	b.render(w, r, "index", "Board", map[string]any{"Sections": sections(items, show == "done"), "Show": show, "Tag": tag,
+		"Unread": unread})
 }
 
 // section is a titled group of items on the board.
@@ -647,25 +654,12 @@ func (b *Board) serveObject(w http.ResponseWriter, r *http.Request, object, name
 	io.Copy(w, rc)
 }
 
-// Inbox
-
-func (b *Board) inbox(w http.ResponseWriter, r *http.Request) {
-	me := auth.Member(r.Context())
-	show := r.URL.Query().Get("show")
-	ns, err := b.Store.Notifications(r.Context(), me.Login, show == "done", 100)
-	if err != nil {
-		b.fail(w, err)
-		return
-	}
-	b.render(w, r, "inbox", "Inbox", map[string]any{"Notifications": ns, "Show": show})
-}
-
 func (b *Board) markAllRead(w http.ResponseWriter, r *http.Request) {
 	if err := b.Store.MarkRead(r.Context(), auth.Member(r.Context()).Login, 0); err != nil {
 		b.fail(w, err)
 		return
 	}
-	redirect(w, r, "/inbox", "")
+	http.Redirect(w, r, backPath(r.FormValue("back")), http.StatusSeeOther)
 }
 
 // Runs

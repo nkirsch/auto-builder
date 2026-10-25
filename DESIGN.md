@@ -62,10 +62,11 @@ non-bot change (create, reply, approve) and drives the gate.
 
 - `/` open items (approved badge, status, reply count) in sections: waiting
   for approval, approved but not started, in progress (PR open or merged);
-  empty sections are hidden, and a Done button switches to shipped/closed, `/items/{id}` thread,
-  `/items/new`, `/inbox` (mentions + replies to your items, unread count in nav;
-  one row per item; shipped/closed items, read or not, move to
-  `/inbox?show=done`),
+  empty sections are hidden, and a Done button switches to shipped/closed;
+  items with unread notifications for you (mentions + replies to your items)
+  get an unread dot, cleared by opening the item or Mark all read, and the
+  nav's Board link counts open ones (no separate inbox; `/inbox` redirects
+  to `/`), `/items/{id}` thread, `/items/new`,
   `/runs` (history, items the agent read/tagged/replied on/opened a PR
   for/closed/filed during each run via MCP or listed as `#N` lines in its
   summary, summary, log link, cost, runtime, and a progress ring plus
@@ -96,8 +97,8 @@ non-bot change (create, reply, approve) and drives the gate.
 - Blocked items (`items.blocked` note + `blocked_at`) need action outside
   auto-builder (e.g. re-run bootstrap) or hit an error. The agent sets or
   clears the note with `set_blocked`; the ship-checker sets it; an admin
-  clears it with the item page's Clear button (human activity). The board,
-  item page and Inbox show a red "blocked" badge, the item page the note.
+  clears it with the item page's Clear button (human activity). The board
+  and item page show a red "blocked" badge, the item page the note.
 
 ## Gate (server-side, no poller)
 
@@ -240,7 +241,7 @@ broader grants.
 ## Build order
 
 1. Server skeleton, migrations, local run against Postgres.
-2. OAuth + board + inbox + admin.
+2. OAuth + board + admin.
 3. `infra/bootstrap.sh`, deploy workflow, first deploy.
 4. Runner + MCP + agent command.
 5. Gate + ship-checker + Scheduler tick.

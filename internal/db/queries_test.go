@@ -179,28 +179,21 @@ func TestNotifications(t *testing.T) {
 	if n, _ := s.UnreadCount(ctx, "alice"); n != 1 {
 		t.Fatalf("unread after read = %d", n)
 	}
-	// One row per item: its latest notification, newest item first.
-	ns, err := s.Notifications(ctx, "alice", false, 10)
-	if err != nil || len(ns) != 2 || ns[0].ItemID != other || ns[0].ReadAt == nil ||
-		ns[1].ItemID != id || ns[1].Actor != "carol" || ns[1].Count != 2 || ns[1].ReadAt != nil {
-		t.Fatalf("notifications = %+v, %v", ns, err)
+	if set, err := s.UnreadItems(ctx, "ALICE"); err != nil || len(set) != 1 || !set[id] {
+		t.Fatalf("unread items = %v, %v", set, err)
 	}
 
-	// Closing an item moves it to done right away, unread or not.
+	// Closed items leave the count but keep their marker on the Done board.
 	s.CloseItem(ctx, id, "dup", true)
-	inbox, _ := s.Notifications(ctx, "alice", false, 10)
-	done, _ := s.Notifications(ctx, "alice", true, 10)
-	if len(inbox) != 1 || inbox[0].ItemID != other || len(done) != 1 || done[0].ItemID != id || done[0].ReadAt != nil {
-		t.Fatalf("inbox = %+v, done = %+v", inbox, done)
-	}
 	if n, _ := s.UnreadCount(ctx, "alice"); n != 0 {
 		t.Fatalf("unread after close = %d", n)
 	}
-	s.CloseItem(ctx, other, "dup", true)
-	inbox, _ = s.Notifications(ctx, "alice", false, 10)
-	done, _ = s.Notifications(ctx, "alice", true, 10)
-	if len(inbox) != 0 || len(done) != 2 {
-		t.Fatalf("after close: inbox = %+v, done = %+v", inbox, done)
+	if set, _ := s.UnreadItems(ctx, "alice"); !set[id] {
+		t.Fatalf("unread items after close = %v", set)
+	}
+	s.MarkRead(ctx, "alice", 0)
+	if set, _ := s.UnreadItems(ctx, "alice"); len(set) != 0 {
+		t.Fatalf("unread items after mark all = %v", set)
 	}
 }
 

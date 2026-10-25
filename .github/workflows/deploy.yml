@@ -10,7 +10,7 @@ permissions:
   id-token: write
 # Tests and both image builds run in parallel; deploy waits for all three.
 jobs:
-  # app.env's DEPLOY_ON picks push or release; the other trigger stops here,
+  # DEPLOY_ON picks push or release; the other trigger stops here,
   # and none (a fork not deployed yet) stops all three.
   config:
     runs-on: ubuntu-latest
@@ -26,8 +26,10 @@ jobs:
       - uses: actions/checkout@v4
       - id: app
         run: |
-          grep -E '^[A-Z_]+=' app.env >> "$GITHUB_OUTPUT"
-          DEPLOY_ON=$(sed -n 's/^DEPLOY_ON=//p' app.env)
+          # app.env overrides app.defaults.env, key by key.
+          awk -F= '/^[A-Z_]+=/ {v[$1]=$0} END {for (k in v) print v[k]}' app.defaults.env app.env > "$RUNNER_TEMP/app.env"
+          cat "$RUNNER_TEMP/app.env" >> "$GITHUB_OUTPUT"
+          DEPLOY_ON=$(sed -n 's/^DEPLOY_ON=//p' "$RUNNER_TEMP/app.env")
           case "$GITHUB_EVENT_NAME" in
             workflow_dispatch) deploy=$([ "$DEPLOY_ON" != none ] && echo true || echo false) ;;
             release) deploy=$([ "$DEPLOY_ON" = release ] && echo true || echo false) ;;

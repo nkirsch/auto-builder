@@ -19,13 +19,13 @@ CI; the server marks items shipped once its own `GIT_SHA` contains the merge.
 - `web/` — embedded templates + CSS (no JS build); branding only in `templates/brand.html` + `static/brand.css`
 - `.claude/commands/build-board.md` — the agent's instructions; `.claude/site.md` — the per-site part
 - `config.toml`, `layouts/` — Hugo site served at `/` when `BASE_URL` has a path; here a redirect to the board, forks replace it
-- `app.env` — per-site settings (name, URL, Hugo version, serve site, deploy on push or release, issue sync, local Postgres port), read by `Makefile` and the workflows
+- `app.defaults.env` — per-site settings with upstream's values (name, URL, Hugo version, serve site, deploy on push/release/none, issue sync, local Postgres); `app.env` — a fork's overrides, empty here. Read by `Makefile` and the workflows
 - `infra/bootstrap.sh` — idempotent GCP + GitHub setup
 
 ## Develop
 
 ```bash
-make db-up      # Postgres 17 in Docker (on $DOCKER_HOST's host, else localhost; port and name from app.env)
+make db-up      # Postgres 17 in Docker (on $DOCKER_HOST's host, else localhost; port and name from app*.env)
 make test       # go test ./... with TEST_DATABASE_URL
 make build      # hugo into public/
 DEV_LOGIN=nkirsch make run   # site at localhost:8080/, board at /iterate, signed in as DEV_LOGIN, LAUNCHER=none
@@ -52,5 +52,5 @@ Push to `master` (or a published release, with `DEPLOY_ON=release`; never with `
 ## Forks
 
 Site forks (`kirsch/momo`, `kirsch/katrina`, `kirsch/youkoh.org`, `nkirsch/nick.org`) are git-level forks
-that `git merge upstream/master`; `kirsch/extreme` (multi-tenant, `TENANCY.md`, not deployed) merges the same way. They change only `app.env`, branding, `.claude/site.md`, docs and their
+that `git merge upstream/master`; `kirsch/extreme` (multi-tenant, `TENANCY.md`, not deployed) merges the same way. They change only `app.env` (overrides; upstream adds settings to `app.defaults.env` and never edits `app.env`), branding, `.claude/site.md`, docs and their
 Hugo site, so upstream changes merge without conflicts; keep per-site values out of every other file.

@@ -144,3 +144,18 @@ func TestLayoutFooterCommitLink(t *testing.T) {
 		}
 	}
 }
+
+func TestLayoutFooterTagLink(t *testing.T) {
+	b := &Board{}
+	if err := b.parse(); err != nil {
+		t.Fatal(err)
+	}
+	var sb strings.Builder
+	p := page{Me: db.Member{Login: "alice"}, GitSHA: "abc1234def", Repo: "nkirsch/auto-builder", Version: "v26.10.25-3"}
+	if err := b.tmpl["new"].ExecuteTemplate(&sb, "layout", p); err != nil {
+		t.Fatal(err)
+	}
+	if want := `<footer><a href="https://github.com/nkirsch/auto-builder/tree/v26.10.25-3">v26.10.25-3</a> · <a href="https://github.com/nkirsch/auto-builder/commit/abc1234def"`; !strings.Contains(sb.String(), want) {
+		t.Errorf("layout missing %s", want)
+	}
+}

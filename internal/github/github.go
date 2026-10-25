@@ -259,3 +259,26 @@ func (c *Client) Version(ctx context.Context, repo, sha string) (string, error) 
 	}
 	return fmt.Sprintf("v%s-%d", at.Format("06.01.02"), max(len(list), 1)), nil
 }
+
+// Tag creates lightweight tag name on commit sha. A tag that already points
+// at sha is fine; one pointing elsewhere is an error.
+func (c *Client) Tag(ctx context.Context, repo, name, sha string) error {
+	err := c.do(ctx, http.MethodPost, fmt.Sprintf("/repos/%s/git/refs", repo),
+		map[string]string{"ref": "refs/tags/" + name, "sha": sha}, nil)
+	var se *StatusError
+	if !errors.As(err, &se) || se.Code != http.StatusUnprocessableEntity {
+		return err
+	}
+	var ref struct {
+		Object struct {
+			SHA string `json:"sha"`
+		} `json:"object"`
+	}
+	if err := c.do(ctx, http.MethodGet, fmt.Sprintf("/repos/%s/git/ref/tags/%s", repo, url.PathEscape(name)), nil, &ref); err != nil {
+		return err
+	}
+	if ref.Object.SHA != sha {
+		return fmt.Errorf("tag %s already points at %s", name, ref.Object.SHA)
+	}
+	return nil
+}

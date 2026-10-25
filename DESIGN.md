@@ -138,6 +138,11 @@ The tick also walks items in `building`/`merged`:
 - PR closed unmerged → back to `open`, blocked "PR #N was closed without
   merging.", bot reply.
 
+On startup the server names its `GIT_SHA` `vYY.MM.DD-N` (shown in the nav)
+and, when it has the GitHub App, tags that commit with it (lightweight tag
+via the refs API; an existing tag on the same commit is fine). The footer
+links the version to its tag and the short SHA to its commit.
+
 ## Runner (Cloud Run Job, Go)
 
 1. `POST /api/runner/runs/{RUN_ID}/claim` (bearer `RUNNER_TOKEN`) → `running`; the

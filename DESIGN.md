@@ -86,6 +86,11 @@ non-bot change (create, reply, approve) and drives the gate.
 - New items and replies from non-admins Pushover the admin when
   `PUSHOVER_TOKEN` / `PUSHOVER_USER` are set; otherwise log only.
 - Agent replies are authored as the bot login (`BOT_LOGIN`, default `builder-bot`).
+- Blocked items (`items.blocked` note + `blocked_at`) need action outside
+  auto-builder (e.g. re-run bootstrap) or hit an error. The agent sets or
+  clears the note with `set_blocked`; the ship-checker sets it; an admin
+  clears it with the item page's Clear button (human activity). The board,
+  item page and Inbox show a red "blocked" badge, the item page the note.
 
 ## Gate (server-side, no poller)
 
@@ -94,7 +99,9 @@ tick (`POST /api/gate/tick` every 10 min, bearer `TICK_TOKEN`):
 
 1. Run now (admin) → launch if nothing is active.
 2. Any open item with `human_activity_at` > last successful run's `started_at`.
-3. Last successful run older than `IDLE_HOURS` (6) and an open approved item exists.
+3. Last successful run older than `IDLE_HOURS` (6) and an open approved item
+   exists that isn't blocked (a blocked item counts again once a human acts
+   on it after `blocked_at`).
 
 Held off when the reported agent cost over the last 30 days has reached the
 admin-set spend limit (`settings.spend_limit_usd`, default $20; Run now
@@ -113,11 +120,15 @@ instead (local dev). Server SA needs `roles/run.developer` on the job
 ## Shipping (deterministic, no agent)
 
 The tick also walks items in `building`/`merged`:
-- `building` + PR merged (GitHub API) → `merged`, record `merge_sha`.
+- `building` + PR merged (GitHub API) → `merged`, record `merge_sha`, clear
+  any blocked note.
+- `building` + a failed or timed-out check run on the PR head, item not
+  already blocked → blocked "CI failed on PR #N." (no reply).
 - `merged` + `merge_sha` reachable from the server's own `GIT_SHA`
   (compare API: `identical` or `behind`) → `shipped`, bot reply
   "Shipped in vYY.MM.DD-N (<sha>)" (short SHA alone if the version lookup fails).
-- PR closed unmerged → back to `open`, bot reply.
+- PR closed unmerged → back to `open`, blocked "PR #N was closed without
+  merging.", bot reply.
 
 ## Runner (Cloud Run Job, Go)
 
@@ -150,6 +161,7 @@ Job timeout 60 min, max retries 0.
 | `reply(id, body)` | post as the bot; `@mentions` notify |
 | `set_pr(id, pr_number)` | status → `building`; recorded in `run_prs` for the running run |
 | `set_tags(id, tags)` | tag an untagged item (agent's guess) |
+| `set_blocked(id, note)` | flag an item blocked (red) with a note; empty note clears |
 | `close_item(id, note)` | close a duplicate/obsolete item with a note |
 | `file_item(title, body)` | split work into a new item (unapproved) |
 | `deploy_status()` | deployed `GIT_SHA`, items awaiting ship |

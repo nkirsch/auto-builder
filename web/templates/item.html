@@ -5,10 +5,17 @@
 <div class="meta">
   <span class="status s-{{$it.Status}}">{{$it.Status}}</span>
   {{if $it.Approved}}<span class="badge approved">approved by {{$it.ApprovedBy}}</span>{{else}}<span class="badge">not approved</span>{{end}}
+  {{if $it.Blocked}}<span class="badge blocked">blocked</span>{{end}}
   {{range $it.Tags}}<a class="tag" href="/?tag={{.}}">#{{.}}</a>{{end}}
   {{with $it.PRNumber}}<a href="https://github.com/{{$.Data.Repo}}/pull/{{.}}">PR #{{.}}</a>{{end}}
   {{with $it.MergeSHA}}<a href="https://github.com/{{$.Data.Repo}}/commit/{{.}}">{{short .}}</a>{{end}}
 </div>
+{{with $it.Blocked}}
+<div class="row blocked-note">
+  <span><b>Blocked:</b> {{.}}</span>
+  {{if $me.IsAdmin}}<span class="spacer"></span><form method="post" action="/items/{{$it.ID}}/unblock"><button class="secondary">Clear</button></form>{{end}}
+</div>
+{{end}}
 
 <article class="post">
   <div class="by"><b>{{$it.Author}}</b> <time datetime="{{stamp $it.CreatedAt}}">{{ago $it.CreatedAt}}</time></div>

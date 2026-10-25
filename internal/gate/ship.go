@@ -57,7 +57,18 @@ func (s *Shipper) checkItem(ctx context.Context, it db.Item) error {
 			if err := s.Store.PRClosed(ctx, it.ID); err != nil {
 				return err
 			}
+			note := fmt.Sprintf("PR #%d was closed without merging.", pr.Number)
+			if err := s.Store.SetBlocked(ctx, it.ID, note, false); err != nil {
+				return err
+			}
 			return s.Reply(ctx, it, fmt.Sprintf("PR #%d was closed without merging; this is open again.", pr.Number))
+		case it.Blocked == "" && pr.Head.SHA != "":
+			failed, err := s.GitHub.ChecksFailed(ctx, s.Repo, pr.Head.SHA)
+			if err != nil || !failed {
+				return err
+			}
+			slog.Info("item blocked: CI failed", "item", it.ID, "pr", pr.Number)
+			return s.Store.SetBlocked(ctx, it.ID, fmt.Sprintf("CI failed on PR #%d.", pr.Number), false)
 		}
 	case "merged":
 		return s.ship(ctx, it)

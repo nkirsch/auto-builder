@@ -35,3 +35,24 @@ func TestVersion(t *testing.T) {
 		t.Fatalf("missing commit: err = %v", err)
 	}
 }
+
+func TestChecksFailed(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/repos/o/r/commits/red/check-runs":
+			w.Write([]byte(`{"check_runs":[{"conclusion":"success"},{"conclusion":"failure"}]}`))
+		case "/repos/o/r/commits/pending/check-runs":
+			w.Write([]byte(`{"check_runs":[{"conclusion":null},{"conclusion":"success"}]}`))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+	c := New(srv.URL, "")
+	for sha, want := range map[string]bool{"red": true, "pending": false} {
+		got, err := c.ChecksFailed(context.Background(), "o/r", sha)
+		if err != nil || got != want {
+			t.Errorf("%s: got %v, %v; want %v", sha, got, err, want)
+		}
+	}
+}

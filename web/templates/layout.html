@@ -3,6 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="{{if eq .Theme "light"}}only light{{else if eq .Theme "dark"}}dark{{else}}light dark{{end}}">
 <title>{{.Title}} · auto-builder</title>
 <meta name="description" content="A board where asks become pull requests, built and shipped by an unattended Claude Code agent.">
 <meta property="og:site_name" content="auto-builder">
@@ -15,7 +16,7 @@
 <meta property="og:image:height" content="630">
 <meta name="twitter:card" content="summary_large_image">
 <link rel="icon" href="/static/icon.svg" type="image/svg+xml">
-<link rel="stylesheet" href="/static/style.css">
+<link rel="stylesheet" href="/static/style.css{{with .GitSHA}}?v={{short .}}{{end}}">
 </head>
 <body>
 <header>

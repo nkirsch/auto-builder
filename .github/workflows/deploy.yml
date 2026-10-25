@@ -27,7 +27,7 @@ jobs:
       - id: app
         run: |
           grep -E '^[A-Z_]+=' app.env >> "$GITHUB_OUTPUT"
-          . ./app.env
+          DEPLOY_ON=$(sed -n 's/^DEPLOY_ON=//p' app.env)
           case "$GITHUB_EVENT_NAME" in
             workflow_dispatch) deploy=$([ "$DEPLOY_ON" != none ] && echo true || echo false) ;;
             release) deploy=$([ "$DEPLOY_ON" = release ] && echo true || echo false) ;;

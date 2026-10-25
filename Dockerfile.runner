@@ -14,8 +14,10 @@ RUN curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg -o 
  && echo "deb [signed-by=/usr/share/keyrings/githubcli.gpg] https://cli.github.com/packages stable main" \
       > /etc/apt/sources.list.d/github-cli.list \
  && apt-get update && apt-get install -y --no-install-recommends gh postgresql jq \
- && rm -rf /var/lib/apt/lists/* \
- && npm install -g @anthropic-ai/claude-code && npm cache clean --force
+ && rm -rf /var/lib/apt/lists/*
+# Changes weekly (set by deploy.yml) so the cached Claude Code layer refreshes.
+ARG TOOLS_WEEK=
+RUN echo "tools $TOOLS_WEEK" && npm install -g @anthropic-ai/claude-code && npm cache clean --force
 COPY --from=build /runner /usr/local/bin/runner
 # --dangerously-skip-permissions refuses to run as root.
 USER node

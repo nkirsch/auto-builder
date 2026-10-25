@@ -77,7 +77,18 @@ func (s *Shipper) ship(ctx context.Context, it db.Item) error {
 		return err
 	}
 	slog.Info("item shipped", "item", it.ID, "sha", it.MergeSHA)
-	return s.Reply(ctx, it, "Shipped in "+short(it.MergeSHA)+".")
+	return s.Reply(ctx, it, s.shippedNote(ctx, it.MergeSHA))
+}
+
+// shippedNote names the release, e.g. "Shipped in v26.10.25-3 (abc1234).",
+// falling back to the short SHA when the version lookup fails.
+func (s *Shipper) shippedNote(ctx context.Context, sha string) string {
+	v, err := s.GitHub.Version(ctx, s.Repo, sha)
+	if err != nil {
+		slog.Warn("ship version", "sha", sha, "err", err)
+		return "Shipped in " + short(sha) + "."
+	}
+	return fmt.Sprintf("Shipped in %s (%s).", v, short(sha))
 }
 
 func short(sha string) string {

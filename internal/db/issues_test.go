@@ -65,3 +65,59 @@ func TestImportIssue(t *testing.T) {
 		t.Fatalf("synced at = %v, want %v", at, now)
 	}
 }
+
+func TestMirrorQueries(t *testing.T) {
+	ctx := context.Background()
+	s := testStore(t)
+	pub, _ := s.CreateItem(ctx, "Public", "", "alice")
+	priv, _ := s.CreateItem(ctx, "Secret", "#private", "alice")
+	s.SetTags(ctx, priv, []string{"private"}, false)
+	done, _ := s.CreateItem(ctx, "Done", "", "alice")
+	s.CloseItem(ctx, done, "dup", false)
+	fresh, _ := s.CreateItem(ctx, "Just filed", "", "alice")
+	s.Pool.Exec(ctx, `UPDATE items SET created_at = now() - interval '2 minutes' WHERE id <> $1`, fresh)
+
+	if todo, err := s.ItemsToMirror(ctx); err != nil || len(todo) != 1 || todo[0].ID != pub {
+		t.Fatalf("to mirror = %+v, %v", todo, err)
+	}
+	if err := s.SetItemIssue(ctx, pub, 40); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetItemIssue(ctx, pub, 41); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("second issue: %v", err)
+	}
+	if todo, _ := s.ItemsToMirror(ctx); len(todo) != 0 {
+		t.Fatalf("mirrored item still to mirror: %+v", todo)
+	}
+
+	r1, _ := s.AddResponse(ctx, pub, "bob", "hi", true)
+	s.AddResponse(ctx, pub, "bob", "  ", true)
+	s.AddResponse(ctx, priv, "bob", "hidden", true)
+	s.ImportIssueComment(ctx, pub, 500, "bob", "from GitHub")
+	rs, err := s.RepliesToMirror(ctx)
+	if err != nil || len(rs) != 1 || rs[0].ID != r1 || rs[0].Issue != 40 || rs[0].Body != "hi" {
+		t.Fatalf("replies to mirror = %+v, %v", rs, err)
+	}
+	if err := s.SetReplyIssueComment(ctx, r1, 501); err != nil {
+		t.Fatal(err)
+	}
+	if rs, _ := s.RepliesToMirror(ctx); len(rs) != 0 {
+		t.Fatalf("mirrored reply still to mirror: %+v", rs)
+	}
+
+	s.CloseItem(ctx, pub, "dup", false)
+	s.MarkIssueClosed(ctx, pub)
+	if todo, _ := s.IssuesToReopen(ctx); len(todo) != 0 {
+		t.Fatalf("closed item's issue to reopen: %+v", todo)
+	}
+	s.ReopenItem(ctx, pub)
+	if todo, _ := s.IssuesToReopen(ctx); len(todo) != 1 || todo[0].ID != pub {
+		t.Fatalf("issues to reopen = %+v", todo)
+	}
+	if err := s.MarkIssueReopened(ctx, pub); err != nil {
+		t.Fatal(err)
+	}
+	if todo, _ := s.IssuesToReopen(ctx); len(todo) != 0 {
+		t.Fatalf("reopened issue still to reopen: %+v", todo)
+	}
+}

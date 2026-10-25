@@ -364,6 +364,32 @@ func (c *Client) pages(ctx context.Context, path string, q url.Values, since tim
 	return nil
 }
 
+// CreateIssue opens an issue and returns its number.
+func (c *Client) CreateIssue(ctx context.Context, repo, title, body string) (int, error) {
+	var out struct {
+		Number int `json:"number"`
+	}
+	err := c.do(ctx, http.MethodPost, fmt.Sprintf("/repos/%s/issues", repo),
+		map[string]string{"title": title, "body": body}, &out)
+	return out.Number, err
+}
+
+// Comment posts a comment on issue n and returns its ID.
+func (c *Client) Comment(ctx context.Context, repo string, n int, body string) (int64, error) {
+	var out struct {
+		ID int64 `json:"id"`
+	}
+	err := c.do(ctx, http.MethodPost, fmt.Sprintf("/repos/%s/issues/%d/comments", repo, n),
+		map[string]string{"body": body}, &out)
+	return out.ID, err
+}
+
+// ReopenIssue reopens issue n.
+func (c *Client) ReopenIssue(ctx context.Context, repo string, n int) error {
+	return c.do(ctx, http.MethodPatch, fmt.Sprintf("/repos/%s/issues/%d", repo, n),
+		map[string]string{"state": "open"}, nil)
+}
+
 // CloseIssue comments on issue n, then closes it as completed or not planned.
 func (c *Client) CloseIssue(ctx context.Context, repo string, n int, comment string, completed bool) error {
 	if err := c.do(ctx, http.MethodPost, fmt.Sprintf("/repos/%s/issues/%d/comments", repo, n),

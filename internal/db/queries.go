@@ -58,7 +58,7 @@ type Item struct {
 	Tags            []string
 	Blocked         string // why it needs action outside auto-builder; "" when not blocked
 	BlockedAt       *time.Time
-	IssueNumber     *int // GitHub issue it was imported from
+	IssueNumber     *int // GitHub issue it was imported from or mirrored to
 	Replies         int  // list queries only
 }
 
@@ -327,16 +327,75 @@ func (s *Store) ItemByIssue(ctx context.Context, number int) (Item, error) {
 
 // IssuesToClose lists shipped or closed items whose issue the sync hasn't closed yet.
 func (s *Store) IssuesToClose(ctx context.Context) ([]Item, error) {
-	rows, err := s.Pool.Query(ctx, `SELECT `+itemCols+` FROM items i
-		WHERE issue_number IS NOT NULL AND NOT issue_closed AND status IN ('shipped', 'closed') ORDER BY id`)
+	return s.itemList(ctx, `i.issue_number IS NOT NULL AND NOT i.issue_closed AND i.status IN ('shipped', 'closed')`)
+}
+
+func (s *Store) MarkIssueClosed(ctx context.Context, id int) error {
+	return s.execOne(ctx, `UPDATE items SET issue_closed = true WHERE id = $1`, id)
+}
+
+// mirrored holds for items whose content may go to the public repo's issues.
+const mirrored = `NOT ('private' = ANY(i.tags))`
+
+// activeStatus holds for items that are neither shipped nor closed.
+const activeStatus = `i.status IN ('open', 'building', 'merged')`
+
+func (s *Store) itemList(ctx context.Context, where string) ([]Item, error) {
+	rows, err := s.Pool.Query(ctx, `SELECT `+itemCols+` FROM items i WHERE `+where+` ORDER BY id`)
 	if err != nil {
 		return nil, err
 	}
 	return pgx.CollectRows(rows, func(r pgx.CollectableRow) (Item, error) { return scanItem(r) })
 }
 
-func (s *Store) MarkIssueClosed(ctx context.Context, id int) error {
-	return s.execOne(ctx, `UPDATE items SET issue_closed = true WHERE id = $1`, id)
+// ItemsToMirror lists active items without a GitHub issue that aren't tagged
+// private, filed at least a minute ago (tags are set just after the insert).
+func (s *Store) ItemsToMirror(ctx context.Context) ([]Item, error) {
+	return s.itemList(ctx, `i.issue_number IS NULL AND `+activeStatus+` AND `+mirrored+
+		` AND i.created_at < now() - interval '1 minute'`)
+}
+
+// SetItemIssue records the GitHub issue item id was mirrored to (not activity).
+func (s *Store) SetItemIssue(ctx context.Context, id, number int) error {
+	return s.execOne(ctx, `UPDATE items SET issue_number = $2 WHERE id = $1 AND issue_number IS NULL`, id, number)
+}
+
+// IssuesToReopen lists active items whose issue the sync closed (an admin reopened them).
+func (s *Store) IssuesToReopen(ctx context.Context) ([]Item, error) {
+	return s.itemList(ctx, `i.issue_number IS NOT NULL AND i.issue_closed AND `+activeStatus+` AND `+mirrored)
+}
+
+func (s *Store) MarkIssueReopened(ctx context.Context, id int) error {
+	return s.execOne(ctx, `UPDATE items SET issue_closed = false WHERE id = $1`, id)
+}
+
+// IssueReply is a board reply to mirror as a comment on Issue.
+type IssueReply struct {
+	Response
+	Issue int
+}
+
+// RepliesToMirror lists non-empty replies, oldest first, on items with an
+// issue that aren't tagged private, which aren't on GitHub yet (imported or
+// already mirrored replies have issue_comment_id).
+func (s *Store) RepliesToMirror(ctx context.Context) ([]IssueReply, error) {
+	rows, err := s.Pool.Query(ctx, `SELECT r.id, r.item_id, r.author, r.body, r.created_at, i.issue_number
+		FROM responses r JOIN items i ON i.id = r.item_id
+		WHERE r.issue_comment_id IS NULL AND i.issue_number IS NOT NULL AND btrim(r.body) <> '' AND `+mirrored+`
+		ORDER BY r.id`)
+	if err != nil {
+		return nil, err
+	}
+	return pgx.CollectRows(rows, func(r pgx.CollectableRow) (IssueReply, error) {
+		var ir IssueReply
+		err := r.Scan(&ir.ID, &ir.ItemID, &ir.Author, &ir.Body, &ir.CreatedAt, &ir.Issue)
+		return ir, err
+	})
+}
+
+// SetReplyIssueComment records the GitHub comment reply id was mirrored to.
+func (s *Store) SetReplyIssueComment(ctx context.Context, id int, commentID int64) error {
+	return s.execOne(ctx, `UPDATE responses SET issue_comment_id = $2 WHERE id = $1`, id, commentID)
 }
 
 // IssuesSyncedAt is when the last issue sync started; nil before the first.

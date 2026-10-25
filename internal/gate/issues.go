@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"regexp"
 	"strings"
 	"time"
 
@@ -17,8 +18,10 @@ import (
 const syncOverlap = 2 * time.Minute
 
 // IssueSync brings members' GitHub issues and their comments onto the board,
-// and closes an imported issue once its item ships or closes. Issues and
-// comments by non-members (the repo is public) are ignored.
+// mirrors board items and replies to issues (except items tagged private),
+// and closes an item's issue once it ships or closes. Issues and comments by
+// non-members (the repo is public, and that includes the App's own) are
+// ignored.
 type IssueSync struct {
 	Store   *db.Store
 	GitHub  *github.Client
@@ -60,7 +63,93 @@ func (s *IssueSync) Sync(ctx context.Context) error {
 	if len(errs) == 0 {
 		errs = append(errs, s.Store.SetIssuesSyncedAt(ctx, started))
 	}
-	return errors.Join(append(errs, s.closeIssues(ctx))...)
+	return errors.Join(append(errs, s.mirrorItems(ctx), s.reopenIssues(ctx), s.mirrorReplies(ctx), s.closeIssues(ctx))...)
+}
+
+// maxIssueBody keeps mirrored text under GitHub's 65,536-character limit.
+const maxIssueBody = 60_000
+
+// itemRefRE matches a board reference #N not preceded by a word character,
+// &, /, #, [ or "PR "; on GitHub #N would name an issue instead.
+var itemRefRE = regexp.MustCompile(`(^|[^\w&/#\[])#([0-9]{1,9})\b`)
+
+var prRefRE = regexp.MustCompile(`(?i)\b(?:PR|pull request) $`)
+
+// forGitHub truncates board markdown and points its #N references at the board.
+func (s *IssueSync) forGitHub(body string) string {
+	if r := []rune(body); len(r) > maxIssueBody {
+		body = string(r[:maxIssueBody]) + "…"
+	}
+	var b strings.Builder
+	at := 0
+	for _, m := range itemRefRE.FindAllStringSubmatchIndex(body, -1) {
+		ref := m[3] // the #
+		if prRefRE.MatchString(body[:ref]) {
+			continue
+		}
+		n := body[m[4]:m[5]]
+		fmt.Fprintf(&b, "%s[#%s](%s/items/%s)", body[at:ref], n, s.BaseURL, n)
+		at = m[5]
+	}
+	return b.String() + body[at:]
+}
+
+// mirrorItems opens an issue for each active item that has none.
+func (s *IssueSync) mirrorItems(ctx context.Context) error {
+	items, err := s.Store.ItemsToMirror(ctx)
+	if err != nil {
+		return err
+	}
+	var errs []error
+	for _, it := range items {
+		body := strings.TrimSpace(s.forGitHub(it.Body) +
+			fmt.Sprintf("\n\n_Board item [#%d](%s/items/%d) by **%s**._", it.ID, s.BaseURL, it.ID, it.Author))
+		n, err := s.GitHub.CreateIssue(ctx, s.Repo, it.Title, body)
+		if err != nil {
+			errs = append(errs, fmt.Errorf("mirror item %d: %w", it.ID, err))
+			continue
+		}
+		slog.Info("mirrored item", "item", it.ID, "issue", n)
+		errs = append(errs, s.Store.SetItemIssue(ctx, it.ID, n))
+	}
+	return errors.Join(errs...)
+}
+
+// mirrorReplies posts board replies that aren't on GitHub yet as issue comments.
+func (s *IssueSync) mirrorReplies(ctx context.Context) error {
+	replies, err := s.Store.RepliesToMirror(ctx)
+	if err != nil {
+		return err
+	}
+	var errs []error
+	for _, r := range replies {
+		body := fmt.Sprintf("**%s** on board item [#%d](%s/items/%d):\n\n%s",
+			r.Author, r.ItemID, s.BaseURL, r.ItemID, s.forGitHub(strings.TrimSpace(r.Body)))
+		id, err := s.GitHub.Comment(ctx, s.Repo, r.Issue, body)
+		if err != nil {
+			errs = append(errs, fmt.Errorf("mirror reply %d: %w", r.ID, err))
+			continue
+		}
+		errs = append(errs, s.Store.SetReplyIssueComment(ctx, r.ID, id))
+	}
+	return errors.Join(errs...)
+}
+
+// reopenIssues reopens the issue of an item reopened after its issue was closed.
+func (s *IssueSync) reopenIssues(ctx context.Context) error {
+	items, err := s.Store.IssuesToReopen(ctx)
+	if err != nil {
+		return err
+	}
+	var errs []error
+	for _, it := range items {
+		if err := s.GitHub.ReopenIssue(ctx, s.Repo, *it.IssueNumber); err != nil {
+			errs = append(errs, fmt.Errorf("reopen issue %d: %w", *it.IssueNumber, err))
+			continue
+		}
+		errs = append(errs, s.Store.MarkIssueReopened(ctx, it.ID))
+	}
+	return errors.Join(errs...)
 }
 
 // member returns login's board spelling, or "" if they aren't a member.

@@ -1,8 +1,9 @@
 {{define "content"}}
 <div class="row">
-  <h1>{{if eq .Data.Show "done"}}Done{{else}}Open{{end}}</h1>
+  <h1>{{if eq .Data.Show "done"}}Done{{else}}Open{{end}}{{with .Data.Tag}} <span class="tag">#{{.}}</span>{{end}}</h1>
   <span class="spacer"></span>
-  {{if eq .Data.Show "done"}}<a href="/">Open</a>{{else}}<a href="/?show=done">Done</a>{{end}}
+  {{with .Data.Tag}}<a href="/{{if eq $.Data.Show "done"}}?show=done{{end}}">All tags</a>{{end}}
+  {{if eq .Data.Show "done"}}<a href="/{{with .Data.Tag}}?tag={{.}}{{end}}">Open</a>{{else}}<a href="/?show=done{{with .Data.Tag}}&amp;tag={{.}}{{end}}">Done</a>{{end}}
   {{if .Me.IsAdmin}}<form method="post" action="/admin/run"><button class="secondary">Run now</button></form>{{end}}
   <a class="button" href="/items/new">New ask</a>
 </div>
@@ -14,6 +15,7 @@
     <div class="meta">
       <span class="status s-{{.Status}}">{{.Status}}</span>
       {{if .Approved}}<span class="badge approved">approved</span>{{end}}
+      {{range .Tags}}<a class="tag" href="/?{{if eq $.Data.Show "done"}}show=done&amp;{{end}}tag={{.}}">#{{.}}</a>{{end}}
       #{{.ID}} by {{.Author}} · {{ago .UpdatedAt}}{{if .Replies}} · {{.Replies}} repl{{if eq .Replies 1}}y{{else}}ies{{end}}{{end}}
     </div>
   </li>

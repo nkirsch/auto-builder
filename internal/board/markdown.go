@@ -38,3 +38,24 @@ func Mentions(s string) []string {
 	}
 	return out
 }
+
+// tagRE matches #tag at the start of a word: a letter, then letters, digits,
+// - or _. "#12" (an item number) and "page#anchor" are not tags.
+var tagRE = regexp.MustCompile(`(?:^|[\s(\[,;])#([A-Za-z][A-Za-z0-9_-]{0,29})\b`)
+
+// maxTags caps how many tags one item keeps.
+const maxTags = 5
+
+// Tags returns the distinct #tags in s, lower-cased, in order of appearance.
+func Tags(s string) []string {
+	seen := map[string]bool{}
+	var out []string
+	for _, m := range tagRE.FindAllStringSubmatch(s, -1) {
+		t := strings.ToLower(m[1])
+		if !seen[t] && len(out) < maxTags {
+			seen[t] = true
+			out = append(out, t)
+		}
+	}
+	return out
+}

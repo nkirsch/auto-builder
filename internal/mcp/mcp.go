@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"regexp"
+	"slices"
 	"strings"
 	"time"
 
@@ -38,6 +40,8 @@ func (b *Board) Handler() http.Handler {
 		Description: "Post a reply on an item as the bot. @login notifies that member."}, b.reply)
 	mcp.AddTool(s, &mcp.Tool{Name: "set_pr",
 		Description: "Record the PR you opened for an item; moves it to building."}, b.setPR)
+	mcp.AddTool(s, &mcp.Tool{Name: "set_tags",
+		Description: "Tag an item that has no tags yet (e.g. bug, feature); items the author tagged are left alone."}, b.setTags)
 	mcp.AddTool(s, &mcp.Tool{Name: "close_item",
 		Description: "Close a duplicate or obsolete item with a short note."}, b.closeItem)
 	mcp.AddTool(s, &mcp.Tool{Name: "file_item",
@@ -72,6 +76,7 @@ type ItemOut struct {
 	PRNumber    int             `json:"pr_number,omitempty"`
 	MergeSHA    string          `json:"merge_sha,omitempty"`
 	CloseNote   string          `json:"close_note,omitempty"`
+	Tags        []string        `json:"tags" jsonschema:"lower-case #tags; empty means untagged"`
 	Thread      []Post          `json:"thread" jsonschema:"the item body first, then replies in order"`
 	Attachments []AttachmentOut `json:"attachments,omitempty"`
 }
@@ -96,6 +101,11 @@ type ReplyIn struct {
 type SetPRIn struct {
 	ID       int `json:"id"`
 	PRNumber int `json:"pr_number"`
+}
+
+type SetTagsIn struct {
+	ID   int      `json:"id"`
+	Tags []string `json:"tags" jsonschema:"1-3 lower-case tags without #, e.g. bug or feature"`
 }
 
 type CloseIn struct {
@@ -144,7 +154,10 @@ func role(roles map[string]string, login string) string {
 
 func (b *Board) itemOut(ctx context.Context, it db.Item, roles map[string]string, attachments bool) (ItemOut, error) {
 	out := ItemOut{ID: it.ID, Title: it.Title, Status: it.Status, Approved: it.Approved, ApprovedBy: it.ApprovedBy,
-		MergeSHA: it.MergeSHA, CloseNote: it.CloseNote}
+		MergeSHA: it.MergeSHA, CloseNote: it.CloseNote, Tags: it.Tags}
+	if out.Tags == nil {
+		out.Tags = []string{}
+	}
 	if it.PRNumber != nil {
 		out.PRNumber = *it.PRNumber
 	}
@@ -244,6 +257,29 @@ func (b *Board) setPR(ctx context.Context, _ *mcp.CallToolRequest, in SetPRIn) (
 	}
 	b.noteRunItem(ctx, in.ID)
 	return nil, OK{OK: true, Message: "item is building"}, nil
+}
+
+// tagRE is a tag as the board parses it from #hashtags, lower-cased.
+var tagRE = regexp.MustCompile(`^[a-z][a-z0-9_-]{0,29}$`)
+
+func (b *Board) setTags(ctx context.Context, _ *mcp.CallToolRequest, in SetTagsIn) (*mcp.CallToolResult, OK, error) {
+	var tags []string
+	for _, t := range in.Tags {
+		t = strings.ToLower(strings.TrimPrefix(strings.TrimSpace(t), "#"))
+		if !tagRE.MatchString(t) {
+			return nil, OK{}, fmt.Errorf("bad tag %q: use a letter then letters, digits, - or _", t)
+		}
+		if !slices.Contains(tags, t) {
+			tags = append(tags, t)
+		}
+	}
+	if len(tags) == 0 || len(tags) > 3 {
+		return nil, OK{}, fmt.Errorf("give 1-3 tags")
+	}
+	if err := b.Store.SetTags(ctx, in.ID, tags, true); err != nil {
+		return nil, OK{}, fmt.Errorf("item %d is missing or already tagged", in.ID)
+	}
+	return nil, OK{OK: true}, nil
 }
 
 func (b *Board) closeItem(ctx context.Context, _ *mcp.CallToolRequest, in CloseIn) (*mcp.CallToolResult, OK, error) {

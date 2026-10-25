@@ -70,6 +70,9 @@ non-bot change (create, reply, approve) and drives the gate.
   preview so item titles never unfurl); its button starts the GitHub redirect
   at `/auth/github`.
 - `@login` in a body creates a notification for that member.
+- `#tag` in a new item's title or body tags it (lower-cased, up to 5); tags
+  show as links that filter the board (`/?tag=bug`). The agent tags untagged
+  items with its guess via `set_tags`.
 - An admin reply on a `closed` or `shipped` item reopens it (approval kept),
   so the agent picks it up again; member replies only notify.
 - New items and replies from non-admins Pushover the admin when
@@ -128,6 +131,7 @@ Job timeout 60 min, max retries 0.
 | `get_item(id)` | one item, full thread, attachment URLs |
 | `reply(id, body)` | post as the bot; `@mentions` notify |
 | `set_pr(id, pr_number)` | status → `building` |
+| `set_tags(id, tags)` | tag an untagged item (agent's guess) |
 | `close_item(id, note)` | close a duplicate/obsolete item with a note |
 | `file_item(title, body)` | split work into a new item (unapproved) |
 | `deploy_status()` | deployed `GIT_SHA`, items awaiting ship |

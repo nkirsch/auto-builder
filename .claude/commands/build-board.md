@@ -15,6 +15,8 @@ repository (the only repo you build). The board is available through the
    no PRs.
 5. Close obvious duplicates or items that are already done with `close_item`
    and a one-line note.
+6. For each open item with no `tags`, approved or not, guess one with `set_tags` (usually
+   `bug` or `feature`). Never retag an item that already has tags.
 
 ## Building an item
 

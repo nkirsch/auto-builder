@@ -37,3 +37,23 @@ func TestTags(t *testing.T) {
 		t.Fatalf("got %v, want %d tags", got, maxTags)
 	}
 }
+
+func TestMarkdownLinksItemRefs(t *testing.T) {
+	out := string(Markdown("split into #29 because (#7), see a#1, PR #34, pull request #35, &#35;, `#3` and [#4](/x)\nends #12\n\n#tag #5x"))
+	for _, want := range []string{
+		`split into <a href="/items/29">#29</a> because`,
+		`(<a href="/items/7">#7</a>)`,
+		"see a#1, PR #34, pull request #35,",
+		"<code>#3</code>",
+		`<a href="/x">#4</a>`,
+		`ends <a href="/items/12">#12</a></p>`,
+		"#tag #5x",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("missing %q in %s", want, out)
+		}
+	}
+	if strings.Count(out, "<a ") != 4 {
+		t.Errorf("want 4 links: %s", out)
+	}
+}

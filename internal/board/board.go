@@ -154,6 +154,7 @@ type page struct {
 	Unread  int
 	Title   string
 	GitSHA  string
+	Repo    string // owner/name on GitHub, for the footer's commit link
 	Version string // "vYY.MM.DD-N", or "" until known
 	Flash   string
 	BotName string
@@ -178,7 +179,7 @@ func (b *Board) render(w http.ResponseWriter, r *http.Request, name, title strin
 		return
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	p := page{Me: me, Unread: unread, Title: title, GitSHA: b.GitSHA, Flash: r.URL.Query().Get("m"),
+	p := page{Me: me, Unread: unread, Title: title, GitSHA: b.GitSHA, Repo: b.Repo, Flash: r.URL.Query().Get("m"),
 		BotName: b.BotLogin, Theme: theme(r), Path: r.URL.RequestURI(), BaseURL: strings.TrimSuffix(b.BaseURL, "/"), Data: data}
 	if v := b.version.Load(); v != nil {
 		p.Version = *v

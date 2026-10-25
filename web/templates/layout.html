@@ -40,6 +40,6 @@
 {{with .Flash}}<p class="flash">{{.}}</p>{{end}}
 {{template "content" .}}
 </main>
-<footer>{{short .GitSHA}}</footer>
+<footer>{{with .GitSHA}}{{if $.Repo}}<a href="https://github.com/{{$.Repo}}/commit/{{.}}" title="{{.}}">{{short .}}</a>{{else}}{{short .}}{{end}}{{end}}</footer>
 </body>
 </html>{{end}}

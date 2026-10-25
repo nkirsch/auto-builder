@@ -1,0 +1,6 @@
+baseURL = "/"
+languageCode = "en-us"
+title = "auto-builder"
+disableKinds = ["taxonomy", "term", "RSS", "sitemap"]
+# data/ is the server's local store, not site data.
+dataDir = "sitedata"

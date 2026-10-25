@@ -26,6 +26,13 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
+      - id: app
+        run: grep -E '^[A-Z_]+=' app.env >> "$GITHUB_OUTPUT"
+      - uses: peaceiris/actions-hugo@v3
+        with:
+          hugo-version: ${{ steps.app.outputs.HUGO_VERSION }}
+          extended: true
+      - run: hugo --minify
       - run: go vet ./...
       # -p 1: DB-backed packages share one test database
       - run: go test -p 1 ./...

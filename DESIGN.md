@@ -81,6 +81,7 @@ non-bot change (create, reply, approve) and drives the gate.
   preview so item titles never unfurl); its button starts the GitHub redirect
   at `/auth/github`.
 - `@login` in a body creates a notification for that member.
+- `#N` in rendered markdown (not in code or links) links to item N.
 - `#tag` in a new item's title or body tags it (lower-cased, up to 5); tags
   show as links that filter the board (`/?tag=bug`). The agent tags untagged
   items with its guess via `set_tags`.

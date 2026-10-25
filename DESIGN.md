@@ -62,7 +62,8 @@ non-bot change (create, reply, approve) and drives the gate.
 
 - `/` open items (approved badge, status, reply count), `/items/{id}` thread,
   `/items/new`, `/inbox` (mentions + replies to your items, unread count in nav;
-  read ones on shipped/closed items move to `/inbox?show=done`),
+  one row per item; fully read ones on shipped/closed items move to
+  `/inbox?show=done`),
   `/runs` (history, items the agent replied on/opened a PR for/closed/filed
   during each run via MCP, summary, log link), `/admin` (members, Run now).
 - Signed-out visitors land on `/auth/login` (our page, generic Open Graph

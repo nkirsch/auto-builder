@@ -3,8 +3,8 @@
 <ul class="items">
   {{range .Data.Members}}
   <li class="row">
-    {{if .AvatarURL}}<img src="{{.AvatarURL}}&s=48" alt="" class="avatar">{{end}}
-    <b>{{.Login}}</b> <span class="badge">{{.Role}}</span>
+    {{if .AvatarURL}}<img src="{{.Avatar}}" alt="" class="avatar">{{end}}
+    <b>{{.Login}}</b> <span class="badge">{{.Role}}</span>{{with .Email}} <span class="muted">{{.}}</span>{{end}}
     <span class="muted">{{if .LastSeen}}seen {{ago .LastSeen}}{{else}}never signed in{{end}}</span>
     <span class="spacer"></span>
     {{if ne .Login $.Me.Login}}
@@ -15,7 +15,8 @@
 </ul>
 <h2>Add or change a member</h2>
 <form method="post" action="/admin/members" class="row">
-  <input name="login" placeholder="GitHub login" required>
+  <input name="login" placeholder="Login (GitHub, or any handle)" required>
+  <input name="email" type="email" placeholder="Google email (then Google sign-in only)">
   <select name="role"><option value="member">member</option><option value="admin">admin</option></select>
   <button>Save</button>
 </form>

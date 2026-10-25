@@ -40,6 +40,9 @@ type config struct {
 	Version                                  string // set by a deploy that tags the commit
 	IdleHours                                int
 	IssueSync                                bool // ISSUE_SYNC=off disables importing GitHub issues
+
+	AdminEmail                         string // Google sign-in address for ADMIN_LOGIN
+	GoogleClientID, GoogleClientSecret string
 }
 
 func loadConfig() (config, error) {
@@ -76,6 +79,8 @@ func loadConfig() (config, error) {
 		IdleHours:       idle,
 		IssueSync:       env("ISSUE_SYNC", "on") != "off",
 	}
+	c.AdminEmail = env("ADMIN_EMAIL", "")
+	c.GoogleClientID, c.GoogleClientSecret = env("GOOGLE_CLIENT_ID", ""), env("GOOGLE_CLIENT_SECRET", "")
 	if c.DatabaseURL == "" {
 		return c, errors.New("DATABASE_URL is required")
 	}
@@ -130,6 +135,11 @@ func run() error {
 	if err := st.UpsertMember(ctx, cfg.AdminLogin, "admin", "bootstrap"); err != nil {
 		return fmt.Errorf("seed admin: %w", err)
 	}
+	if cfg.AdminEmail != "" {
+		if err := st.SetMemberEmail(ctx, cfg.AdminLogin, cfg.AdminEmail); err != nil {
+			return fmt.Errorf("seed admin email: %w", err)
+		}
+	}
 
 	var storage store.Storage = store.Dir(cfg.DataDir)
 	if cfg.Bucket != "" {
@@ -157,6 +167,7 @@ func run() error {
 	a, err := auth.New(auth.Config{
 		BaseURL: cfg.BaseURL, ClientID: cfg.ClientID, ClientSecret: cfg.ClientSecret,
 		SessionKey: []byte(cfg.SessionKey), DevLogin: cfg.DevLogin,
+		GoogleClientID: cfg.GoogleClientID, GoogleClientSecret: cfg.GoogleClientSecret,
 	}, st)
 	if err != nil {
 		return err

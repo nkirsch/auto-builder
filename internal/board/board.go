@@ -808,9 +808,23 @@ func (b *Board) addMember(w http.ResponseWriter, r *http.Request) {
 		redirect(w, r, "/admin", "That's the bot's login")
 		return
 	}
+	email := strings.TrimSpace(r.FormValue("email"))
+	if email != "" && !strings.Contains(email, "@") {
+		redirect(w, r, "/admin", "That email doesn't look right")
+		return
+	}
 	if err := b.Store.UpsertMember(r.Context(), login, role, auth.Member(r.Context()).Login); err != nil {
 		b.fail(w, err)
 		return
+	}
+	if email != "" {
+		if err := b.Store.SetMemberEmail(r.Context(), login, email); errors.Is(err, db.ErrEmailTaken) {
+			redirect(w, r, "/admin", "Saved "+login+", but "+email+" belongs to another member")
+			return
+		} else if err != nil {
+			b.fail(w, err)
+			return
+		}
 	}
 	redirect(w, r, "/admin", "Saved "+login)
 }
@@ -855,5 +869,5 @@ func (b *Board) login(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, next, http.StatusFound)
 		return
 	}
-	b.render(w, r, "login", "Sign in", map[string]string{"Next": next})
+	b.render(w, r, "login", "Sign in", map[string]any{"Next": next, "GitHub": b.Auth.GitHub(), "Google": b.Auth.Google()})
 }

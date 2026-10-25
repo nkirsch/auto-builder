@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"regexp"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -30,6 +31,7 @@ type Member struct {
 	Role      string
 	Name      string
 	AvatarURL string
+	Email     string // Google sign-in address; "" for GitHub-only members
 	AddedBy   string
 	AddedAt   time.Time
 	LastSeen  *time.Time
@@ -39,6 +41,24 @@ type Member struct {
 }
 
 func (m Member) IsAdmin() bool { return m.Role == "admin" }
+
+// Avatar returns AvatarURL sized for a 24px image: GitHub takes s=, Google =sN.
+func (m Member) Avatar() string {
+	u := m.AvatarURL
+	switch {
+	case strings.HasPrefix(u, "https://avatars.githubusercontent.com/"):
+		if strings.Contains(u, "?") {
+			return u + "&s=48"
+		}
+		return u + "?s=48"
+	case strings.HasPrefix(u, "https://lh3.googleusercontent.com/"):
+		if i := strings.LastIndex(u, "="); i > strings.LastIndex(u, "/") {
+			u = u[:i]
+		}
+		return u + "=s48-c"
+	}
+	return u
+}
 
 type Item struct {
 	ID              int
@@ -191,17 +211,25 @@ func notFound(err error) error {
 
 // Members
 
-const memberCols = `login, role, name, avatar_url, added_by, added_at, last_seen, auto_approve`
+const memberCols = `login, role, name, avatar_url, email, added_by, added_at, last_seen, auto_approve`
 
 func scanMember(row pgx.Row) (Member, error) {
 	var m Member
-	err := row.Scan(&m.Login, &m.Role, &m.Name, &m.AvatarURL, &m.AddedBy, &m.AddedAt, &m.LastSeen, &m.AutoApprove)
+	err := row.Scan(&m.Login, &m.Role, &m.Name, &m.AvatarURL, &m.Email, &m.AddedBy, &m.AddedAt, &m.LastSeen, &m.AutoApprove)
 	return m, notFound(err)
 }
 
 // Member looks up a login case-insensitively (GitHub logins are).
 func (s *Store) Member(ctx context.Context, login string) (Member, error) {
 	return scanMember(s.Pool.QueryRow(ctx, `SELECT `+memberCols+` FROM members WHERE lower(login) = lower($1)`, login))
+}
+
+// MemberByEmail finds the member Google sign-in is for.
+func (s *Store) MemberByEmail(ctx context.Context, email string) (Member, error) {
+	if email == "" {
+		return Member{}, ErrNotFound
+	}
+	return scanMember(s.Pool.QueryRow(ctx, `SELECT `+memberCols+` FROM members WHERE lower(email) = lower($1)`, email))
 }
 
 func (s *Store) Members(ctx context.Context) ([]Member, error) {
@@ -216,6 +244,19 @@ func (s *Store) Members(ctx context.Context) ([]Member, error) {
 func (s *Store) UpsertMember(ctx context.Context, login, role, addedBy string) error {
 	_, err := s.Pool.Exec(ctx, `INSERT INTO members (login, role, added_by) VALUES ($1, $2, $3)
 		ON CONFLICT (login) DO UPDATE SET role = EXCLUDED.role`, login, role, addedBy)
+	return err
+}
+
+// ErrEmailTaken is returned when another member already has the email.
+var ErrEmailTaken = errors.New("email belongs to another member")
+
+// SetMemberEmail sets the address Google sign-in accepts for a member; "" removes it.
+func (s *Store) SetMemberEmail(ctx context.Context, login, email string) error {
+	err := s.execOne(ctx, `UPDATE members SET email = $2 WHERE lower(login) = lower($1)`, login, strings.TrimSpace(email))
+	var pg *pgconn.PgError
+	if errors.As(err, &pg) && pg.Code == "23505" {
+		return ErrEmailTaken
+	}
 	return err
 }
 
@@ -251,7 +292,7 @@ func (s *Store) DeleteMember(ctx context.Context, login string) error {
 	return err
 }
 
-// TouchMember records a sign-in with the GitHub profile fields.
+// TouchMember records a sign-in with the profile's name and avatar.
 func (s *Store) TouchMember(ctx context.Context, login, name, avatar string) error {
 	_, err := s.Pool.Exec(ctx, `UPDATE members SET name = $2, avatar_url = $3, last_seen = now()
 		WHERE lower(login) = lower($1)`, login, name, avatar)

@@ -118,7 +118,9 @@ The tick also walks items in `building`/`merged`:
 
 ## Runner (Cloud Run Job, Go)
 
-1. `POST /api/runner/runs/{RUN_ID}/claim` (bearer `RUNNER_TOKEN`) → `running`.
+1. `POST /api/runner/runs/{RUN_ID}/claim` (bearer `RUNNER_TOKEN`) → `running`; the
+   server records its own `GIT_SHA` and version name on the run, shown on
+   `/runs` as the run's release (the runner job deploys with the server).
 2. Mint a GitHub App installation token (JWT RS256 from `GH_APP_ID` +
    `GH_APP_PRIVATE_KEY`, installation `GH_APP_INSTALLATION_ID`), 1 h.
 3. Fresh `git clone` of `master`; commits authored as the App's bot user.

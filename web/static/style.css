@@ -93,3 +93,4 @@ button.link { border: 0; background: none; color: var(--muted); padding: 0; }
 .stages .st-active { color: var(--warn); border-color: currentColor; }
 .stages .st-pending, .stages .st-skipped { opacity: .6; }
 .stages .st-skipped { text-decoration: line-through; }
+.items .version { font-size: 13px; color: var(--muted); }

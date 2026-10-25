@@ -193,3 +193,33 @@ func TestDur(t *testing.T) {
 		}
 	}
 }
+
+func TestRunsShowRelease(t *testing.T) {
+	b := &Board{}
+	if err := b.parse(); err != nil {
+		t.Fatal(err)
+	}
+	rows := []runRow{
+		{Run: db.Run{ID: 3, Status: "done", GitSHA: "abc1234def", Version: "v26.10.25-3"}},
+		{Run: db.Run{ID: 2, Status: "done", GitSHA: "fed9876cba"}},
+		{Run: db.Run{ID: 1, Status: "done"}},
+	}
+	var sb strings.Builder
+	p := page{Title: "Runs", Me: db.Member{Login: "x"}, Repo: "nkirsch/auto-builder", Data: rows}
+	if err := b.tmpl["runs"].ExecuteTemplate(&sb, "layout", p); err != nil {
+		t.Fatal(err)
+	}
+	out := sb.String()
+	for _, want := range []string{
+		`<b>Run 3</b>
+      <a class="version" href="https://github.com/nkirsch/auto-builder/commit/abc1234def" title="abc1234def">v26.10.25-3</a>`,
+		`<a class="version" href="https://github.com/nkirsch/auto-builder/commit/fed9876cba" title="fed9876cba">fed9876</a>`,
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("runs page missing %s", want)
+		}
+	}
+	if n := strings.Count(out, `class="version"`); n != 2 {
+		t.Errorf("versions shown = %d, want 2", n)
+	}
+}

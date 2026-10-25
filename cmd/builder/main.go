@@ -97,6 +97,7 @@ type server struct {
 	store   *db.Store
 	storage store.Storage
 	gate    *gate.Gate
+	version func() string // release name, "" until resolved
 }
 
 func main() {
@@ -168,7 +169,7 @@ func run() error {
 	}
 	tools := &mcp.Board{Store: st, BotLogin: cfg.BotLogin, BaseURL: cfg.BaseURL, GitSHA: cfg.GitSHA, Reply: b.BotReply}
 
-	s := &server{cfg: cfg, store: st, storage: storage, gate: g}
+	s := &server{cfg: cfg, store: st, storage: storage, gate: g, version: b.Version}
 	mux := http.NewServeMux()
 	a.Routes(mux)
 	if err := b.Routes(mux); err != nil {
@@ -235,7 +236,7 @@ func (s *server) claim(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "bad run id", http.StatusBadRequest)
 		return
 	}
-	if err := s.store.ClaimRun(r.Context(), id); errors.Is(err, db.ErrNotFound) {
+	if err := s.store.ClaimRun(r.Context(), id, s.cfg.GitSHA, s.version()); errors.Is(err, db.ErrNotFound) {
 		http.Error(w, "run is not awaiting a runner", http.StatusConflict)
 		return
 	} else if err != nil {

@@ -128,7 +128,7 @@ func TestGateState(t *testing.T) {
 	if _, err := s.CreateRun(ctx, "now", "nkirsch"); !errors.Is(err, ErrRunActive) {
 		t.Fatalf("second run: %v", err)
 	}
-	s.ClaimRun(ctx, run)
+	s.ClaimRun(ctx, run, "", "")
 	if err := s.FinishRun(ctx, run, "done", "ok", "", nil); err != nil {
 		t.Fatal(err)
 	}
@@ -230,7 +230,7 @@ func TestRunItems(t *testing.T) {
 		t.Fatal(err)
 	}
 	s.NoteRunItem(ctx, a) // requested, not yet running
-	if err := s.ClaimRun(ctx, run); err != nil {
+	if err := s.ClaimRun(ctx, run, "", ""); err != nil {
 		t.Fatal(err)
 	}
 	for _, id := range []int{b, a, b} {
@@ -375,7 +375,7 @@ func TestMemberCosts(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		s.ClaimRun(ctx, run)
+		s.ClaimRun(ctx, run, "", "")
 		for _, id := range items {
 			s.NoteRunItem(ctx, id)
 		}
@@ -455,7 +455,7 @@ func TestSetRunStage(t *testing.T) {
 	if err := s.SetRunStage(ctx, id, "agent"); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("stage before claim: %v", err)
 	}
-	if err := s.ClaimRun(ctx, id); err != nil {
+	if err := s.ClaimRun(ctx, id, "", ""); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.SetRunStage(ctx, id, "agent"); err != nil {
@@ -485,5 +485,24 @@ func TestSetRunStage(t *testing.T) {
 	r, _ = s.Run(ctx, id)
 	if r.Progress() != 100 || r.Stage() != "" {
 		t.Fatalf("finished progress %d stage %q", r.Progress(), r.Stage())
+	}
+}
+
+func TestClaimRecordsRelease(t *testing.T) {
+	ctx := context.Background()
+	s := testStore(t)
+	id, err := s.CreateRun(ctx, "manual", "nkirsch")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.ClaimRun(ctx, id, "abc1234def", "v26.10.25-3"); err != nil {
+		t.Fatal(err)
+	}
+	r, err := s.Run(ctx, id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r.GitSHA != "abc1234def" || r.Version != "v26.10.25-3" {
+		t.Fatalf("run = %+v", r)
 	}
 }

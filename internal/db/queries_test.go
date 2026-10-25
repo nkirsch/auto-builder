@@ -487,3 +487,67 @@ func TestSetRunStage(t *testing.T) {
 		t.Fatalf("finished progress %d stage %q", r.Progress(), r.Stage())
 	}
 }
+
+func TestRunStats(t *testing.T) {
+	ctx := context.Background()
+	s := testStore(t)
+	item, _ := s.CreateItem(ctx, "Stats", "", "alice")
+	other, _ := s.CreateItem(ctx, "Other", "", "bob")
+	s.SetApproved(ctx, item, true, "nkirsch")
+	s.SetApproved(ctx, other, true, "nkirsch")
+
+	newRun := func() int {
+		id, err := s.CreateRun(ctx, "manual", "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		s.ClaimRun(ctx, id, "", "")
+		return id
+	}
+	r1 := newRun()
+	if err := s.SetPR(ctx, item, 7); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.NoteRunPR(ctx, item, 7); err != nil {
+		t.Fatal(err)
+	}
+	s.NoteRunPR(ctx, other, 8)
+	s.SetPR(ctx, other, 8)
+	s.MarkMerged(ctx, item, "abc")
+	s.FinishRun(ctx, r1, "done", "", "", ptr(3.0))
+	// 10s queued, 20s setup, 600s agent, 5s report = 625s runtime
+	if _, err := s.Pool.Exec(ctx, `UPDATE runs SET created_at = $2, started_at = $2 + interval '10 s',
+		agent_at = $2 + interval '30 s', report_at = $2 + interval '630 s', finished_at = $2 + interval '635 s' WHERE id = $1`,
+		r1, time.Now().Add(-time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	// an old failed run without stage times, outside the last 30 days
+	r2 := newRun()
+	s.FinishRun(ctx, r2, "failed", "", "", nil)
+	if _, err := s.Pool.Exec(ctx, `UPDATE runs SET created_at = $2, started_at = $2, finished_at = $2 + interval '25 s' WHERE id = $1`,
+		r2, time.Now().Add(-40*24*time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	newRun() // still running: not counted
+
+	recent, err := s.RunStats(ctx, time.Now().Add(-30*24*time.Hour))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if recent.Runs != 1 || recent.Done != 1 || recent.Failed != 0 || recent.PRs != 2 || recent.PRsMerged != 1 ||
+		recent.Runtime != 625*time.Second || recent.MedianRuntime != 625*time.Second || recent.CostPerPR == nil || *recent.CostPerPR != 1.5 {
+		t.Fatalf("recent = %+v", recent)
+	}
+	for i, want := range []int{10, 20, 600, 5} {
+		if recent.Stages[i].Name != RunStageNames[i] || recent.Stages[i].Duration != time.Duration(want)*time.Second {
+			t.Errorf("stage %d = %+v", i, recent.Stages[i])
+		}
+	}
+	all, err := s.RunStats(ctx, time.Time{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if all.Runs != 2 || all.Failed != 1 || all.PRs != 2 || all.Runtime != 325*time.Second || all.Stages[2].Duration != 600*time.Second {
+		t.Fatalf("all = %+v", all)
+	}
+}

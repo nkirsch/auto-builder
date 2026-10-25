@@ -693,8 +693,18 @@ func (b *Board) admin(w http.ResponseWriter, r *http.Request) {
 		b.fail(w, err)
 		return
 	}
+	recent, err := b.Store.RunStats(r.Context(), time.Now().Add(-30*24*time.Hour))
+	if err != nil {
+		b.fail(w, err)
+		return
+	}
+	all, err := b.Store.RunStats(r.Context(), time.Time{})
+	if err != nil {
+		b.fail(w, err)
+		return
+	}
 	b.render(w, r, "admin", "Admin", map[string]any{"Members": members, "Costs": costs,
-		"Limit": limit, "MemberCosts": byMember})
+		"Limit": limit, "MemberCosts": byMember, "Stats": []db.RunStats{recent, all}})
 }
 
 func (b *Board) setSpendLimit(w http.ResponseWriter, r *http.Request) {

@@ -651,6 +651,60 @@ func (s *Store) NoteRunItem(ctx context.Context, itemID int) error {
 	return err
 }
 
+// NoteRunPR records that the running run opened PR pr for an item. It does
+// nothing when no run is running.
+func (s *Store) NoteRunPR(ctx context.Context, itemID, pr int) error {
+	_, err := s.Pool.Exec(ctx, `INSERT INTO run_prs (run_id, item_id, pr_number)
+		SELECT id, $1, $2 FROM runs WHERE status = 'running' ON CONFLICT DO NOTHING`, itemID, pr)
+	return err
+}
+
+// RunStats summarises finished runs created since a time. Durations are
+// averages over the runs that recorded both ends; zero when none did.
+type RunStats struct {
+	Runs, Done, Failed int
+	PRs, PRsMerged     int // PRs opened during the runs; merged = item merged or shipped with that PR
+	Runtime            time.Duration
+	MedianRuntime      time.Duration
+	Stages             []RunStage // average per stage, in RunStageNames order
+	CostPerPR          *float64   // reported cost / PRs; nil without PRs or cost
+}
+
+func (s *Store) RunStats(ctx context.Context, since time.Time) (RunStats, error) {
+	var st RunStats
+	var avg, median, queued, setup, agent, report float64
+	var cost *float64
+	err := s.Pool.QueryRow(ctx, `SELECT count(*), count(*) FILTER (WHERE status = 'done'), count(*) FILTER (WHERE status = 'failed'),
+			coalesce(avg(extract(epoch FROM finished_at - started_at)), 0)::float8,
+			coalesce(percentile_cont(0.5) WITHIN GROUP (ORDER BY extract(epoch FROM finished_at - started_at)), 0)::float8,
+			coalesce(avg(extract(epoch FROM started_at - created_at)), 0)::float8,
+			coalesce(avg(extract(epoch FROM agent_at - started_at)), 0)::float8,
+			coalesce(avg(extract(epoch FROM report_at - agent_at)), 0)::float8,
+			coalesce(avg(extract(epoch FROM finished_at - report_at)), 0)::float8,
+			sum(cost_usd)::float8
+		FROM runs WHERE status IN ('done', 'failed') AND created_at >= $1`, since).Scan(
+		&st.Runs, &st.Done, &st.Failed, &avg, &median, &queued, &setup, &agent, &report, &cost)
+	if err != nil {
+		return st, err
+	}
+	err = s.Pool.QueryRow(ctx, `SELECT count(*), count(*) FILTER (WHERE i.pr_number = p.pr_number AND i.status IN ('merged', 'shipped'))
+		FROM run_prs p JOIN runs r ON r.id = p.run_id JOIN items i ON i.id = p.item_id
+		WHERE r.created_at >= $1`, since).Scan(&st.PRs, &st.PRsMerged)
+	if err != nil {
+		return st, err
+	}
+	secs := func(f float64) time.Duration { return time.Duration(f * float64(time.Second)).Round(time.Second) }
+	st.Runtime, st.MedianRuntime = secs(avg), secs(median)
+	for i, f := range []float64{queued, setup, agent, report} {
+		st.Stages = append(st.Stages, RunStage{Name: RunStageNames[i], State: "done", Duration: secs(f)})
+	}
+	if cost != nil && st.PRs > 0 {
+		c := *cost / float64(st.PRs)
+		st.CostPerPR = &c
+	}
+	return st, nil
+}
+
 // RunItems returns the items each of the given runs acted on, in the order it
 // first touched them.
 func (s *Store) RunItems(ctx context.Context, runIDs []int) (map[int][]RunItem, error) {

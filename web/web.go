@@ -1,4 +1,4 @@
-// Package web embeds the board's templates and static files.
+// Package web embeds the board's templates and static files, and the multi-tenant hub's pages.
 package web
 
 import (
@@ -7,7 +7,7 @@ import (
 	"strings"
 )
 
-//go:embed templates static
+//go:embed templates static hub
 var FS embed.FS
 
 // Pages lists the page templates (everything but layout.html and brand.html).

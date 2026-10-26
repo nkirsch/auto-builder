@@ -202,17 +202,61 @@ func (r *Registry) SetStatus(ctx context.Context, slug, status, errText string) 
 	return err
 }
 
-// IsPlatformAdmin reports whether login may create tenants.
-func (r *Registry) IsPlatformAdmin(ctx context.Context, login string) (bool, error) {
-	var ok bool
-	err := r.Control.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM platform_admins WHERE login = $1)`, login).Scan(&ok)
-	return ok, err
+// Admin is a platform admin: they may create tenants and see them all.
+type Admin struct{ Login, Email string }
+
+// PlatformAdmin finds the admin whose login or email is identity, or db.ErrNotFound.
+func (r *Registry) PlatformAdmin(ctx context.Context, identity string) (Admin, error) {
+	var a Admin
+	err := r.Control.QueryRow(ctx, `SELECT login, coalesce(email, '') FROM platform_admins
+		WHERE login = $1 OR lower(email) = lower($1)`, identity).Scan(&a.Login, &a.Email)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return a, db.ErrNotFound
+	}
+	return a, err
 }
 
-// AddPlatformAdmin makes login a platform admin; adding twice is fine.
-func (r *Registry) AddPlatformAdmin(ctx context.Context, login string) error {
-	_, err := r.Control.Exec(ctx, `INSERT INTO platform_admins (login) VALUES ($1) ON CONFLICT DO NOTHING`, login)
+// PlatformAdmins lists every platform admin by login.
+func (r *Registry) PlatformAdmins(ctx context.Context) ([]Admin, error) {
+	rows, err := r.Control.Query(ctx, `SELECT login, coalesce(email, '') FROM platform_admins ORDER BY login`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []Admin
+	for rows.Next() {
+		var a Admin
+		if err := rows.Scan(&a.Login, &a.Email); err != nil {
+			return nil, err
+		}
+		out = append(out, a)
+	}
+	return out, rows.Err()
+}
+
+// AddPlatformAdmin makes login a platform admin, setting email when given.
+func (r *Registry) AddPlatformAdmin(ctx context.Context, login, email string) error {
+	_, err := r.Control.Exec(ctx, `INSERT INTO platform_admins (login, email) VALUES ($1, nullif(lower($2), ''))
+		ON CONFLICT (login) DO UPDATE SET email = coalesce(EXCLUDED.email, platform_admins.email)`,
+		strings.TrimSpace(login), strings.TrimSpace(email))
 	return err
+}
+
+// SetUser records a signed-in identity's profile (auth.Users).
+func (r *Registry) SetUser(ctx context.Context, identity, name, avatar string) error {
+	_, err := r.Control.Exec(ctx, `INSERT INTO users (identity, name, avatar_url) VALUES ($1, $2, $3)
+		ON CONFLICT (identity) DO UPDATE SET name = EXCLUDED.name, avatar_url = EXCLUDED.avatar_url, last_seen = now()`,
+		identity, name, avatar)
+	return err
+}
+
+// User returns identity's profile; unknown identities have none.
+func (r *Registry) User(ctx context.Context, identity string) (name, avatar string, err error) {
+	err = r.Control.QueryRow(ctx, `SELECT name, avatar_url FROM users WHERE identity = $1`, identity).Scan(&name, &avatar)
+	if errors.Is(err, pgx.ErrNoRows) {
+		err = nil
+	}
+	return name, avatar, err
 }
 
 // Settings returns the limits across all tenants.

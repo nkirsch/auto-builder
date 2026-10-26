@@ -1,0 +1,30 @@
+{{define "layout"}}<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>{{.Title}} · {{.Site}}</title>
+<link rel="icon" href="/static/icon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="/static/style.css{{with .GitSHA}}?v={{short .}}{{end}}">
+<link rel="stylesheet" href="/static/brand.css{{with .GitSHA}}?v={{short .}}{{end}}">
+</head>
+<body>
+<header>
+  <nav>
+    <a href="/" class="brand">{{.Site}}</a>
+    {{if .Me}}<a href="/">Apps</a>
+    {{if .Admin}}<a href="/new">New app</a>
+    <a href="/admin">Admin</a>{{end}}
+    <form method="post" action="/auth/logout" class="logout">
+      <button class="link" title="Sign out">{{.Me}} ⎋</button>
+    </form>{{end}}
+  </nav>
+</header>
+<main>
+{{with .Flash}}<p class="flash">{{.}}</p>{{end}}
+{{template "content" .}}
+</main>
+<footer>{{with .GitSHA}}{{short .}}{{end}}</footer>
+</body>
+</html>{{end}}

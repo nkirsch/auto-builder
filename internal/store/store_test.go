@@ -40,3 +40,24 @@ func TestDirStaysInside(t *testing.T) {
 		t.Fatalf("object not kept inside the directory: %v", err)
 	}
 }
+
+func TestPrefixed(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	p := Prefixed{Storage: Dir(dir), Prefix: "t/alpha/"}
+	if err := p.Put(ctx, "attachments/1/a.txt", "text/plain", strings.NewReader("hi")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "t/alpha/attachments/1/a.txt")); err != nil {
+		t.Fatal(err)
+	}
+	rc, err := p.Get(ctx, "attachments/1/a.txt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	rc.Close()
+	other := Prefixed{Storage: Dir(dir), Prefix: "t/beta/"}
+	if _, err := other.Get(ctx, "attachments/1/a.txt"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("other tenant reads it: %v", err)
+	}
+}

@@ -1,0 +1,9 @@
+{{define "content"}}
+<section class="signin">
+  <img src="/static/icon.svg" alt="" width="72" height="72">
+  <h1>{{.Site}}</h1>
+  <p class="muted">One board per app. Members file asks, the app's admin approves them, and an unattended Claude Code agent builds each one into a pull request that ships when CI passes.</p>
+  {{if .Data.Google}}<a class="button" href="/auth/google?next={{.Data.Next}}">Sign in with Google</a>{{end}}
+  {{if .Data.GitHub}}<a class="button{{if .Data.Google}} secondary{{end}}" href="/auth/github?next={{.Data.Next}}">Sign in with GitHub</a>{{end}}
+</section>
+{{end}}

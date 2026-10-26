@@ -1,0 +1,20 @@
+{{define "content"}}
+<h1>Apps</h1>
+{{if .Data.Apps}}
+<ul class="items">
+  {{range .Data.Apps}}
+  <li class="row">
+    <a href="/{{.Slug}}/"><b>{{.Name}}</b></a>
+    {{with .Role}}<span class="badge">{{.}}</span>{{end}}
+    {{if ne .Status "ready"}}<span class="badge">{{.Status}}</span>{{end}}
+    <span class="muted">{{.Open}} open</span>
+    <span class="spacer"></span>
+    <a class="muted" href="{{.AppURL}}">{{.AppHost}}</a>
+    <a class="muted" href="https://github.com/{{.Repo}}">{{.Repo}}</a>
+  </li>
+  {{end}}
+</ul>
+{{else}}
+<p class="muted">You're not a member of any app yet. Ask an app's admin to add {{.Me}}.</p>
+{{end}}
+{{end}}

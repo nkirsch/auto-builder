@@ -5,7 +5,7 @@
   <li class="row">
     {{if .AvatarURL}}<img src="{{.Avatar}}" alt="" class="avatar">{{end}}
     <b>{{.Login}}</b> <span class="badge">{{.Role}}</span>{{with .Email}} <span class="muted">{{.}}</span>{{end}}
-    <span class="muted">{{if .LastSeen}}seen {{ago .LastSeen}}{{else}}never signed in{{end}}</span>
+    <span class="muted">{{if .LastSeen}}seen {{ago .LastSeen}}{{else}}never signed in · <a href="{{invite .}}" title="Email them the board's link and how to sign in">Invite</a>{{end}}</span>
     <span class="spacer"></span>
     {{if ne .Login $.Me.Login}}
     <form method="post" action="{{base}}/admin/members/{{.Login}}/delete"><button class="secondary">Remove</button></form>

@@ -20,6 +20,7 @@ jobs:
       SERVE_SITE: ${{ steps.app.outputs.SERVE_SITE }}
       DEPLOY_ON: ${{ steps.app.outputs.DEPLOY_ON }}
       ISSUE_SYNC: ${{ steps.app.outputs.ISSUE_SYNC }}
+      TENANCY: ${{ steps.app.outputs.TENANCY }}
       SITE_NAME: ${{ steps.app.outputs.SITE_NAME }}
       SITE_URL: ${{ steps.app.outputs.SITE_URL }}
     steps:
@@ -79,8 +80,35 @@ jobs:
             SERVE_SITE=${{ needs.config.outputs.SERVE_SITE }}
           cache-from: type=gha,scope=${{ matrix.name }}
           cache-to: type=gha,scope=${{ matrix.name }},mode=max
+  # Multi-tenant mode's provision job (TENANCY.md); skipped otherwise.
+  provision-image:
+    needs: config
+    if: needs.config.outputs.deploy == 'true' && needs.config.outputs.TENANCY == 'on'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: google-github-actions/auth@v3
+        with:
+          workload_identity_provider: ${{ vars.GCP_WIF_PROVIDER }}
+          service_account: ${{ vars.GCP_DEPLOYER }}
+      - uses: google-github-actions/setup-gcloud@v3
+        with:
+          skip_install: true
+      - run: gcloud auth configure-docker ${{ vars.GCP_REGION }}-docker.pkg.dev --quiet
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile.provision
+          platforms: linux/amd64
+          push: true
+          tags: ${{ vars.IMAGE }}/provision:${{ github.sha }}
+          cache-from: type=gha,scope=provision
+          cache-to: type=gha,scope=provision,mode=max
   deploy:
-    needs: [config, test, image]
+    needs: [config, test, image, provision-image]
+    # provision-image is skipped outside multi-tenant mode.
+    if: ${{ !failure() && !cancelled() && needs.config.outputs.deploy == 'true' }}
     runs-on: ubuntu-latest
     concurrency:
       group: deploy
@@ -128,6 +156,11 @@ jobs:
         run: >
           gcloud run jobs update ${{ vars.JOB }} --project ${{ vars.GCP_PROJECT }} --region ${{ vars.GCP_REGION }}
           --image ${{ vars.IMAGE }}/runner:${{ github.sha }} --quiet
+      - name: update provision job
+        if: needs.config.outputs.TENANCY == 'on'
+        run: >
+          gcloud run jobs update ${{ vars.PROVISION_JOB }} --project ${{ vars.GCP_PROJECT }} --region ${{ vars.GCP_REGION }}
+          --image ${{ vars.IMAGE }}/provision:${{ github.sha }} --quiet
   notify:
     needs: [config, deploy]
     if: always() && needs.config.outputs.deploy == 'true'

@@ -25,7 +25,7 @@ CI; the server marks items shipped once its own `GIT_SHA` contains the merge.
 - `config.toml`, `layouts/`, … — the Hugo site served at `/` when `BASE_URL` has a path
 - `app.defaults.env` — every per-site setting with upstream's value (name, URL, Hugo version, `SERVE_SITE`, `DEPLOY_ON` push/release/none, `ISSUE_SYNC`, local Postgres); `app.env` — this site's overrides. Read by `board.mk` and the workflows
 - `board.mk` — board make targets; a site's `Makefile` includes it
-- `infra/bootstrap.sh` — idempotent GCP + GitHub setup
+- `infra/bootstrap.sh` — idempotent GCP + GitHub setup; `infra/tenancy.sh` — the same for multi-tenant mode's platform
 - `TENANCY.md` — multi-tenant mode (design only; off unless `TENANCY=on`), deployed by `kirsch/extreme`
 
 ## Develop

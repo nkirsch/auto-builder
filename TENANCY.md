@@ -137,7 +137,11 @@ All done for extreme.org (2026-10-25):
 3a. Item numbers follow issue numbers, on every board. Done (`IssueSync.File`).
 4. Provisioner + template repo. Done: `cmd/provision`, the hub starts it
    (`PROVISION_JOB`), tenant shipping reads the app's serving `GIT_SHA`.
-5. Bootstrap, DNS cutover, first tenant.
+5. Bootstrap, DNS cutover, first tenant. `infra/tenancy.sh` sets up the
+   platform (hub service, runner and provision jobs, accounts, WIF pool with
+   `github` and `platform` providers, tick, apex domain, the platform repo's
+   deploy variables); the platform repo then sets `TENANCY=on` and
+   `DEPLOY_ON=push` in its `app.env`.
 
 ## Open risks
 

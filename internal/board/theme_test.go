@@ -207,7 +207,8 @@ func TestLayoutBrand(t *testing.T) {
 			t.Errorf("layout missing %s", want)
 		}
 	}
-	if !strings.Contains(brand("brand-footer"), "llc.nick.org") {
+	// The NICK LLC bar is upstream's branding; forks choose their own footer.
+	if brand("brand-site") == "auto-builder" && !strings.Contains(brand("brand-footer"), "llc.nick.org") {
 		t.Error("brand-footer missing the NICK LLC link")
 	}
 }

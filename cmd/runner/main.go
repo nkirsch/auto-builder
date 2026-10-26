@@ -124,6 +124,11 @@ func build(ctx context.Context, cfg config, api *api, claim claimResp, log io.Wr
 	actx, cancel := context.WithTimeout(ctx, agentTimeout)
 	defer cancel()
 	agentEnv := append(gitEnv, "BOARD_URL="+cfg.BaseURL, "RUN_ID="+cfg.RunID)
+	if fed, err := claudeIdentity(actx, cfg.WorkDir, http.DefaultClient); err != nil {
+		return fmt.Errorf("claude identity token: %w", err)
+	} else if fed != nil {
+		agentEnv = append(withoutAPIKey(agentEnv), fed...)
+	}
 	err = runCmd(actx, repoDir, agentEnv, log, "claude", "-p", "/build-board",
 		"--dangerously-skip-permissions", "--mcp-config", mcpConfig,
 		"--output-format", "stream-json", "--verbose")
@@ -152,6 +157,73 @@ func childEnv(environ []string) []string {
 	var out []string
 	for _, kv := range environ {
 		if !strings.HasPrefix(kv, "GH_APP_") {
+			out = append(out, kv)
+		}
+	}
+	return out
+}
+
+// metadataIdentityURL mints a Google-signed ID token for the job's service
+// account; format=full adds the email claim the federation rule matches.
+var metadataIdentityURL = "http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/identity?audience=https://api.anthropic.com&format=full"
+
+// identityRefresh keeps the token file ahead of Claude Code's re-exchanges:
+// Google ID tokens last 1h and the agent may run 55 min.
+const identityRefresh = 20 * time.Minute
+
+// claudeIdentity sets up Workload Identity Federation for Claude Code when
+// ANTHROPIC_FEDERATION_RULE_ID is set: it writes the job's Google ID token to
+// a file, refreshes it until ctx ends, and returns the env pointing Claude
+// Code at it. Nil means no federation; the agent uses ANTHROPIC_API_KEY.
+func claudeIdentity(ctx context.Context, dir string, client *http.Client) ([]string, error) {
+	if env("ANTHROPIC_FEDERATION_RULE_ID", "") == "" {
+		return nil, nil
+	}
+	path := filepath.Join(dir, "anthropic-identity-token")
+	write := func() error {
+		req, _ := http.NewRequestWithContext(ctx, "GET", metadataIdentityURL, nil)
+		req.Header.Set("Metadata-Flavor", "Google")
+		resp, err := client.Do(req)
+		if err != nil {
+			return err
+		}
+		defer resp.Body.Close()
+		b, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<16))
+		if resp.StatusCode != http.StatusOK || len(b) == 0 {
+			return fmt.Errorf("metadata identity: HTTP %d", resp.StatusCode)
+		}
+		tmp := path + ".tmp"
+		if err := os.WriteFile(tmp, b, 0o600); err != nil {
+			return err
+		}
+		return os.Rename(tmp, path)
+	}
+	if err := write(); err != nil {
+		return nil, err
+	}
+	go func() {
+		t := time.NewTicker(identityRefresh)
+		defer t.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-t.C:
+				if err := write(); err != nil {
+					slog.Warn("refresh claude identity token", "err", err)
+				}
+			}
+		}
+	}()
+	return []string{"ANTHROPIC_IDENTITY_TOKEN_FILE=" + path}, nil
+}
+
+// withoutAPIKey drops ANTHROPIC_API_KEY, which outranks federation in Claude
+// Code's credential order (a job may still mount the secret, even as "unset").
+func withoutAPIKey(environ []string) []string {
+	var out []string
+	for _, kv := range environ {
+		if !strings.HasPrefix(kv, "ANTHROPIC_API_KEY=") {
 			out = append(out, kv)
 		}
 	}

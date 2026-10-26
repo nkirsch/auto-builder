@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -88,5 +89,47 @@ func TestInstallCommand(t *testing.T) {
 	os.WriteFile(filepath.Join(own, "build-board.md"), []byte("site's own"), 0o644)
 	if ok, err := installCommand(repo, t.TempDir()); err != nil || ok {
 		t.Fatalf("repo with its own command: %v %v", ok, err)
+	}
+}
+
+func TestClaudeIdentityOff(t *testing.T) {
+	t.Setenv("ANTHROPIC_FEDERATION_RULE_ID", "")
+	fed, err := claudeIdentity(context.Background(), t.TempDir(), http.DefaultClient)
+	if fed != nil || err != nil {
+		t.Fatalf("fed=%v err=%v, want none", fed, err)
+	}
+}
+
+func TestClaudeIdentityWritesToken(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Metadata-Flavor") != "Google" {
+			http.Error(w, "no flavor", http.StatusForbidden)
+			return
+		}
+		io.WriteString(w, "google-jwt")
+	}))
+	defer srv.Close()
+	old := metadataIdentityURL
+	metadataIdentityURL = srv.URL
+	defer func() { metadataIdentityURL = old }()
+	t.Setenv("ANTHROPIC_FEDERATION_RULE_ID", "fdrl_1")
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	dir := t.TempDir()
+	fed, err := claudeIdentity(ctx, dir, srv.Client())
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(dir, "anthropic-identity-token")
+	if len(fed) != 1 || fed[0] != "ANTHROPIC_IDENTITY_TOKEN_FILE="+path {
+		t.Fatalf("env = %v", fed)
+	}
+	if b, _ := os.ReadFile(path); string(b) != "google-jwt" {
+		t.Fatalf("token = %q", b)
+	}
+	got := withoutAPIKey([]string{"PATH=/bin", "ANTHROPIC_API_KEY=unset"})
+	if len(got) != 1 || got[0] != "PATH=/bin" {
+		t.Fatalf("withoutAPIKey = %v", got)
 	}
 }

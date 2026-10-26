@@ -8,7 +8,7 @@
   <tbody>
   {{range .Data.Sites}}
   <tr>
-    <td><a href="{{.Board}}"><b>{{.Name}}</b></a>{{if .App}} <span class="muted">app</span>{{end}}</td>
+    <td>{{if .App}}<a href="{{.Board}}"><b>{{.Slug}}</b></a>{{if ne .Name .Slug}} <span class="muted">{{.Name}}</span>{{end}} · <a href="{{.Site}}">site</a>{{else}}<a href="{{.Board}}"><b>{{.Name}}</b></a>{{end}}</td>
     <td>{{if .Stats.Version}}{{.Stats.Version}}{{else if .Stats.GitSHA}}<span class="muted">{{short .Stats.GitSHA}}</span>{{else}}<span class="muted">–</span>{{end}}</td>
     <td>{{if and .Detail (not .Stats.Started.IsZero)}}{{when .Stats.Started}}{{else}}<span class="muted">–</span>{{end}}</td>
     <td class="num">{{if .Detail}}{{.Stats.Open}}{{else}}<span class="muted">–</span>{{end}}</td>

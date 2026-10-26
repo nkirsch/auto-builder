@@ -129,6 +129,9 @@ func TestHubTenants(t *testing.T) {
 		t.Errorf("katrina not a platform admin: %v", err)
 	}
 	check(do(h, srv, "nkirsch", "GET", "/admin", nil), 200, "", `action="/admin/platform-admins/katrina/delete"`)
+	check(do(h, srv, "nkirsch", "GET", "/admin", nil), 200, "", ">Provision</button>")
+	h.reg.SetStatus(ctx, "beta", "ready", "")
+	check(do(h, srv, "nkirsch", "GET", "/admin", nil), 200, "", ">Re-provision</button>")
 	check(do(h, srv, "nkirsch", "POST", "/admin/platform-admins/nkirsch/delete", url.Values{}), 303,
 		"/admin?flash=You+can%27t+remove+yourself", "")
 	check(do(h, srv, "nkirsch", "POST", "/admin/platform-admins/katrina/delete", url.Values{}), 303, "/admin?flash=Removed+katrina", "")

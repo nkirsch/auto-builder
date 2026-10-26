@@ -8,7 +8,7 @@
     <span class="spacer"></span>
     <a class="muted" href="https://github.com/{{.Repo}}">{{.Repo}}</a>
     <span class="muted">by {{.CreatedBy}} {{ago .CreatedAt}}</span>
-    {{if ne .Status "deleted"}}<form method="post" action="/admin/tenants/{{.Slug}}/provision"><button class="secondary">Provision</button></form>
+    {{if ne .Status "deleted"}}<form method="post" action="/admin/tenants/{{.Slug}}/provision"><button class="secondary" title="Checks every resource and creates any that are missing; safe to run any time.">{{if eq .Status "ready"}}Re-provision{{else}}Provision{{end}}</button></form>
     <form method="post" action="/admin/tenants/{{.Slug}}/delete" class="row">
       <input name="confirm" placeholder="type {{.Slug}}" size="10" aria-label="Type {{.Slug}} to delete">
       <button class="secondary">Delete</button>

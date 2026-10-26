@@ -5,8 +5,10 @@ import (
 	"crypto/rand"
 	"crypto/rsa"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 )
@@ -212,5 +214,29 @@ func TestBotIdentityAuthenticatedAndCached(t *testing.T) {
 	}
 	if users != 1 {
 		t.Fatalf("user lookups = %d, want 1", users)
+	}
+}
+
+func TestMintForScopesToRepo(t *testing.T) {
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var bodies []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		b, _ := io.ReadAll(r.Body)
+		bodies = append(bodies, strings.TrimSpace(string(b)))
+		w.Write([]byte(`{"token":"inst","expires_at":"2099-01-01T00:00:00Z"}`))
+	}))
+	defer srv.Close()
+	a := &App{ID: "1", InstallationID: "9", key: key, API: srv.URL, client: srv.Client()}
+	if _, _, err := a.MintFor(context.Background(), "extreme-dot-org/alpha"); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := a.Mint(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if len(bodies) != 2 || bodies[0] != `{"repositories":["alpha"]}` || bodies[1] != "" {
+		t.Fatalf("bodies %q", bodies)
 	}
 }

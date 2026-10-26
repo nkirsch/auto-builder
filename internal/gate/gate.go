@@ -31,6 +31,9 @@ type Gate struct {
 	Idle     time.Duration
 	Ship     *Shipper   // nil disables ship checks
 	Issues   *IssueSync // nil disables the GitHub issue sync
+	// Hold, when set, can stop a launch the board's own state allows: the
+	// multi-tenant run cap and spend limit. It returns why, or "".
+	Hold func(ctx context.Context) (string, error)
 
 	mu      sync.Mutex // serialises Check so concurrent activity doesn't double-launch
 	pending chan struct{}
@@ -77,6 +80,10 @@ func (g *Gate) Check(ctx context.Context, trigger string) (int, error) {
 		slog.Debug("gate hold", "trigger", trigger, "reason", reason)
 		return 0, nil
 	}
+	if held, err := g.held(ctx); err != nil || held != "" {
+		slog.Debug("gate hold", "trigger", trigger, "reason", held)
+		return 0, err
+	}
 	return g.launch(ctx, reason, "")
 }
 
@@ -91,7 +98,19 @@ func (g *Gate) RunNow(ctx context.Context, by string) (int, error) {
 	if ok, _ := Decide(s, time.Now(), "now", g.Idle); !ok {
 		return 0, holdErr(s)
 	}
+	if held, err := g.held(ctx); err != nil {
+		return 0, err
+	} else if held != "" {
+		return 0, fmt.Errorf("%w: %s", db.ErrHeld, held)
+	}
 	return g.launch(ctx, "now", by)
+}
+
+func (g *Gate) held(ctx context.Context) (string, error) {
+	if g.Hold == nil {
+		return "", nil
+	}
+	return g.Hold(ctx)
 }
 
 // holdErr says why Run now was held.

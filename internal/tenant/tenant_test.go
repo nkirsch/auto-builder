@@ -177,3 +177,43 @@ func TestRegistry(t *testing.T) {
 	}
 	r2.Close()
 }
+
+func TestRunTokens(t *testing.T) {
+	ctx := context.Background()
+	r := testRegistry(t)
+	if err := r.Create(ctx, Tenant{Slug: "alpha", Repo: "o/alpha", CreatedBy: "nkirsch"}); err != nil {
+		t.Fatal(err)
+	}
+	tok, err := r.IssueRunToken(ctx, "alpha", 7)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if slug, run, err := r.RunToken(ctx, tok); err != nil || slug != "alpha" || run != 7 {
+		t.Fatalf("resolve: %s %d %v", slug, run, err)
+	}
+	if _, _, err := r.RunToken(ctx, tok+"x"); !errors.Is(err, db.ErrNotFound) {
+		t.Errorf("wrong token: %v", err)
+	}
+	var stored int
+	r.Control.QueryRow(ctx, `SELECT count(*) FROM run_tokens WHERE encode(hash, 'hex') = $1`, tok).Scan(&stored)
+	if stored != 0 {
+		t.Error("token stored in the clear")
+	}
+	if n, _ := r.ActiveRuns(ctx); n != 1 {
+		t.Errorf("active runs %d", n)
+	}
+	if err := r.RevokeRunToken(ctx, "alpha", 7); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := r.RunToken(ctx, tok); !errors.Is(err, db.ErrNotFound) {
+		t.Errorf("revoked token resolves: %v", err)
+	}
+	tok, _ = r.IssueRunToken(ctx, "alpha", 8)
+	r.Control.Exec(ctx, `UPDATE run_tokens SET expires_at = now() - interval '1 second'`)
+	if _, _, err := r.RunToken(ctx, tok); !errors.Is(err, db.ErrNotFound) {
+		t.Errorf("expired token resolves: %v", err)
+	}
+	if n, _ := r.ActiveRuns(ctx); n != 0 {
+		t.Errorf("active runs after expiry %d", n)
+	}
+}

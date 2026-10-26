@@ -23,6 +23,16 @@ func (LogLauncher) Launch(_ context.Context, runID int) (string, error) {
 	return "none", nil
 }
 
+func (LogLauncher) LaunchEnv(_ context.Context, env map[string]string) (string, error) {
+	slog.Info("launcher=none: would start runner", "run", env["RUN_ID"], "tenant", env["TENANT"])
+	return "none", nil
+}
+
+// EnvLauncher starts the runner job with env overrides (multi-tenant mode).
+type EnvLauncher interface {
+	LaunchEnv(ctx context.Context, env map[string]string) (string, error)
+}
+
 // CloudRunJob runs a Cloud Run Job with RUN_ID overridden.
 type CloudRunJob struct {
 	Project, Region, Job string
@@ -38,11 +48,18 @@ func NewCloudRunJob(ctx context.Context, project, region, job string) (*CloudRun
 }
 
 func (c *CloudRunJob) Launch(ctx context.Context, runID int) (string, error) {
+	return c.LaunchEnv(ctx, map[string]string{"RUN_ID": strconv.Itoa(runID)})
+}
+
+// LaunchEnv runs the job with env overridden, returning the execution name.
+func (c *CloudRunJob) LaunchEnv(ctx context.Context, env map[string]string) (string, error) {
+	var vars []any
+	for k, v := range env {
+		vars = append(vars, map[string]string{"name": k, "value": v})
+	}
 	body, _ := json.Marshal(map[string]any{
 		"overrides": map[string]any{
-			"containerOverrides": []any{map[string]any{
-				"env": []any{map[string]string{"name": "RUN_ID", "value": strconv.Itoa(runID)}},
-			}},
+			"containerOverrides": []any{map[string]any{"env": vars}},
 		},
 	})
 	u := fmt.Sprintf("https://run.googleapis.com/v2/projects/%s/locations/%s/jobs/%s:run", c.Project, c.Region, c.Job)

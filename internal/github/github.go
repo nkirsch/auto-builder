@@ -79,6 +79,12 @@ func (a *App) Token(ctx context.Context) (string, error) {
 
 // Mint returns a new, uncached installation token (GitHub gives it 1 h).
 func (a *App) Mint(ctx context.Context) (token string, expires time.Time, err error) {
+	return a.MintFor(ctx, "")
+}
+
+// MintFor is Mint limited to one repo ("owner/name") of the installation;
+// "" means every repo it covers.
+func (a *App) MintFor(ctx context.Context, repo string) (token string, expires time.Time, err error) {
 	j, err := a.JWT()
 	if err != nil {
 		return "", time.Time{}, err
@@ -87,8 +93,12 @@ func (a *App) Mint(ctx context.Context) (token string, expires time.Time, err er
 		Token     string    `json:"token"`
 		ExpiresAt time.Time `json:"expires_at"`
 	}
+	var in any
+	if repo != "" {
+		in = map[string][]string{"repositories": {repo[strings.Index(repo, "/")+1:]}}
+	}
 	c := &Client{API: a.API, http: a.client, bearer: j}
-	if err := c.do(ctx, http.MethodPost, "/app/installations/"+a.InstallationID+"/access_tokens", nil, &out); err != nil {
+	if err := c.do(ctx, http.MethodPost, "/app/installations/"+a.InstallationID+"/access_tokens", in, &out); err != nil {
 		return "", time.Time{}, fmt.Errorf("installation token: %w", err)
 	}
 	return out.Token, out.ExpiresAt, nil

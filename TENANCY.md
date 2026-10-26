@@ -9,7 +9,7 @@ limit. The shared agent builds the repo, and the result is deployed to
 Artifact Registry. `DESIGN.md` still describes how a single board behaves.
 This file covers only what changes for multiple tenants.
 
-Status (2026-10-25): build order steps 1–2 done (`internal/tenant`, `cmd/builder/tenancy.go`). The code lives here, off unless `TENANCY=on`,
+Status (2026-10-25): build order steps 1–3 done (`internal/tenant`, `cmd/builder/tenancy.go`). The code lives here, off unless `TENANCY=on`,
 so single-board deploys and site forks are unchanged. `kirsch/extreme` is a
 fork that owns only its settings and docs and deploys this mode. Done for it:
 GitHub org `extreme-dot-org` and its App, Cloud DNS zone `extreme-org`,
@@ -104,15 +104,18 @@ control.tenant_secrets (tenant, name, PK(tenant,name))
 
 ## Manual steps
 
-1. Create GitHub org for tenant repos and the GitHub App (callback
+All done for extreme.org (2026-10-25):
+
+1. GitHub org `extreme-dot-org` and its App (callback
    `https://extreme.org/auth/callback`; repo permissions contents, pull
    requests, issues, workflows, administration (write), actions, checks
-   (read); install on all org repos).
-2. Run `infra/bootstrap.sh` (creates Cloud DNS zone), then set Joker's
-   nameservers for extreme.org to the zone's four `ns-cloud-*` servers.
-3. Verify extreme.org in Search Console; add `extreme-provisioner@` as owner.
-4. Fill secrets `extreme-<NAME>` (`GITHUB_CLIENT_*`, `GOOGLE_CLIENT_*`, `GH_APP_*`, `ANTHROPIC_API_KEY`);
-   unprefixed names are the single board's.
+   (read); installed on all org repos). Template repo
+   `extreme-dot-org/extreme-template` (Hugo site + Go server).
+2. Cloud DNS zone `extreme-org`; Joker's nameservers point at its four
+   `ns-cloud-a*` servers.
+3. extreme.org verified in Search Console; `extreme-provisioner@` is an owner.
+4. Secrets `extreme-<NAME>` (`GITHUB_CLIENT_*`, `GOOGLE_CLIENT_*`, `GH_APP_*`,
+   `ANTHROPIC_API_KEY`); unprefixed names are the single board's.
 
 ## Build order
 
@@ -120,7 +123,10 @@ control.tenant_secrets (tenant, name, PK(tenant,name))
    tests pass against a `t_test` schema (CI runs the suite twice). Done.
 2. Path-prefixed board, hub, auth changes; run locally with two tenants.
    Done: `TENANCY=on` (with `TENANT_ORG`) serves the hub; runs are held.
-3. Per-run tokens, gate loop, runner changes.
+3. Per-run tokens, gate loop, runner changes. Done: `TENANT`/`RUN_TOKEN` job
+   overrides, repo-scoped App tokens (`MintFor`), `/build-board` embedded at the
+   module root (`commands.go`) for repos without one, global cap and spend via
+   `gate.Hold`. Tenants without a Shipper until step 4.
 3a. Item numbers follow issue numbers, on every board.
 4. Provisioner + template repo.
 5. Bootstrap, DNS cutover, first tenant.

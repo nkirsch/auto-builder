@@ -124,6 +124,13 @@ type server struct {
 	app     *github.App   // nil when the GitHub App isn't configured
 	version func() string // release name, "" until resolved
 	notify  *notify.Pushover
+	slug    string // multi-tenant mode: the tenant; its run tokens are limited to cfg.Repo
+}
+
+// runID is the run named in the request path, or 0.
+func (s *server) runID(r *http.Request) int {
+	id, _ := strconv.Atoi(r.PathValue("id"))
+	return id
 }
 
 func main() {
@@ -357,7 +364,11 @@ func (s *server) token(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
-	token, expires, err := s.app.Mint(r.Context())
+	repo := ""
+	if s.slug != "" {
+		repo = s.cfg.Repo // a tenant's run reaches only its own repo
+	}
+	token, expires, err := s.app.MintFor(r.Context(), repo)
 	if err != nil {
 		slog.Error("token", "run", id, "err", err)
 		http.Error(w, "minting token failed", http.StatusBadGateway)

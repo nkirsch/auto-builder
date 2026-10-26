@@ -861,6 +861,8 @@ func (b *Board) runNow(w http.ResponseWriter, r *http.Request) {
 		redirect(w, r, "/runs", "A run is already active")
 	case errors.Is(err, db.ErrSpendLimit):
 		redirect(w, r, "/admin", "Spend limit reached; raise it to run")
+	case errors.Is(err, db.ErrHeld):
+		redirect(w, r, "/runs", "Held: "+strings.TrimPrefix(err.Error(), db.ErrHeld.Error()+": "))
 	case err != nil:
 		slog.Error("run now", "err", err)
 		redirect(w, r, "/runs", "Launch failed: "+err.Error())

@@ -347,3 +347,15 @@ func TestHubAliasAndAppDomain(t *testing.T) {
 		t.Errorf("new page doesn't name APP_DOMAIN: %.300q", w.Body.String())
 	}
 }
+
+func TestHubFeedbackLink(t *testing.T) {
+	h := testHub(t)
+	if w := do(h, h.routes(), "nkirsch", "GET", "/", nil); strings.Contains(w.Body.String(), ">Feedback<") {
+		t.Error("Feedback link without FEEDBACK_URL")
+	}
+	h.cfg.FeedbackURL = "https://builder.example/items/new"
+	w := do(h, h.routes(), "nkirsch", "GET", "/", nil)
+	if !strings.Contains(w.Body.String(), `<a href="https://builder.example/items/new" title="Ask for a change to the platform">Feedback</a>`) {
+		t.Errorf("no Feedback link: %.600q", w.Body.String())
+	}
+}

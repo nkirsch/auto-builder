@@ -51,6 +51,7 @@ type config struct {
 	ProvisionJob string // multi mode: Cloud Run Job that provisions an app
 	AppDomain    string // multi mode: APP_DOMAIN, apps on <slug>.<AppDomain>; default BASE_URL's host
 	Upstream     string // the repo this one is a fork of; "" or Repo itself for none
+	FeedbackURL  string // multi mode: FEEDBACK_URL, the hub menu's Feedback link; "off" for none
 
 	StatsToken string       // STATS_TOKEN: bearer for GET /api/stats; the hub sends it to SITES
 	Sites      []remoteSite // multi mode: SITES, single-board sites on the all-sites page
@@ -99,6 +100,9 @@ func loadConfig() (config, error) {
 	c.TenantOrg = env("TENANT_ORG", "")
 	c.ProvisionJob = env("PROVISION_JOB", "")
 	c.AppDomain = env("APP_DOMAIN", "")
+	if c.FeedbackURL = env("FEEDBACK_URL", "https://builder.extreme.org/items/new"); c.FeedbackURL == "off" {
+		c.FeedbackURL = ""
+	}
 	if c.Upstream = env("UPSTREAM", ""); c.Upstream == c.Repo {
 		c.Upstream = ""
 	}

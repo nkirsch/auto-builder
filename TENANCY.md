@@ -129,10 +129,10 @@ All done for extreme.org (2026-10-25):
 5. Claude: Workload Identity Federation, no API key. Run kirsch/home
    `infrastructure/claude-wif/provision.sh gcp extreme-runner
    extreme-runner@nkirsch-auto-builder.iam.gserviceaccount.com` (`WORKSPACE=extreme.org`)
-   and pass its output as `CLAUDE_FEDERATION=...` to `infra/tenancy.sh`, which
-   sets the IDs on `extreme-runner` and unmounts `ANTHROPIC_API_KEY`
-   (`bootstrap.sh` takes the same for `builder-runner`). Without it the
-   runner mounts `extreme-ANTHROPIC_API_KEY`.
+   once; `infra/tenancy.sh` defaults `CLAUDE_FEDERATION` to its output (rule
+   `extreme-runner-rule`), sets the IDs on `extreme-runner` and unmounts
+   `ANTHROPIC_API_KEY` (`bootstrap.sh` does the same for `builder-runner`).
+   `CLAUDE_FEDERATION=` (empty) mounts `extreme-ANTHROPIC_API_KEY` instead.
 
 ## Build order
 

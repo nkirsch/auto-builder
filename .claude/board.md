@@ -24,6 +24,7 @@ CI; the server marks items shipped once its own `GIT_SHA` contains the merge.
 - `app.defaults.env` — every per-site setting with upstream's value (name, URL, Hugo version, `SERVE_SITE`, `DEPLOY_ON` push/release/none, `ISSUE_SYNC`, local Postgres); `app.env` — this site's overrides. Read by `board.mk` and the workflows
 - `board.mk` — board make targets; a site's `Makefile` includes it
 - `infra/bootstrap.sh` — idempotent GCP + GitHub setup
+- `TENANCY.md` — multi-tenant mode (design only; off unless `TENANCY=on`), deployed by `kirsch/extreme`
 
 ## Develop
 
@@ -54,7 +55,7 @@ then Pushover if `PUSHOVER_*` secrets are set.
 ## Forks
 
 Site forks (`kirsch/momo`, `kirsch/katrina`, `kirsch/youkoh.org`, `nkirsch/nick.org`) and
-`kirsch/extreme` (multi-tenant, `TENANCY.md`) are git-level forks that merge upstream with `make merge-upstream`.
+`kirsch/extreme` (the multi-tenant example: settings and docs only) are git-level forks that merge upstream with `make merge-upstream`.
 A fork owns `app.env`, `CLAUDE.md`, `.claude/site.md`, branding, its site, and appended sections of
 `DESIGN.md`; everything else is upstream's, so merges don't conflict. `.gitattributes` marks the
 fork-owned files `merge=ours`, so when upstream changes one too the fork keeps its copy. Upstream adds new settings to

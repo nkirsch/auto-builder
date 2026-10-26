@@ -1,14 +1,20 @@
 # auto-builder
 
-A self-building board. Members file asks, an admin approves them, and an
-unattended Claude Code agent builds each approved ask into a pull request,
-merges it once CI passes, and reports back when it ships.
+A self-building app. It's a Go server with Postgres, Cloud Storage and a
+Hugo site, deployed to Cloud Run. It also has a built-in board where members
+file asks. Once an admin approves an ask, an unattended Claude Code agent
+changes the app's own code, opens a pull request, merges it once CI passes,
+and the change deploys itself.
 
-**Live board: [builder.extreme.org](https://builder.extreme.org)**. This
-repo is built from it.
+**Live: [builder.extreme.org](https://builder.extreme.org)**, the board this
+repo is built from.
 
 ## What it does
 
+- **App**: Go server, Postgres on Cloud SQL (schema migrations), Cloud
+  Storage for files, and a Hugo site served at `/`. Secrets come from Secret
+  Manager. Deploys run through GitHub Actions and Workload Identity
+  Federation, with no keys stored.
 - **Board**: asks, threads, attachments, @mentions, unread markers, tags and
   blocked items; GitHub or Google sign-in; member and admin roles.
 - **Agent runs**: a gate starts a Cloud Run Job when there's approved work.

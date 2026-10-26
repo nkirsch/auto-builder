@@ -124,3 +124,17 @@ func (g *GCS) Get(ctx context.Context, name string) (io.ReadCloser, error) {
 		return nil, fmt.Errorf("gcs get %s: %s", name, resp.Status)
 	}
 }
+
+// Prefixed keeps one tenant's objects under prefix in a shared Storage.
+type Prefixed struct {
+	Storage
+	Prefix string // e.g. "t/<slug>/"
+}
+
+func (p Prefixed) Put(ctx context.Context, name, contentType string, r io.Reader) error {
+	return p.Storage.Put(ctx, p.Prefix+name, contentType, r)
+}
+
+func (p Prefixed) Get(ctx context.Context, name string) (io.ReadCloser, error) {
+	return p.Storage.Get(ctx, p.Prefix+name)
+}

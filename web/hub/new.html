@@ -1,0 +1,14 @@
+{{define "content"}}
+<h1>New app</h1>
+<form method="post" action="/new" class="stack">
+  <label for="slug">Slug</label>
+  <input id="slug" name="slug" value="{{.Data.Slug}}" pattern="[a-z][a-z0-9-]{0,19}[a-z0-9]" required>
+  <p class="hint">2–21 of a–z, 0–9 and -. The board lives at /&lt;slug&gt;/, the app at &lt;slug&gt;.{{.Data.Host}}.</p>
+  <label for="name">Name</label>
+  <input id="name" name="name" value="{{.Data.Name}}">
+  <label for="repo">Repo</label>
+  <input id="repo" name="repo" value="{{.Data.Repo}}" placeholder="{{.Data.Org}}/&lt;slug&gt;">
+  <p class="hint">Defaults to {{.Data.Org}}/&lt;slug&gt;. You become the app's admin.</p>
+  <button>Create</button>
+</form>
+{{end}}

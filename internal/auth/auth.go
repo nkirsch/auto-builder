@@ -27,6 +27,7 @@ import (
 
 const (
 	sessionCookie = "session"
+	hostCookie    = "__Host-session" // multi-tenant mode over https: host-only, so app subdomains can't set it
 	stateCookie   = "oauth_state"
 	sessionTTL    = 30 * 24 * time.Hour
 )
@@ -51,6 +52,18 @@ type Config struct {
 	GoogleClientSecret string
 	SessionKey         []byte
 	DevLogin           string // honoured only when BaseURL is localhost
+
+	// Multi is multi-tenant mode (TENANCY.md): signing in records only who
+	// you are, a GitHub login or a Google address, and each board resolves
+	// membership through ForTenant.
+	Multi bool
+	Users Users // multi mode: profiles shared by all boards; optional
+}
+
+// Users keeps multi-mode profiles, keyed by identity (login or address).
+type Users interface {
+	SetUser(ctx context.Context, identity, name, avatar string) error
+	User(ctx context.Context, identity string) (name, avatar string, err error)
 }
 
 // Auth handles sign-in and resolves the current member.
@@ -63,6 +76,8 @@ type Auth struct {
 	dev      bool
 	origin   string // scheme://host of BaseURL
 	prefix   string // BaseURL's path, e.g. "/iterate"; "" at the root
+	authPath string // where the callbacks live, for the state cookie
+	tenant   bool   // a board's view of a multi-mode Auth (ForTenant)
 	api      string // GitHub API base, overridable in tests
 	userinfo string // Google OpenID userinfo endpoint, overridable in tests
 }
@@ -101,9 +116,64 @@ func New(cfg Config, store *db.Store) (*Auth, error) {
 		dev:      local && cfg.DevLogin != "",
 		origin:   u.Scheme + "://" + u.Host,
 		prefix:   strings.TrimSuffix(u.Path, "/"),
+		authPath: strings.TrimSuffix(u.Path, "/") + "/auth",
 		api:      "https://api.github.com",
 		userinfo: "https://openidconnect.googleapis.com/v1/userinfo",
 	}, nil
+}
+
+// ForTenant is a board's view of a multi-mode Auth: membership comes from
+// store, and the board is mounted at prefix. Sign-in still completes at the
+// hub's callbacks, with one session for every board.
+func (a *Auth) ForTenant(store *db.Store, prefix string) *Auth {
+	t := *a
+	t.store, t.prefix, t.tenant = store, strings.TrimSuffix(prefix, "/"), true
+	return &t
+}
+
+// TenantRoutes registers a board's sign-in starts and logout; the callbacks
+// stay on the hub's Routes.
+func (a *Auth) TenantRoutes(mux *http.ServeMux) {
+	mux.HandleFunc("GET /auth/github", a.handleGitHub)
+	mux.HandleFunc("GET /auth/google", a.handleGoogle)
+	mux.HandleFunc("POST /auth/logout", a.handleLogout)
+}
+
+func (a *Auth) cookie() string {
+	if a.cfg.Multi && a.secure {
+		return hostCookie
+	}
+	return sessionCookie
+}
+
+var errGoogleOnly = errors.New("signs in with Google")
+
+// member resolves the session's identity on this board. In multi mode an
+// address is a Google sign-in and anything else a GitHub login.
+func (a *Auth) member(ctx context.Context, identity string) (db.Member, error) {
+	if a.cfg.Multi && strings.Contains(identity, "@") {
+		return a.store.MemberByEmail(ctx, identity)
+	}
+	m, err := a.store.Member(ctx, identity)
+	// A member with an email may be a made-up handle that a stranger owns on GitHub.
+	if err == nil && a.cfg.Multi && m.Email != "" {
+		return m, errGoogleOnly
+	}
+	return m, err
+}
+
+// touch refreshes a multi-mode member's name, avatar and last_seen daily.
+func (a *Auth) touch(ctx context.Context, identity string, m db.Member) {
+	if a.cfg.Users == nil || (m.LastSeen != nil && time.Since(*m.LastSeen) < 24*time.Hour) {
+		return
+	}
+	name, avatar, err := a.cfg.Users.User(ctx, identity)
+	if err != nil {
+		slog.Warn("user profile", "err", err)
+	}
+	if err := a.store.TouchMember(ctx, m.Login, name, avatar); err != nil {
+		slog.Error("touch member", "err", err)
+	}
 }
 
 type ctxKey struct{}
@@ -137,16 +207,24 @@ func (a *Auth) Require(next http.Handler) http.Handler {
 			http.Error(w, "sign in required", http.StatusUnauthorized)
 			return
 		}
-		m, err := a.store.Member(r.Context(), login)
+		m, err := a.member(r.Context(), login)
 		if errors.Is(err, db.ErrNotFound) {
 			w.WriteHeader(http.StatusForbidden)
 			fmt.Fprintf(w, "%s is not a member of this board. Ask the admin to add you.\n", login)
+			return
+		}
+		if errors.Is(err, errGoogleOnly) {
+			w.WriteHeader(http.StatusForbidden)
+			fmt.Fprintf(w, "%s signs in with Google.\n", login)
 			return
 		}
 		if err != nil {
 			slog.Error("member lookup", "err", err)
 			http.Error(w, "internal error", http.StatusInternalServerError)
 			return
+		}
+		if a.cfg.Multi {
+			a.touch(r.Context(), login, m)
 		}
 		next.ServeHTTP(w, r.WithContext(WithMember(r.Context(), m)))
 	})
@@ -162,6 +240,9 @@ func (a *Auth) RequireAdmin(next http.Handler) http.Handler {
 		next.ServeHTTP(w, r)
 	}))
 }
+
+// SameOrigin reports whether a POST comes from this site.
+func (a *Auth) SameOrigin(r *http.Request) bool { return a.sameOrigin(r) }
 
 func (a *Auth) sameOrigin(r *http.Request) bool {
 	origin := r.Header.Get("Origin")
@@ -185,7 +266,7 @@ func (a *Auth) login(r *http.Request) string {
 	if a.dev {
 		return a.cfg.DevLogin
 	}
-	c, err := r.Cookie(sessionCookie)
+	c, err := r.Cookie(a.cookie())
 	if err != nil {
 		return ""
 	}
@@ -194,6 +275,11 @@ func (a *Auth) login(r *http.Request) string {
 		return ""
 	}
 	return login
+}
+
+// SessionCookie is a signed-in session for identity, as sign-in sets it.
+func (a *Auth) SessionCookie(identity string) *http.Cookie {
+	return &http.Cookie{Name: a.cookie(), Value: a.sign(identity, time.Now().Add(sessionTTL)), Path: "/"}
 }
 
 // sign returns base64(login|expiry).hex(hmac).
@@ -264,11 +350,15 @@ func (a *Auth) start(w http.ResponseWriter, r *http.Request, oc *oauth2.Config) 
 		http.Redirect(w, r, next, http.StatusFound)
 		return
 	}
+	if a.tenant {
+		// The hub's callback redirects outside this board's mount.
+		next = a.prefix + next
+	}
 	b := make([]byte, 16)
 	rand.Read(b)
 	state := hex.EncodeToString(b)
 	http.SetCookie(w, &http.Cookie{
-		Name: stateCookie, Value: state + "|" + next, Path: a.prefix + "/auth", MaxAge: 600,
+		Name: stateCookie, Value: state + "|" + next, Path: a.authPath, MaxAge: 600,
 		HttpOnly: true, Secure: a.secure, SameSite: http.SameSiteLaxMode,
 	})
 	http.Redirect(w, r, oc.AuthCodeURL(state), http.StatusFound)
@@ -286,14 +376,14 @@ func (a *Auth) checkState(w http.ResponseWriter, r *http.Request) (string, bool)
 		http.Error(w, "bad sign-in state; try again", http.StatusBadRequest)
 		return "", false
 	}
-	http.SetCookie(w, &http.Cookie{Name: stateCookie, Path: a.prefix + "/auth", MaxAge: -1})
+	http.SetCookie(w, &http.Cookie{Name: stateCookie, Path: a.authPath, MaxAge: -1})
 	return next, true
 }
 
 // setSession signs the member in and returns to next.
 func (a *Auth) setSession(w http.ResponseWriter, r *http.Request, login, next string) {
 	http.SetCookie(w, &http.Cookie{
-		Name: sessionCookie, Value: a.sign(login, time.Now().Add(sessionTTL)), Path: "/",
+		Name: a.cookie(), Value: a.sign(login, time.Now().Add(sessionTTL)), Path: "/",
 		MaxAge: int(sessionTTL.Seconds()), HttpOnly: true, Secure: a.secure, SameSite: http.SameSiteLaxMode,
 	})
 	http.Redirect(w, r, safeNext(next), http.StatusFound)
@@ -314,6 +404,10 @@ func (a *Auth) handleCallback(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		slog.Warn("github user", "err", err)
 		http.Error(w, "GitHub sign-in failed", http.StatusBadGateway)
+		return
+	}
+	if a.cfg.Multi {
+		a.signIn(w, r, user.Login, user.Name, user.AvatarURL, next)
 		return
 	}
 	// A member with an email may be a made-up handle that a stranger owns on GitHub.
@@ -347,6 +441,10 @@ func (a *Auth) handleGoogleCallback(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Google sign-in failed", http.StatusBadGateway)
 		return
 	}
+	if a.cfg.Multi {
+		a.signIn(w, r, strings.ToLower(user.Email), user.Name, user.Picture, next)
+		return
+	}
 	m, err := a.store.MemberByEmail(r.Context(), user.Email)
 	if errors.Is(err, db.ErrNotFound) {
 		w.WriteHeader(http.StatusForbidden)
@@ -362,6 +460,16 @@ func (a *Auth) handleGoogleCallback(w http.ResponseWriter, r *http.Request) {
 		slog.Error("touch member", "err", err)
 	}
 	a.setSession(w, r, m.Login, next)
+}
+
+// signIn starts a multi-mode session for identity; boards check membership.
+func (a *Auth) signIn(w http.ResponseWriter, r *http.Request, identity, name, avatar, next string) {
+	if a.cfg.Users != nil {
+		if err := a.cfg.Users.SetUser(r.Context(), identity, name, avatar); err != nil {
+			slog.Error("set user", "err", err)
+		}
+	}
+	a.setSession(w, r, identity, next)
 }
 
 type googleUser struct {
@@ -397,7 +505,7 @@ func (a *Auth) handleLogout(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "cross-origin request refused", http.StatusForbidden)
 		return
 	}
-	http.SetCookie(w, &http.Cookie{Name: sessionCookie, Path: "/", MaxAge: -1})
+	http.SetCookie(w, &http.Cookie{Name: a.cookie(), Path: "/", MaxAge: -1, Secure: a.secure})
 	http.Redirect(w, r, "/", http.StatusSeeOther)
 }
 

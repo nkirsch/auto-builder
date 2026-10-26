@@ -140,16 +140,31 @@ func TestRegistry(t *testing.T) {
 		t.Errorf("tenants %+v %v", all, err)
 	}
 
-	if ok, _ := r.IsPlatformAdmin(ctx, "nkirsch"); ok {
-		t.Error("admin before adding")
+	if _, err := r.PlatformAdmin(ctx, "nkirsch"); !errors.Is(err, db.ErrNotFound) {
+		t.Errorf("admin before adding: %v", err)
 	}
-	for range 2 {
-		if err := r.AddPlatformAdmin(ctx, "nkirsch"); err != nil {
-			t.Fatal(err)
+	if err := r.AddPlatformAdmin(ctx, "nkirsch", "Nick@Example.org"); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.AddPlatformAdmin(ctx, "nkirsch", ""); err != nil { // keeps the email
+		t.Fatal(err)
+	}
+	for _, id := range []string{"nkirsch", "nick@example.org", "NICK@example.org"} {
+		if a, err := r.PlatformAdmin(ctx, id); err != nil || a.Login != "nkirsch" || a.Email != "nick@example.org" {
+			t.Errorf("admin %q: %+v %v", id, a, err)
 		}
 	}
-	if ok, _ := r.IsPlatformAdmin(ctx, "nkirsch"); !ok {
-		t.Error("not admin after adding")
+	if all, _ := r.PlatformAdmins(ctx); len(all) != 1 {
+		t.Errorf("admins %+v", all)
+	}
+
+	if name, _, err := r.User(ctx, "alice"); err != nil || name != "" {
+		t.Errorf("unknown user %q %v", name, err)
+	}
+	r.SetUser(ctx, "alice", "Alice", "a.png")
+	r.SetUser(ctx, "alice", "Alice B", "b.png")
+	if name, avatar, _ := r.User(ctx, "alice"); name != "Alice B" || avatar != "b.png" {
+		t.Errorf("user %q %q", name, avatar)
 	}
 	if s, err := r.Settings(ctx); err != nil || s.SpendLimit != 50 || s.MaxRuns != 3 {
 		t.Errorf("settings %+v %v", s, err)

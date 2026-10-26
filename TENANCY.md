@@ -9,7 +9,7 @@ limit. The shared agent builds the repo, and the result is deployed to
 Artifact Registry. `DESIGN.md` still describes how a single board behaves.
 This file covers only what changes for multiple tenants.
 
-Status (2026-10-25): build order step 1 done (`internal/tenant`). The code lives here, off unless `TENANCY=on`,
+Status (2026-10-25): build order steps 1–2 done (`internal/tenant`, `cmd/builder/tenancy.go`). The code lives here, off unless `TENANCY=on`,
 so single-board deploys and site forks are unchanged. `kirsch/extreme` is a
 fork that owns only its settings and docs and deploys this mode. Done for it:
 GitHub org `extreme-dot-org` and its App, Cloud DNS zone `extreme-org`,
@@ -21,7 +21,8 @@ extreme.org verified in Search Console, secrets `extreme-<NAME>`.
 |---|---|
 | Tenant | One app = one repo = one board. Slug `[a-z][a-z0-9-]{1,20}`, no trailing `-` (it's a DNS label); reserved: `www api auth admin mcp static health x new`. |
 | Hosts | Hub and every board on `extreme.org` (`/` hub, `/<slug>/…` board). Apps on `<slug>.extreme.org`. Agent-written apps never share a host with the boards; the session cookie is `__Host-session` (host-only, no `Domain`), so subdomains can neither read nor toss it. |
-| Sign-in | GitHub (the App's OAuth callback `https://extreme.org/auth/callback`) and Google (`/auth/google/callback`, the client shared with the single boards); one session across all boards. Membership and role are per tenant; `platform admins` (control table) can create tenants. |
+| Sign-in | GitHub (the App's OAuth callback `https://extreme.org/auth/callback`) and Google (`/auth/google/callback`, the client shared with the single boards); one session across all boards. The session holds an identity, a GitHub login or a lower-cased Google address, and its profile goes in `control.users`; each board resolves it to a member: an address by member email, a login by member login unless that member has an email (then Google only, as on a single board). Membership and role are per tenant. Platform admins (`control.platform_admins`, login plus optional email, seeded from `ADMIN_LOGIN`/`ADMIN_EMAIL`) create tenants and become the new board's admin. |
+| Item numbers | On every board with issue sync (single boards too), an item's number is its GitHub issue number: filing on the board opens the issue first and takes its number, and an issue filed on GitHub imports with its own. PRs share GitHub's sequence, so the board has gaps. Two items filed at once can drift apart; that's accepted. A tenant's repo starts fresh, so its board matches from #1; an existing board keeps its older numbers. |
 | Tenant data | Postgres schema per tenant (`t_<slug>`) in database `extreme` on the existing `builder` Cloud SQL instance. The existing migrations run per schema; `db.Store` is unchanged and gets a pool with `search_path=t_<slug>` (lazy, `MaxConns` 2, idle conns closed after 1 min). Item numbers stay per tenant. Control tables live in schema `control`. |
 | Runs | One active run per tenant (existing `runs_one_active`, per schema); global cap `MAX_RUNS` (default 3) across tenants. Shared job `extreme-runner`. |
 | Runner auth | Per-run token instead of shared `RUNNER_TOKEN`: the launcher mints 32 random bytes, stores the SHA-256 in `control.run_tokens (hash, tenant, run_id, expires_at)` and passes `RUN_TOKEN` as a job env override. Runner API and `/mcp` resolve the token to (tenant, run), so one tenant's agent can't touch another's board. Expires when the run finishes or after 70 min. |
@@ -77,7 +78,8 @@ the provisioner SA is added as an owner in Search Console (manual, once).
 
 ```
 control.tenants       (slug PK, name, repo, status, created_by, created_at, provisioned_at, error)
-control.platform_admins (login PK)
+control.platform_admins (login PK, email UNIQUE)
+control.users         (identity PK, name, avatar_url, last_seen)
 control.run_tokens    (hash PK, tenant, run_id, expires_at)
 control.settings      (spend_limit_usd, max_runs)
 control.tenant_secrets (tenant, name, PK(tenant,name))
@@ -117,7 +119,9 @@ control.tenant_secrets (tenant, name, PK(tenant,name))
 1. Control schema + tenant registry + schema-per-tenant pools; existing
    tests pass against a `t_test` schema (CI runs the suite twice). Done.
 2. Path-prefixed board, hub, auth changes; run locally with two tenants.
+   Done: `TENANCY=on` (with `TENANT_ORG`) serves the hub; runs are held.
 3. Per-run tokens, gate loop, runner changes.
+3a. Item numbers follow issue numbers, on every board.
 4. Provisioner + template repo.
 5. Bootstrap, DNS cutover, first tenant.
 

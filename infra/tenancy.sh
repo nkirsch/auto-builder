@@ -10,6 +10,7 @@ REGION=${REGION:-us-central1}
 NAME=${NAME:-extreme}                  # prefixes every platform resource and secret
 DOMAIN=${DOMAIN:-extreme.org}          # hub at the apex, apps on <slug>.$DOMAIN
 ZONE=${ZONE:-extreme-org}              # Cloud DNS zone for $DOMAIN
+HUB_ALIASES=${HUB_ALIASES-hub.$DOMAIN}  # space-separated hosts in $DOMAIN that 308 to the hub
 ORG=${ORG:-extreme-dot-org}            # GitHub org holding the app repos
 PLATFORM_REPO=${PLATFORM_REPO:-extreme-dot-org/extreme}
 SQL_INSTANCE=${SQL_INSTANCE:-builder}
@@ -146,8 +147,10 @@ if ! g run services describe "$NAME" --region "$REGION" >/dev/null 2>&1; then
     --set-secrets "$(mounts "$SERVER_MOUNTS")" \
     --min-instances 0 --max-instances 2 --memory 512Mi
 fi
-# Hubs created before the all-sites page lack these; SITES uses ^;^ so its spaces survive.
-g run services update "$NAME" --region "$REGION" --update-env-vars "^;^SITES=$SITES" \
+# Hubs created before the all-sites page and aliases lack these; ^;^ keeps SITES' spaces and REDIRECT_HOSTS' commas.
+aliases=$(echo $HUB_ALIASES | tr ' ' ,)
+g run services update "$NAME" --region "$REGION" \
+  --update-env-vars "^;^SITES=$SITES;APP_DOMAIN=$DOMAIN;REDIRECT_HOSTS=$aliases" \
   --update-secrets "STATS_TOKEN=STATS_TOKEN:latest" >/dev/null
 retry g run services add-iam-policy-binding "$NAME" --region "$REGION" \
   --member "serviceAccount:$(sa deployer)" --role roles/run.developer >/dev/null
@@ -195,6 +198,14 @@ for type in A AAAA; do
   [ -n "$rr" ] || continue
   g dns record-sets describe "$DOMAIN." --type "$type" --zone "$ZONE" >/dev/null 2>&1 ||
     g dns record-sets create "$DOMAIN." --type "$type" --ttl 300 --rrdatas "$rr" --zone "$ZONE"
+done
+
+for host in $HUB_ALIASES; do
+  log "alias $host"
+  g beta run domain-mappings describe --domain "$host" --region "$REGION" >/dev/null 2>&1 ||
+    g beta run domain-mappings create --service "$NAME" --domain "$host" --region "$REGION"
+  g dns record-sets describe "$host." --type CNAME --zone "$ZONE" >/dev/null 2>&1 ||
+    g dns record-sets create "$host." --type CNAME --ttl 300 --rrdatas ghs.googlehosted.com. --zone "$ZONE"
 done
 
 log "github: $PLATFORM_REPO deploy variables"

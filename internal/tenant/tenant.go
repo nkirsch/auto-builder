@@ -27,9 +27,9 @@ const ControlSchema = "control"
 var (
 	slugRE = regexp.MustCompile(`^[a-z][a-z0-9-]{0,19}[a-z0-9]$`)
 	repoRE = regexp.MustCompile(`^[A-Za-z0-9-]+/[A-Za-z0-9._-]+$`)
-	// reserved are hub paths a slug would shadow. www is free: the hub is
-	// the apex, so www.<domain> can be an app.
-	reserved = []string{"api", "auth", "admin", "mcp", "static", "health", "x", "new"}
+	// reserved are hub paths a slug would shadow, and hub, the hub's own
+	// host. www is free: the hub is the apex, so www.<domain> can be an app.
+	reserved = []string{"api", "auth", "admin", "mcp", "static", "health", "x", "new", "hub"}
 )
 
 // ValidSlug reports why slug can't name a tenant, or nil.

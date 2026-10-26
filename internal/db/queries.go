@@ -968,3 +968,22 @@ func (s *Store) RunItems(ctx context.Context, runIDs []int) (map[int][]RunItem, 
 	}
 	return out, nil
 }
+
+// UpstreamSync reports whether the board keeps up with its upstream and the
+// upstream PR in flight (0 for none).
+func (s *Store) UpstreamSync(ctx context.Context) (on bool, pr int, err error) {
+	err = s.Pool.QueryRow(ctx, `SELECT upstream_sync, coalesce(upstream_pr, 0) FROM settings`).Scan(&on, &pr)
+	return on, pr, err
+}
+
+// SetUpstreamSync turns keeping up with upstream on or off.
+func (s *Store) SetUpstreamSync(ctx context.Context, on bool) error {
+	_, err := s.Pool.Exec(ctx, `UPDATE settings SET upstream_sync = $1`, on)
+	return err
+}
+
+// SetUpstreamPR records the upstream PR in flight; 0 clears it.
+func (s *Store) SetUpstreamPR(ctx context.Context, pr int) error {
+	_, err := s.Pool.Exec(ctx, `UPDATE settings SET upstream_pr = nullif($1, 0)`, pr)
+	return err
+}

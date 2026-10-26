@@ -31,6 +31,7 @@ type Gate struct {
 	Idle     time.Duration
 	Ship     *Shipper   // nil disables ship checks
 	Issues   *IssueSync // nil disables the GitHub issue sync
+	Upstream *Upstream  // nil when the repo has no upstream to keep up with
 	// Hold, when set, can stop a launch the board's own state allows: the
 	// multi-tenant run cap and spend limit. It returns why, or "".
 	Hold func(ctx context.Context) (string, error)
@@ -215,7 +216,24 @@ func (g *Gate) Tick(ctx context.Context) error {
 	if _, err := g.Check(ctx, "tick"); err != nil {
 		errs = append(errs, fmt.Errorf("check: %w", err))
 	}
+	if g.Upstream != nil {
+		if err := g.Upstream.Check(ctx); err != nil {
+			errs = append(errs, fmt.Errorf("upstream: %w", err))
+		}
+	}
 	return errors.Join(errs...)
+}
+
+// StartUpstream launches a run that merges upstream (no agent); it waits
+// for any active run.
+func (g *Gate) StartUpstream(ctx context.Context) error {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if s, err := g.Store.GateState(ctx); err != nil || s.Active {
+		return err
+	}
+	_, err := g.launch(ctx, "upstream", "")
+	return err
 }
 
 func (g *Gate) launch(ctx context.Context, trigger, by string) (int, error) {

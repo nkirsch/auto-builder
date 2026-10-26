@@ -16,9 +16,9 @@ SERVICE=${SERVICE:-builder}
 JOB=${JOB:-builder-runner}
 # Claude auth for the runner: the comma-separated ANTHROPIC_* IDs printed by
 # kirsch/home infrastructure/claude-wif/provision.sh gcp (Workload Identity
-# Federation). Set, the job gets them as env and no API key; unset, it mounts
-# the ANTHROPIC_API_KEY secret.
-CLAUDE_FEDERATION=${CLAUDE_FEDERATION:-}
+# Federation); the job gets them as env and no API key. Defaults to rule
+# auto-builder-runner-rule. Set it empty (CLAUDE_FEDERATION=) to mount ANTHROPIC_API_KEY instead.
+CLAUDE_FEDERATION=${CLAUDE_FEDERATION-ANTHROPIC_ORGANIZATION_ID=dc5626e0-63a7-45a9-a418-b689f7ae6c40,ANTHROPIC_SERVICE_ACCOUNT_ID=svac_014ixSeHxixYtRESzvJZi7ah,ANTHROPIC_FEDERATION_RULE_ID=fdrl_01AUuCtDtwh5X21ynFaaaNQJ,ANTHROPIC_WORKSPACE_ID=wrkspc_018YcoPCmM7YfmUw7LC2hGzc}
 KEY_SECRET=$([ -n "$CLAUDE_FEDERATION" ] || echo ANTHROPIC_API_KEY)
 
 g() { gcloud --project "$PROJECT" --quiet "$@"; }

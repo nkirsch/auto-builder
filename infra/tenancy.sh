@@ -15,6 +15,9 @@ PLATFORM_REPO=${PLATFORM_REPO:-kirsch/extreme}
 SQL_INSTANCE=${SQL_INSTANCE:-builder}
 ADMIN_LOGIN=${ADMIN_LOGIN:-nkirsch}
 ADMIN_EMAIL=${ADMIN_EMAIL:-nick@kirsch.org}
+# Single-board sites on the hub's /admin/sites page (space-separated name=board URL);
+# each mounts the shared STATS_TOKEN secret, which this project holds.
+SITES=${SITES-builder=https://builder.extreme.org nick.org=https://www.nick.org/iterate momo=https://momo.kirsch.org/iterate katrina=https://katrina.kirsch.org/iterate youkoh.org=https://www.youkoh.org/iterate}
 # Claude auth for the runner: the comma-separated ANTHROPIC_* IDs printed by
 # kirsch/home infrastructure/claude-wif/provision.sh gcp (Workload Identity
 # Federation); the job gets them as env and no API key. Defaults to rule
@@ -51,6 +54,7 @@ fi
 log "secrets"
 secret "$NAME-SESSION_KEY" "$(openssl rand -hex 32)"
 secret "$NAME-TICK_TOKEN" "$(openssl rand -hex 32)"
+secret STATS_TOKEN "$(openssl rand -hex 32)" # shared with bootstrap.sh and the single-board sites
 # Filled in by hand (TENANCY.md manual steps).
 for s in GITHUB_CLIENT_ID GITHUB_CLIENT_SECRET GOOGLE_CLIENT_ID GOOGLE_CLIENT_SECRET \
   GH_APP_ID GH_APP_INSTALLATION_ID GH_APP_PRIVATE_KEY $KEY_SECRET; do
@@ -60,7 +64,7 @@ done
 mounts() { for m in $1; do printf '%s:latest,' "$m"; done | sed 's/,$//'; }
 prefixed() { for s in $1; do printf '%s=%s ' "$s" "$NAME-$s"; done; }
 APP_SECRETS="GH_APP_ID GH_APP_INSTALLATION_ID GH_APP_PRIVATE_KEY"
-SERVER_MOUNTS="$(prefixed "DATABASE_URL SESSION_KEY TICK_TOKEN GITHUB_CLIENT_ID GITHUB_CLIENT_SECRET GOOGLE_CLIENT_ID GOOGLE_CLIENT_SECRET $APP_SECRETS") PUSHOVER_TOKEN=PUSHOVER_TOKEN PUSHOVER_USER=PUSHOVER_USER"
+SERVER_MOUNTS="$(prefixed "DATABASE_URL SESSION_KEY TICK_TOKEN GITHUB_CLIENT_ID GITHUB_CLIENT_SECRET GOOGLE_CLIENT_ID GOOGLE_CLIENT_SECRET $APP_SECRETS") PUSHOVER_TOKEN=PUSHOVER_TOKEN PUSHOVER_USER=PUSHOVER_USER STATS_TOKEN=STATS_TOKEN"
 RUNNER_MOUNTS=$(prefixed "$KEY_SECRET")
 PROVISION_MOUNTS="$(prefixed "DATABASE_URL $APP_SECRETS")"
 
@@ -142,6 +146,9 @@ if ! g run services describe "$NAME" --region "$REGION" >/dev/null 2>&1; then
     --set-secrets "$(mounts "$SERVER_MOUNTS")" \
     --min-instances 0 --max-instances 2 --memory 512Mi
 fi
+# Hubs created before the all-sites page lack these; SITES uses ^;^ so its spaces survive.
+g run services update "$NAME" --region "$REGION" --update-env-vars "^;^SITES=$SITES" \
+  --update-secrets "STATS_TOKEN=STATS_TOKEN:latest" >/dev/null
 retry g run services add-iam-policy-binding "$NAME" --region "$REGION" \
   --member "serviceAccount:$(sa deployer)" --role roles/run.developer >/dev/null
 

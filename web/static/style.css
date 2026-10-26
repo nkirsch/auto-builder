@@ -99,3 +99,9 @@ button.link { border: 0; background: none; color: var(--muted); padding: 0; }
 .stats th, .stats td { padding: 4px 16px 4px 0; text-align: left; border-bottom: 1px solid var(--line); }
 .stats th { color: var(--muted); font-weight: 600; }
 .stats .stage { padding-left: 16px; color: var(--muted); }
+.table-wrap { overflow-x: auto; margin: 16px 0; }
+table.sites { width: 100%; border-collapse: collapse; font-size: 14px; white-space: nowrap; }
+table.sites th, table.sites td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--line); }
+table.sites th { font-size: 12px; font-weight: 600; color: var(--muted); }
+table.sites .num { text-align: right; font-variant-numeric: tabular-nums; }
+table.sites .bad { color: var(--bad); }

@@ -49,6 +49,9 @@ type config struct {
 	Tenancy      bool   // TENANCY=on: multi-tenant mode (TENANCY.md)
 	TenantOrg    string // multi mode: GitHub org holding the apps' repos
 	ProvisionJob string // multi mode: Cloud Run Job that provisions an app
+
+	StatsToken string       // STATS_TOKEN: bearer for GET /api/stats; the hub sends it to SITES
+	Sites      []remoteSite // multi mode: SITES, single-board sites on the all-sites page
 }
 
 func loadConfig() (config, error) {
@@ -93,6 +96,10 @@ func loadConfig() (config, error) {
 	c.Tenancy = env("TENANCY", "off") == "on"
 	c.TenantOrg = env("TENANT_ORG", "")
 	c.ProvisionJob = env("PROVISION_JOB", "")
+	c.StatsToken = env("STATS_TOKEN", "")
+	if c.Sites, err = parseSites(env("SITES", "")); err != nil {
+		return c, err
+	}
 	for _, h := range strings.Split(env("REDIRECT_HOSTS", ""), ",") {
 		if h = strings.TrimSpace(h); h != "" {
 			c.RedirectHosts = append(c.RedirectHosts, h)
@@ -240,7 +247,8 @@ func run() error {
 	}
 	// Not /healthz: Cloud Run's front end reserves it.
 	mux.HandleFunc("GET /health", s.health)
-	mux.HandleFunc("GET /version", s.versionJSON) // public: a site footer can show it
+	mux.HandleFunc("GET /version", s.versionJSON)                                        // public: a site footer can show it
+	mux.Handle("GET /api/stats", auth.Bearer(cfg.StatsToken, http.HandlerFunc(s.stats))) // the hub's all-sites page
 	if cfg.SiteDir != "" {
 		mux.Handle("GET /logs", a.RequireAdmin(newTraffic(cfg.BaseURL, cfg.Project, os.Getenv("K_SERVICE")))) // site traffic
 	}

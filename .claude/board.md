@@ -54,7 +54,8 @@ then Pushover if `PUSHOVER_*` secrets are set.
 ## Forks
 
 Site forks (`kirsch/momo`, `kirsch/katrina`, `kirsch/youkoh.org`, `nkirsch/nick.org`) and
-`kirsch/extreme` (multi-tenant, `TENANCY.md`) are git-level forks that `git merge upstream/master`.
+`kirsch/extreme` (multi-tenant, `TENANCY.md`) are git-level forks that merge upstream with `make merge-upstream`.
 A fork owns `app.env`, `CLAUDE.md`, `.claude/site.md`, branding, its site, and appended sections of
-`DESIGN.md`; everything else is upstream's, so merges don't conflict. Upstream adds new settings to
+`DESIGN.md`; everything else is upstream's, so merges don't conflict. `.gitattributes` marks the
+fork-owned files `merge=ours`, so when upstream changes one too the fork keeps its copy. Upstream adds new settings to
 `app.defaults.env`, board docs here, and never edits `app.env`.

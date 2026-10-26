@@ -1,0 +1,14 @@
+# Fork-owned files: when upstream and a fork both change one, a fork's
+# merge keeps its own copy (needs merge.ours.driver; make merge-upstream sets it).
+CLAUDE.md merge=ours
+.claude/site.md merge=ours
+app.env merge=ours
+Makefile merge=ours
+config.toml merge=ours
+layouts/** merge=ours
+infra/bootstrap.sh merge=ours
+web/templates/brand.html merge=ours
+web/static/brand.css merge=ours
+web/static/favicon.ico merge=ours
+web/static/icon.svg merge=ours
+web/static/og.png merge=ours

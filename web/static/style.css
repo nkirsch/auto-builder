@@ -61,6 +61,7 @@ button.link { border: 0; background: none; color: var(--muted); padding: 0; }
 .s-building, .r-running, .r-requested { color: var(--warn); border-color: currentColor; }
 .s-merged, .s-shipped, .r-done, .approved { color: var(--ok); border-color: currentColor; }
 .r-failed, .blocked { color: var(--bad); border-color: currentColor; }
+.r-cancelled { color: var(--muted); border-color: currentColor; }
 .blocked-note { border-left: 3px solid var(--bad); padding: 8px 12px; margin-top: 12px; background: var(--card); }
 .count { background: var(--accent); color: #fff; border-radius: 9px; padding: 0 6px; font-size: 12px; }
 .post { background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px; margin: 12px 0; }

@@ -147,11 +147,19 @@ func TestHubTenants(t *testing.T) {
 }
 
 // fakeJob records the env each runner launch gets.
-type fakeJob struct{ launches []map[string]string }
+type fakeJob struct {
+	launches  []map[string]string
+	cancelled []string
+}
 
 func (f *fakeJob) LaunchEnv(_ context.Context, env map[string]string) (string, error) {
 	f.launches = append(f.launches, env)
 	return "exec-" + env["RUN_ID"], nil
+}
+
+func (f *fakeJob) Cancel(_ context.Context, _ int, execution string) error {
+	f.cancelled = append(f.cancelled, execution)
+	return nil
 }
 
 // runnerDo calls a runner endpoint with a RUN_TOKEN.
@@ -254,6 +262,22 @@ func TestHubRuns(t *testing.T) {
 	if w := runnerDo(srv, tok, "POST", "/api/runner/runs/1/stage", `{"stage":"report"}`); w.Code != 401 {
 		t.Errorf("revoked token: %d", w.Code)
 	}
+
+	// Cancelling a run revokes its token and stops its execution.
+	if w := do(h, srv, "nick@example.org", "POST", "/beta/admin/run", url.Values{}); !strings.Contains(w.Header().Get("Location"), "Started") {
+		t.Fatalf("beta run now: %q", w.Header().Get("Location"))
+	}
+	btok := job.launches[len(job.launches)-1]["RUN_TOKEN"]
+	if w := do(h, srv, "nick@example.org", "POST", "/beta/runs/1/cancel", url.Values{}); !strings.Contains(w.Header().Get("Location"), "Cancelled") {
+		t.Fatalf("cancel: %q", w.Header().Get("Location"))
+	}
+	if len(job.cancelled) != 1 || job.cancelled[0] != "exec-1" {
+		t.Errorf("cancelled %v", job.cancelled)
+	}
+	if w := runnerDo(srv, btok, "POST", "/api/runner/runs/1/claim", ""); w.Code != 401 {
+		t.Errorf("cancelled run's token: %d", w.Code)
+	}
+	job.launches = job.launches[:len(job.launches)-1]
 
 	// The tick walks ready tenants, launching each one's approved work.
 	h.reg.Control.Exec(ctx, `UPDATE settings SET max_runs = 3`)

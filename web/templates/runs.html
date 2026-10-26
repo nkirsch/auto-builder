@@ -27,6 +27,7 @@
       <span class="muted">{{.Trigger}}{{with .RequestedBy}} by {{.}}{{end}} · {{ago .CreatedAt}}{{if .StartedAt}} · {{if .FinishedAt}}ran{{else}}running{{end}} {{dur .Runtime}}{{end}}{{with .CostUSD}} · {{usd .}}{{end}}</span>
       <span class="spacer"></span>
       {{if .LogObject}}<a href="{{base}}/runs/{{.ID}}/log">log</a>{{end}}
+      {{if and $.Me.IsAdmin (not .FinishedAt)}}<form method="post" action="{{base}}/runs/{{.ID}}/cancel"><button class="secondary">Cancel</button></form>{{end}}
     </div>
     {{with .Stages}}<div class="stages">{{range .}}<span class="st-{{.State}}">{{.Name}}{{if or (eq .State "done") (eq .State "active")}} {{dur .Duration}}{{end}}</span>{{end}}</div>{{end}}
     {{with .Items}}<ul class="run-items">{{range .}}

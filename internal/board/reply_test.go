@@ -17,6 +17,7 @@ type stubGate struct{ activity int }
 
 func (g *stubGate) Activity()                                   { g.activity++ }
 func (g *stubGate) RunNow(context.Context, string) (int, error) { return 0, nil }
+func (g *stubGate) Cancel(context.Context, int, string) error   { return nil }
 
 // dbBoard needs TEST_DATABASE_URL (a disposable database; tables are truncated).
 func dbBoard(t *testing.T) (*Board, *stubGate) {

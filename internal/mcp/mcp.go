@@ -25,6 +25,10 @@ type Board struct {
 	GitSHA   string
 	// Reply posts as the bot and notifies.
 	Reply func(ctx context.Context, it db.Item, body string) error
+	// Filer, when set (issue sync), files items under their GitHub issue's number.
+	Filer interface {
+		File(ctx context.Context, title, body, author string, bot, private bool) (int, error)
+	}
 }
 
 // Handler serves MCP; wrap it with bearer auth.
@@ -332,7 +336,14 @@ func (b *Board) fileItem(ctx context.Context, _ *mcp.CallToolRequest, in FileIn)
 	if title == "" || len(title) > 200 {
 		return nil, FileOut{}, fmt.Errorf("title must be 1–200 characters")
 	}
-	id, err := b.Store.CreateBotItem(ctx, title, strings.TrimSpace(in.Body), b.BotLogin)
+	body := strings.TrimSpace(in.Body)
+	var id int
+	var err error
+	if b.Filer != nil {
+		id, err = b.Filer.File(ctx, title, body, b.BotLogin, true, false)
+	} else {
+		id, err = b.Store.CreateBotItem(ctx, title, body, b.BotLogin)
+	}
 	if err != nil {
 		return nil, FileOut{}, err
 	}

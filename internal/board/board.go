@@ -42,6 +42,11 @@ type Gate interface {
 	RunNow(ctx context.Context, by string) (int, error)
 }
 
+// Filer files a new item, opening its GitHub issue first.
+type Filer interface {
+	File(ctx context.Context, title, body, author string, bot, private bool) (int, error)
+}
+
 // Board holds the board's dependencies.
 type Board struct {
 	Store    *db.Store
@@ -54,6 +59,8 @@ type Board struct {
 	GitHub   *github.Client
 	Releases bool
 	Gate     Gate
+	// Filer, when set (issue sync), files items under their GitHub issue's number.
+	Filer    Filer
 	BaseURL  string
 	BotLogin string
 	GitSHA   string
@@ -326,7 +333,14 @@ func (b *Board) createItem(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "title or body too long", http.StatusBadRequest)
 		return
 	}
-	id, err := b.Store.CreateItem(r.Context(), title, body, me.Login)
+	tags := Tags(title + "\n" + body)
+	var id int
+	var err error
+	if b.Filer != nil {
+		id, err = b.Filer.File(r.Context(), title, body, me.Login, false, slices.Contains(tags, "private"))
+	} else {
+		id, err = b.Store.CreateItem(r.Context(), title, body, me.Login)
+	}
 	if err != nil {
 		b.fail(w, err)
 		return
@@ -336,7 +350,7 @@ func (b *Board) createItem(w http.ResponseWriter, r *http.Request) {
 			slog.Warn("auto-approve", "item", id, "err", err)
 		}
 	}
-	if tags := Tags(title + "\n" + body); len(tags) > 0 {
+	if len(tags) > 0 {
 		if err := b.Store.SetTags(r.Context(), id, tags, false); err != nil {
 			slog.Warn("tags", "item", id, "err", err)
 		}

@@ -217,6 +217,7 @@ func run() error {
 	g.Ship = &gate.Shipper{Store: st, GitHub: gh, Repo: cfg.Repo, GitSHA: cfg.GitSHA, Reply: b.BotReply}
 	if app != nil && cfg.IssueSync {
 		g.Issues = &gate.IssueSync{Store: st, GitHub: gh, Repo: cfg.Repo, BaseURL: cfg.BaseURL, Notified: b.Notified}
+		b.Filer = g.Issues
 	}
 	g.SyncSoon()
 	if cfg.Version != "" {
@@ -225,6 +226,9 @@ func run() error {
 		go resolveVersion(ctx, gh, cfg.Repo, cfg.GitSHA, app != nil, b)
 	}
 	tools := &mcp.Board{Store: st, BotLogin: cfg.BotLogin, BaseURL: cfg.BaseURL, GitSHA: cfg.GitSHA, Reply: b.BotReply}
+	if g.Issues != nil {
+		tools.Filer = g.Issues
+	}
 
 	s := &server{cfg: cfg, store: st, storage: storage, gate: g, app: app, version: b.Version, notify: push}
 	mux := http.NewServeMux()

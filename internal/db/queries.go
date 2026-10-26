@@ -354,15 +354,43 @@ func (s *Store) CreateBotItem(ctx context.Context, title, body, author string) (
 	return id, err
 }
 
-// ImportIssue files GitHub issue number as an item by its author (human
-// activity). created is false when the issue was already imported.
-func (s *Store) ImportIssue(ctx context.Context, number int, title, body, author string) (id int, created bool, err error) {
-	err = s.Pool.QueryRow(ctx, `INSERT INTO items (title, body, author, issue_number) VALUES ($1, $2, $3, $4)
-		ON CONFLICT (issue_number) DO NOTHING RETURNING id`, title, body, author, number).Scan(&id)
+// CreateIssueItem files an item for GitHub issue number, numbered like the
+// issue when that number is free on the board (otherwise the next free
+// one). A bot's item doesn't count as human activity. created is false when
+// the issue already has an item.
+func (s *Store) CreateIssueItem(ctx context.Context, number int, title, body, author string, bot bool) (id int, created bool, err error) {
+	tx, err := s.Pool.Begin(ctx)
+	if err != nil {
+		return 0, false, err
+	}
+	defer tx.Rollback(ctx)
+	// epoch, not -infinity: pgx can't scan infinite timestamps into time.Time.
+	activity := `CASE WHEN $5 THEN 'epoch'::timestamptz ELSE now() END`
+	err = tx.QueryRow(ctx, `INSERT INTO items (id, title, body, author, issue_number, human_activity_at)
+		SELECT $4, $1, $2, $3, $4, `+activity+` WHERE NOT EXISTS (SELECT 1 FROM items WHERE id = $4)
+		ON CONFLICT DO NOTHING RETURNING id`, title, body, author, number, bot).Scan(&id)
+	if errors.Is(err, pgx.ErrNoRows) {
+		err = tx.QueryRow(ctx, `INSERT INTO items (title, body, author, issue_number, human_activity_at)
+			VALUES ($1, $2, $3, $4, `+activity+`) ON CONFLICT (issue_number) DO NOTHING RETURNING id`,
+			title, body, author, number, bot).Scan(&id)
+	}
 	if errors.Is(err, pgx.ErrNoRows) {
 		return 0, false, nil
 	}
-	return id, err == nil, err
+	if err != nil {
+		return 0, false, err
+	}
+	// Numbered inserts skip the sequence; keep it past every item.
+	if _, err := tx.Exec(ctx, `SELECT setval(pg_get_serial_sequence('items', 'id'), (SELECT max(id) FROM items))`); err != nil {
+		return 0, false, err
+	}
+	return id, true, tx.Commit(ctx)
+}
+
+// ImportIssue files GitHub issue number as an item by its author (human
+// activity). created is false when the issue was already imported.
+func (s *Store) ImportIssue(ctx context.Context, number int, title, body, author string) (id int, created bool, err error) {
+	return s.CreateIssueItem(ctx, number, title, body, author, false)
 }
 
 // ItemByIssue is the item imported from GitHub issue number.

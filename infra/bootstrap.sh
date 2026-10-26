@@ -65,6 +65,7 @@ log "secrets"
 secret SESSION_KEY "$(openssl rand -hex 32)"
 secret RUNNER_TOKEN "$(openssl rand -hex 32)"
 secret TICK_TOKEN "$(openssl rand -hex 32)"
+secret STATS_TOKEN "$(openssl rand -hex 32)" # the hub's /admin/sites reads GET /api/stats with it
 # Filled in by hand (see DESIGN.md manual steps); created empty-less so Cloud Run can mount them.
 for s in GITHUB_CLIENT_ID GITHUB_CLIENT_SECRET GOOGLE_CLIENT_ID GOOGLE_CLIENT_SECRET ANTHROPIC_API_KEY GH_APP_ID \
   GH_APP_INSTALLATION_ID GH_APP_PRIVATE_KEY PUSHOVER_TOKEN PUSHOVER_USER; do
@@ -87,7 +88,7 @@ for a in builder-server builder-runner builder-deployer; do
 done
 # Least privilege: each SA gets only the roles and secrets it uses, scoped to
 # the resource where IAM allows it. Older broad grants are removed on re-run.
-SERVER_SECRETS="DATABASE_URL SESSION_KEY RUNNER_TOKEN TICK_TOKEN GITHUB_CLIENT_ID GITHUB_CLIENT_SECRET GOOGLE_CLIENT_ID GOOGLE_CLIENT_SECRET GH_APP_ID GH_APP_INSTALLATION_ID GH_APP_PRIVATE_KEY PUSHOVER_TOKEN PUSHOVER_USER"
+SERVER_SECRETS="DATABASE_URL SESSION_KEY RUNNER_TOKEN TICK_TOKEN STATS_TOKEN GITHUB_CLIENT_ID GITHUB_CLIENT_SECRET GOOGLE_CLIENT_ID GOOGLE_CLIENT_SECRET GH_APP_ID GH_APP_INSTALLATION_ID GH_APP_PRIVATE_KEY PUSHOVER_TOKEN PUSHOVER_USER"
 # The runner gets GitHub tokens from the server: no GH_APP_* secrets.
 RUNNER_SECRETS="RUNNER_TOKEN $KEY_SECRET"
 APP_SECRETS="GH_APP_ID GH_APP_INSTALLATION_ID GH_APP_PRIVATE_KEY"
@@ -161,6 +162,10 @@ fi
 if ! g run services describe "$SERVICE" --region "$REGION" --format json | grep -q GOOGLE_CLIENT_ID; then
   g run services update "$SERVICE" --region "$REGION" \
     --update-secrets "$(mounts "GOOGLE_CLIENT_ID GOOGLE_CLIENT_SECRET")" >/dev/null
+fi
+# ...and boards from before the hub's all-sites page lack STATS_TOKEN.
+if ! g run services describe "$SERVICE" --region "$REGION" --format json | grep -q STATS_TOKEN; then
+  g run services update "$SERVICE" --region "$REGION" --update-secrets "$(mounts STATS_TOKEN)" >/dev/null
 fi
 
 log "cloud run job $JOB"

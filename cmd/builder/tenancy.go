@@ -138,10 +138,11 @@ func newHub(ctx context.Context, cfg config, reg *tenant.Registry, storage store
 
 func (h *hub) parse() error {
 	h.tmpl = map[string]*template.Template{}
-	for _, p := range []string{"login", "index", "new", "admin"} {
+	for _, p := range []string{"login", "index", "new", "admin", "sites"} {
 		t, err := template.New("").Funcs(template.FuncMap{
 			"short": func(s string) string { return s[:min(7, len(s))] },
 			"ago":   func(t time.Time) string { return t.Format("Jan 2, 2006") },
+			"when":  func(t time.Time) string { return t.Local().Format("Jan 2 15:04") },
 		}).ParseFS(web.FS, "hub/layout.html", "hub/"+p+".html")
 		if err != nil {
 			return fmt.Errorf("hub template %s: %w", p, err)
@@ -164,6 +165,7 @@ func (h *hub) routes() http.Handler {
 	mux.HandleFunc("GET /new", h.platformAdmin(h.newApp))
 	mux.HandleFunc("POST /new", h.platformAdmin(h.create))
 	mux.HandleFunc("GET /admin", h.platformAdmin(h.admin))
+	mux.HandleFunc("GET /admin/sites", h.platformAdmin(h.sites))
 	mux.HandleFunc("POST /admin/platform-admins", h.platformAdmin(h.addAdmin))
 	mux.HandleFunc("POST /admin/platform-admins/{login}/delete", h.platformAdmin(h.removeAdmin))
 	mux.HandleFunc("POST /admin/tenants/{slug}/provision", h.platformAdmin(h.reprovision))

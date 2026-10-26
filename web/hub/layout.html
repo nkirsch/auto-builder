@@ -15,6 +15,7 @@
     <a href="/" class="brand">{{.Site}}</a>
     {{if .Me}}<a href="/">Apps</a>
     {{if .Admin}}<a href="/new">New app</a>
+    <a href="/admin/sites">Sites</a>
     <a href="/admin">Admin</a>{{end}}
     <form method="post" action="/auth/logout" class="logout">
       <button class="link" title="Sign out">{{.Me}} ⎋</button>

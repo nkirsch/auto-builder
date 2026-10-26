@@ -83,7 +83,13 @@ type Item struct {
 	Blocked         string // why it needs action outside auto-builder; "" when not blocked
 	BlockedAt       *time.Time
 	IssueNumber     *int // GitHub issue it was imported from or mirrored to
-	Replies         int  // list queries only
+	// Escalation is "admin" (a member asked the admins), "platform" (an admin
+	// asked the platform admins) or "".
+	Escalation  string
+	EscalatedBy string
+	EscalatedAt *time.Time
+	Assignees   []string // logins, or addresses for members who sign in with Google
+	Replies     int      // list queries only
 }
 
 type Response struct {
@@ -307,13 +313,13 @@ func (s *Store) TouchMember(ctx context.Context, login, name, avatar string) err
 
 const itemCols = `i.id, i.title, i.body, i.author, i.status, i.approved, i.approved_by, i.pr_number,
 	i.merge_sha, i.close_note, i.created_at, i.updated_at, i.human_activity_at, i.closed_at, i.tags,
-	i.blocked, i.blocked_at, i.issue_number`
+	i.blocked, i.blocked_at, i.issue_number, i.escalation, i.escalated_by, i.escalated_at, i.assignees`
 
 func scanItem(row pgx.Row, extra ...any) (Item, error) {
 	var it Item
 	dest := []any{&it.ID, &it.Title, &it.Body, &it.Author, &it.Status, &it.Approved, &it.ApprovedBy,
 		&it.PRNumber, &it.MergeSHA, &it.CloseNote, &it.CreatedAt, &it.UpdatedAt, &it.HumanActivityAt, &it.ClosedAt, &it.Tags,
-		&it.Blocked, &it.BlockedAt, &it.IssueNumber}
+		&it.Blocked, &it.BlockedAt, &it.IssueNumber, &it.Escalation, &it.EscalatedBy, &it.EscalatedAt, &it.Assignees}
 	err := row.Scan(append(dest, extra...)...)
 	return it, notFound(err)
 }
@@ -498,6 +504,30 @@ func (s *Store) SetBlocked(ctx context.Context, id int, note string, human bool)
 	return s.execOne(ctx, `UPDATE items SET blocked = $2,
 		blocked_at = CASE WHEN $2 = '' THEN NULL ELSE now() END, updated_at = now(),
 		human_activity_at = CASE WHEN $3 THEN now() ELSE human_activity_at END WHERE id = $1`, id, note, human)
+}
+
+// Escalate sets an item's escalation ("admin", "platform", or "" to clear
+// it), who set it and whom it's assigned to; it's human activity.
+func (s *Store) Escalate(ctx context.Context, id int, level, by string, assignees []string) error {
+	if level == "" {
+		by, assignees = "", nil
+	}
+	if assignees == nil {
+		assignees = []string{}
+	}
+	return s.execOne(ctx, `UPDATE items SET escalation = $2, escalated_by = $3,
+		escalated_at = CASE WHEN $2 = '' THEN NULL ELSE now() END, assignees = $4, updated_at = now(),
+		human_activity_at = now() WHERE id = $1`, id, level, by, assignees)
+}
+
+// Escalated lists items escalated to level that aren't shipped or closed, oldest escalation first.
+func (s *Store) Escalated(ctx context.Context, level string) ([]Item, error) {
+	rows, err := s.Pool.Query(ctx, `SELECT `+itemCols+` FROM items i
+		WHERE escalation = $1 AND status NOT IN ('shipped', 'closed') ORDER BY escalated_at`, level)
+	if err != nil {
+		return nil, err
+	}
+	return pgx.CollectRows(rows, func(r pgx.CollectableRow) (Item, error) { return scanItem(r) })
 }
 
 // SetApproved flips the approval flag; approving is human activity.

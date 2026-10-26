@@ -6,6 +6,7 @@
   <span class="status s-{{$it.Status}}">{{$it.Status}}</span>
   {{if $it.Approved}}<span class="badge approved">approved by {{$it.ApprovedBy}}</span>{{else}}<span class="badge">not approved</span>{{end}}
   {{if $it.Blocked}}<span class="badge blocked">blocked</span>{{end}}
+  {{template "escalation" $it}}
   {{range $it.Tags}}<a class="tag" href="{{base}}/?tag={{.}}">#{{.}}</a>{{end}}
   {{with $it.IssueNumber}}<a href="https://github.com/{{$.Data.Repo}}/issues/{{.}}">issue #{{.}}</a>{{end}}
   {{with $it.PRNumber}}<a href="https://github.com/{{$.Data.Repo}}/pull/{{.}}">PR #{{.}}</a>{{end}}
@@ -15,6 +16,13 @@
 <div class="row blocked-note">
   <span><b>Blocked:</b> {{.}}</span>
   {{if $me.IsAdmin}}<span class="spacer"></span><form method="post" action="{{base}}/items/{{$it.ID}}/unblock"><button class="secondary">Clear</button></form>{{end}}
+</div>
+{{end}}
+
+{{with $it.Escalation}}
+<div class="row escalation-note">
+  <span><b>{{if eq . "platform"}}Urgent:</b> escalated to the platform admins{{else}}Escalated:</b> asked of the admins{{end}} by {{$it.EscalatedBy}}{{with $it.EscalatedAt}} <time datetime="{{stamp .}}">{{ago .}}</time>{{end}}{{with $it.Assignees}}; assigned to {{range $i, $a := .}}{{if $i}}, {{end}}{{$a}}{{end}}{{end}}.</span>
+  {{if $me.IsAdmin}}<span class="spacer"></span><form method="post" action="{{base}}/items/{{$it.ID}}/escalate"><input type="hidden" name="clear" value="true"><button class="secondary">Clear</button></form>{{end}}
 </div>
 {{end}}
 
@@ -54,6 +62,9 @@
     {{if $it.Approved}}<input type="hidden" name="approved" value="false"><button class="secondary">Unapprove</button>
     {{else}}<button>Approve</button>{{end}}
   </form>
+  {{end}}
+  {{if .CanEscalate}}
+  <form method="post" action="{{base}}/items/{{$it.ID}}/escalate"><button class="secondary" title="{{if $me.IsAdmin}}Ask the platform admins: marks it urgent{{else}}Ask the admins to look at this{{end}}">Escalate</button></form>
   {{end}}
   {{if .CanClose}}
     {{if eq $it.Status "closed" "shipped"}}

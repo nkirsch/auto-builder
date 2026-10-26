@@ -73,6 +73,8 @@ type Board struct {
 	SiteURL string
 	// Upstream, when set, is the repo this one forks; admins can keep up with it.
 	Upstream string
+	// Platform, when set (multi-tenant mode), is whom admins escalate to.
+	Platform Platform
 
 	tmpl    map[string]*template.Template
 	version atomic.Pointer[string]
@@ -112,6 +114,7 @@ func (b *Board) Routes(mux *http.ServeMux) error {
 	mux.Handle("POST /items/{id}/reopen", member(b.reopenItem))
 	mux.Handle("POST /items/{id}/approve", admin(b.approve))
 	mux.Handle("POST /items/{id}/unblock", admin(b.unblock))
+	mux.Handle("POST /items/{id}/escalate", member(b.escalate))
 	mux.Handle("GET /attachments/{id}", member(b.attachment))
 	mux.HandleFunc("GET /inbox", func(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/", http.StatusMovedPermanently)
@@ -300,7 +303,7 @@ type section struct {
 	Items []db.Item
 }
 
-// sections groups the Open view into blocked (any status), waiting for
+// sections groups the Open view into escalated, blocked (any status), waiting for
 // approval, approved but not started, and in progress (a PR is open or
 // merged); empty groups are left out. The Done view is one untitled list.
 func sections(items []db.Item, done bool) []section {
@@ -310,16 +313,18 @@ func sections(items []db.Item, done bool) []section {
 		}
 		return []section{{Items: items}}
 	}
-	out := []section{{Title: "Blocked"}, {Title: "Waiting for approval"}, {Title: "Approved, not started"}, {Title: "In progress"}}
+	out := []section{{Title: "Escalated"}, {Title: "Blocked"}, {Title: "Waiting for approval"}, {Title: "Approved, not started"}, {Title: "In progress"}}
 	for _, it := range items {
-		i := 3
+		i := 4
 		switch {
-		case it.Blocked != "":
+		case it.Escalation != "":
 			i = 0
-		case it.Status == "open" && it.Approved:
-			i = 2
-		case it.Status == "open":
+		case it.Blocked != "":
 			i = 1
+		case it.Status == "open" && it.Approved:
+			i = 3
+		case it.Status == "open":
+			i = 2
 		}
 		out[i].Items = append(out[i].Items, it)
 	}
@@ -405,8 +410,9 @@ func (b *Board) item(w http.ResponseWriter, r *http.Request) {
 	}
 	b.render(w, r, "item", it.Title, map[string]any{
 		"Item": it, "Responses": responses, "Attachments": atts,
-		"CanClose": me.IsAdmin() || strings.EqualFold(me.Login, it.Author),
-		"Repo":     b.Repo,
+		"CanClose":    me.IsAdmin() || strings.EqualFold(me.Login, it.Author),
+		"Repo":        b.Repo,
+		"CanEscalate": !isDone(it) && ((me.IsAdmin() && b.Platform != nil && it.Escalation != "platform") || (!me.IsAdmin() && it.Escalation == "")),
 	})
 }
 

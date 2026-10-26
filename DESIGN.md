@@ -109,6 +109,16 @@ non-bot change (create, reply, approve) and drives the gate.
   clears the note with `set_blocked`; the ship-checker sets it; an admin
   clears it with the item page's Clear button (human activity). The board
   and item page show a red "blocked" badge, the item page the note.
+- Escalation (`items.escalation`, per item): any member's Escalate button
+  asks the board's admins ("escalated"); an admin's same button, in
+  multi-tenant mode, asks the platform admins ("escalated" + "urgent").
+  Escalated items head the Open view. The item is assigned (`items.assignees`)
+  to those admins: GitHub logins, which also become the item's GitHub issue's
+  assignees when it has one, or the address of a member who signs in with
+  Google (their login may be made up). Board admins get an in-app
+  notification; platform admins a hub Pushover and the hub's `/admin/urgent`
+  list, where they re-assign an item back to one of its board's admins.
+  Admins clear an escalation; escalating and clearing are human activity.
 
 ## Gate (server-side, no poller)
 
@@ -247,7 +257,7 @@ Job timeout 60 min, max retries 0.
 
 | Tool | Does |
 |---|---|
-| `list_items(status)` | items with responses, each author's role, approved flag, blocked note and `blocked_at` |
+| `list_items(status)` | items with responses, each author's role, approved flag, blocked note and `blocked_at`, escalation |
 | `get_item(id)` | one item, full thread, attachment URLs |
 | `reply(id, body)` | post as the bot; `@mentions` notify |
 | `set_pr(id, pr_number)` | status → `building`; recorded in `run_prs` for the running run |

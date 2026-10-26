@@ -1,2 +1,18 @@
 /* Branding overrides, loaded after style.css: a fork sets its palette and fonts here. */
-footer .llc { float: right; letter-spacing: 0.04em; }
+/* NICK LLC bar pinned to the bottom of the viewport, as on nick.org. */
+:root { --llc-height: 36px; }
+body { padding-bottom: var(--llc-height); }
+footer .llc {
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 20;
+  display: flex; align-items: center; height: var(--llc-height);
+  background: var(--card); color: var(--muted); border-top: 1px solid var(--line);
+  font-size: 12.5px; letter-spacing: 0.04em; text-decoration: none;
+}
+footer .llc:hover { color: var(--fg); text-decoration: none; }
+.llc-inner {
+  display: flex; justify-content: space-between; align-items: center; gap: 16px;
+  width: 100%; max-width: 760px; margin: 0 auto; padding: 0 16px; white-space: nowrap;
+}
+.llc-mark { font-weight: 300; letter-spacing: 0.22em; }
+.llc-mark b { font-weight: 700; color: var(--fg); }
+.llc-cta { font-weight: 600; }

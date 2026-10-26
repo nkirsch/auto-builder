@@ -19,7 +19,7 @@ extreme.org verified in Search Console, secrets `extreme-<NAME>`.
 
 | Topic | Decision |
 |---|---|
-| Tenant | One app = one repo = one board. Slug `[a-z][a-z0-9-]{1,20}`, no trailing `-` (it's a DNS label); reserved: `www api auth admin mcp static health x new`. |
+| Tenant | One app = one repo = one board. Slug `[a-z][a-z0-9-]{1,20}`, no trailing `-` (it's a DNS label); reserved: `api auth admin mcp static health x new` (`www` is allowed: the hub is the apex, so `www.extreme.org` can be an app). |
 | Hosts | Hub and every board on `extreme.org` (`/` hub, `/<slug>/…` board). Apps on `<slug>.extreme.org`. Agent-written apps never share a host with the boards; the session cookie is `__Host-session` (host-only, no `Domain`), so subdomains can neither read nor toss it. |
 | Sign-in | GitHub (the App's OAuth callback `https://extreme.org/auth/callback`) and Google (`/auth/google/callback`, the client shared with the single boards); one session across all boards. The session holds an identity, a GitHub login or a lower-cased Google address, and its profile goes in `control.users`; each board resolves it to a member: an address by member email, a login by member login unless that member has an email (then Google only, as on a single board). Membership and role are per tenant. Platform admins (`control.platform_admins`, login plus optional email, seeded from `ADMIN_LOGIN`/`ADMIN_EMAIL`) create tenants and become the new board's admin. |
 | Item numbers | On every board with issue sync (single boards too), an item's number is its GitHub issue number: filing on the board opens the issue first and takes its number, and an issue filed on GitHub imports with its own. PRs share GitHub's sequence, so the board has gaps. Two items filed at once can drift apart; that's accepted. A tenant's repo starts fresh, so its board matches from #1; an existing board keeps its older numbers. |
@@ -137,7 +137,11 @@ All done for extreme.org (2026-10-25):
 3a. Item numbers follow issue numbers, on every board. Done (`IssueSync.File`).
 4. Provisioner + template repo. Done: `cmd/provision`, the hub starts it
    (`PROVISION_JOB`), tenant shipping reads the app's serving `GIT_SHA`.
-5. Bootstrap, DNS cutover, first tenant.
+5. Bootstrap, DNS cutover, first tenant. `infra/tenancy.sh` sets up the
+   platform (hub service, runner and provision jobs, accounts, WIF pool with
+   `github` and `platform` providers, tick, apex domain, the platform repo's
+   deploy variables); the platform repo then sets `TENANCY=on` and
+   `DEPLOY_ON=push` in its `app.env`.
 
 ## Open risks
 

@@ -121,23 +121,33 @@ func (g *Gate) Activity() {
 		<-ch
 		ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 		defer cancel()
+		if g.Issues != nil {
+			if err := g.Issues.Sync(ctx); err != nil {
+				slog.Error("issues activity", "err", err)
+			}
+		}
 		if _, err := g.Check(ctx, "activity"); err != nil {
 			slog.Error("gate activity", "err", err)
 		}
 	}()
 }
 
-// ShipSoon checks shipping in the background, so a PR merged by a run that
-// just finished (or a deploy that just started) shows without waiting a tick.
-func (g *Gate) ShipSoon() {
-	if g.Ship == nil {
-		return
-	}
+// SyncSoon syncs issues and checks shipping in the background, so a run's
+// replies and a PR it merged (or a deploy that just started) show without
+// waiting a tick.
+func (g *Gate) SyncSoon() {
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 		defer cancel()
-		if err := g.Ship.Check(ctx); err != nil {
-			slog.Error("ship soon", "err", err)
+		if g.Issues != nil {
+			if err := g.Issues.Sync(ctx); err != nil {
+				slog.Error("issues soon", "err", err)
+			}
+		}
+		if g.Ship != nil {
+			if err := g.Ship.Check(ctx); err != nil {
+				slog.Error("ship soon", "err", err)
+			}
 		}
 	}()
 }

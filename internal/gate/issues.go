@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/nkirsch/auto-builder/internal/db"
@@ -29,9 +30,13 @@ type IssueSync struct {
 	BaseURL string
 	// Notified creates in-app notifications for an imported comment.
 	Notified func(ctx context.Context, it db.Item, actor, body string)
+
+	mu sync.Mutex // serialises Sync so overlapping syncs don't post a reply twice
 }
 
 func (s *IssueSync) Sync(ctx context.Context) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	last, err := s.Store.IssuesSyncedAt(ctx)
 	if err != nil {
 		return err

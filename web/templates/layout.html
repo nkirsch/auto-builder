@@ -1,3 +1,5 @@
+{{/* Default for forks whose brand.html predates the hook; brand.html, parsed after, overrides it. */}}
+{{define "brand-footer"}}{{end}}
 {{define "layout"}}<!doctype html>
 <html lang="en"{{with .Theme}} data-theme="{{.}}"{{end}}>
 <head>
@@ -42,6 +44,6 @@
 {{with .Flash}}<p class="flash">{{.}}</p>{{end}}
 {{template "content" .}}
 </main>
-<footer>{{if and .Version .Repo}}<a href="https://github.com/{{.Repo}}/tree/{{.Version}}">{{.Version}}</a> · {{end}}{{with .GitSHA}}{{if $.Repo}}<a href="https://github.com/{{$.Repo}}/commit/{{.}}" title="{{.}}">{{short .}}</a>{{else}}{{short .}}{{end}}{{end}}</footer>
+<footer>{{if and .Version .Repo}}<a href="https://github.com/{{.Repo}}/tree/{{.Version}}">{{.Version}}</a> · {{end}}{{with .GitSHA}}{{if $.Repo}}<a href="https://github.com/{{$.Repo}}/commit/{{.}}" title="{{.}}">{{short .}}</a>{{else}}{{short .}}{{end}}{{end}}{{template "brand-footer" .}}</footer>
 </body>
 </html>{{end}}

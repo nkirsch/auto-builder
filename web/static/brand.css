@@ -1,1 +1,2 @@
 /* Branding overrides, loaded after style.css: a fork sets its palette and fonts here. */
+footer .llc { float: right; letter-spacing: 0.04em; }

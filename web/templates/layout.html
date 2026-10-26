@@ -47,3 +47,5 @@
 <footer>{{if and .Version .Repo}}<a href="https://github.com/{{.Repo}}/tree/{{.Version}}">{{.Version}}</a> · {{end}}{{with .GitSHA}}{{if $.Repo}}<a href="https://github.com/{{$.Repo}}/commit/{{.}}" title="{{.}}">{{short .}}</a>{{else}}{{short .}}{{end}}{{end}}{{template "brand-footer" .}}</footer>
 </body>
 </html>{{end}}
+
+{{define "escalation"}}{{if eq .Escalation "platform"}}<span class="badge escalated">escalated</span> <span class="badge urgent">urgent</span>{{else if eq .Escalation "admin"}}<span class="badge escalated">escalated</span>{{end}}{{end}}

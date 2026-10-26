@@ -406,6 +406,21 @@ func (c *Client) Comment(ctx context.Context, repo string, n int, body string) (
 	return out.ID, err
 }
 
+// Reassign removes and then adds assignees on issue n; GitHub skips logins
+// that can't be assigned on the repo.
+func (c *Client) Reassign(ctx context.Context, repo string, n int, remove, add []string) error {
+	path := fmt.Sprintf("/repos/%s/issues/%d/assignees", repo, n)
+	if len(remove) > 0 {
+		if err := c.do(ctx, http.MethodDelete, path, map[string][]string{"assignees": remove}, nil); err != nil {
+			return err
+		}
+	}
+	if len(add) == 0 {
+		return nil
+	}
+	return c.do(ctx, http.MethodPost, path, map[string][]string{"assignees": add}, nil)
+}
+
 // ReopenIssue reopens issue n.
 func (c *Client) ReopenIssue(ctx context.Context, repo string, n int) error {
 	return c.do(ctx, http.MethodPatch, fmt.Sprintf("/repos/%s/issues/%d", repo, n),

@@ -105,6 +105,7 @@ type tenantRT struct {
 	gate  *gate.Gate
 	srv   *server // runner API, against this tenant's store and repo
 	mcp   http.Handler
+	b     *board.Board
 }
 
 func newHub(ctx context.Context, cfg config, reg *tenant.Registry, storage store.Storage) (*hub, error) {
@@ -144,7 +145,7 @@ func newHub(ctx context.Context, cfg config, reg *tenant.Registry, storage store
 
 func (h *hub) parse() error {
 	h.tmpl = map[string]*template.Template{}
-	for _, p := range []string{"login", "index", "new", "admin", "sites"} {
+	for _, p := range []string{"login", "index", "new", "admin", "sites", "urgent"} {
 		t, err := template.New("").Funcs(template.FuncMap{
 			"short": func(s string) string { return s[:min(7, len(s))] },
 			"ago":   func(t time.Time) string { return t.Format("Jan 2, 2006") },
@@ -177,6 +178,8 @@ func (h *hub) routes() http.Handler {
 	mux.HandleFunc("POST /admin/tenants/{slug}/provision", h.platformAdmin(h.reprovision))
 	mux.HandleFunc("POST /admin/tenants/{slug}/delete", h.platformAdmin(h.deleteApp))
 	mux.HandleFunc("POST /admin/upstream", h.platformAdmin(h.setUpstream))
+	mux.HandleFunc("GET /admin/urgent", h.platformAdmin(h.urgent))
+	mux.HandleFunc("POST /admin/tenants/{slug}/items/{id}/reassign", h.platformAdmin(h.reassign))
 	mux.HandleFunc("GET /{slug}", func(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/"+r.PathValue("slug")+"/", http.StatusMovedPermanently)
 	})
@@ -400,6 +403,7 @@ func (h *hub) tenantFor(ctx context.Context, slug string) (*tenantRT, error) {
 		Store: st, Storage: storage, Auth: ta, Gate: g, BaseURL: base,
 		BotLogin: h.cfg.BotLogin, GitSHA: h.cfg.GitSHA, Repo: t.Repo, GitHub: gh,
 		Name: t.Name, SiteURL: "https://" + slug + "." + h.host,
+		Platform: hubPlatform{h, slug},
 	}
 	if h.cfg.Version != "" {
 		b.SetVersion(h.cfg.Version)
@@ -431,6 +435,7 @@ func (h *hub) tenantFor(ctx context.Context, slug string) (*tenantRT, error) {
 		srv: &server{cfg: scfg, store: st, storage: storage, gate: g, app: h.app, version: b.Version,
 			notify: h.notify, slug: slug},
 		mcp: tools.Handler(),
+		b:   b,
 	}
 	h.tenants[slug] = rt
 	return rt, nil

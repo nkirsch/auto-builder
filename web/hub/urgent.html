@@ -1,0 +1,19 @@
+{{define "content"}}
+<h1>Urgent</h1>
+<p class="hint">Items a board's admin escalated to the platform admins. Hand one back to an admin of its board once it's theirs again.</p>
+{{range .Data.Apps}}{{$app := .}}
+<h2><a href="/{{.Slug}}/">{{.Name}}</a> <span class="muted">{{.Slug}}</span></h2>
+<ul class="items">
+  {{range .Items}}
+  <li class="row">
+    <a href="/{{$app.Slug}}/items/{{.ID}}"><b>{{.Title}}</b></a> <span class="muted">#{{.ID}} by {{.Author}}, escalated by {{.EscalatedBy}}{{with .EscalatedAt}} {{when .}}{{end}}</span>
+    <span class="spacer"></span>
+    {{if $app.Admins}}<form method="post" action="/admin/tenants/{{$app.Slug}}/items/{{.ID}}/reassign" class="row">
+      <select name="to" aria-label="Admin">{{range $app.Admins}}<option value="{{.Login}}">{{.Login}}{{with .Email}} ({{.}}){{end}}</option>{{end}}</select>
+      <button class="secondary">Re-assign</button>
+    </form>{{else}}<span class="muted">no board admins</span>{{end}}
+  </li>
+  {{end}}
+</ul>
+{{else}}<p class="muted">Nothing urgent.</p>{{end}}
+{{end}}

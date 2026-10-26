@@ -88,3 +88,28 @@ func TestBoardOnlyBehindProxy(t *testing.T) {
 		}
 	}
 }
+
+// Listed old hosts 308 to BASE_URL's host; other hosts are served as before.
+func TestRedirectHosts(t *testing.T) {
+	app := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.Write([]byte("board")) })
+	h := redirectHosts("https://new.example", []string{"old.example"}, app)
+	for _, c := range []struct {
+		method, host, path string
+		code               int
+		loc                string
+	}{
+		{"GET", "old.example", "/items/3?x=1", 308, "https://new.example/items/3?x=1"},
+		{"POST", "old.example", "/mcp", 308, "https://new.example/mcp"},
+		{"GET", "old.example", "/health", 200, ""},
+		{"GET", "new.example", "/", 200, ""},
+		{"GET", "svc.run.app", "/", 200, ""},
+	} {
+		r := httptest.NewRequest(c.method, c.path, nil)
+		r.Host = c.host
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, r)
+		if w.Code != c.code || w.Header().Get("Location") != c.loc {
+			t.Errorf("%s %s%s: %d loc=%q", c.method, c.host, c.path, w.Code, w.Header().Get("Location"))
+		}
+	}
+}

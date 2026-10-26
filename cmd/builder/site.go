@@ -7,6 +7,7 @@ import (
 	"io/fs"
 	"net/http"
 	"net/url"
+	"slices"
 	"strings"
 	"time"
 )
@@ -42,6 +43,24 @@ func site(baseURL, siteDir string, app http.Handler, version func() string) (htt
 		}
 		mux.ServeHTTP(w, r)
 	}), nil
+}
+
+// redirectHosts 308s requests for the listed hosts to the same path on
+// BASE_URL's host, so a board can move domains without breaking old links.
+func redirectHosts(baseURL string, hosts []string, next http.Handler) http.Handler {
+	u, err := url.Parse(baseURL)
+	if err != nil || len(hosts) == 0 {
+		return next
+	}
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if slices.Contains(hosts, r.Host) && r.Host != u.Host && !strings.HasSuffix(r.URL.Path, "/health") {
+			to := *r.URL
+			to.Scheme, to.Host = u.Scheme, u.Host
+			http.Redirect(w, r, to.String(), http.StatusPermanentRedirect)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
 }
 
 func local(host string) bool {

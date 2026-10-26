@@ -44,6 +44,7 @@ type config struct {
 
 	AdminEmail                         string // Google sign-in addresses, paired with ADMIN_LOGIN
 	GoogleClientID, GoogleClientSecret string
+	RedirectHosts                      []string // old hosts that 308 to BASE_URL's
 }
 
 func loadConfig() (config, error) {
@@ -85,6 +86,11 @@ func loadConfig() (config, error) {
 	}
 	c.AdminEmail = env("ADMIN_EMAIL", "")
 	c.GoogleClientID, c.GoogleClientSecret = env("GOOGLE_CLIENT_ID", ""), env("GOOGLE_CLIENT_SECRET", "")
+	for _, h := range strings.Split(env("REDIRECT_HOSTS", ""), ",") {
+		if h = strings.TrimSpace(h); h != "" {
+			c.RedirectHosts = append(c.RedirectHosts, h)
+		}
+	}
 	if c.DatabaseURL == "" {
 		return c, errors.New("DATABASE_URL is required")
 	}
@@ -229,6 +235,7 @@ func run() error {
 	if err != nil {
 		return err
 	}
+	handler = redirectHosts(cfg.BaseURL, cfg.RedirectHosts, handler)
 	srv := &http.Server{Addr: ":" + cfg.Port, Handler: logRequests(handler), ReadHeaderTimeout: 10 * time.Second}
 	go func() {
 		<-ctx.Done()

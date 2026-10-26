@@ -25,11 +25,10 @@
 <body>
 <header>
   {{if .Me.Login}}<nav>
-    <a href="{{base}}/" class="brand">{{if .AppName}}{{.AppName}}{{else}}{{template "brand-name" .}}{{end}}{{with .Version}} <span class="version" title="{{$.GitSHA}}">{{.}}</span>{{end}}</a>{{template "brand-nav" .}}
+    <a href="{{base}}/" class="brand">{{if .AppName}}{{.AppName}}{{else}}{{template "brand-name" .}}{{end}}{{with .Version}} <span class="version" title="{{$.GitSHA}}">{{.}}</span>{{end}}</a>{{if .SiteURL}}<a href="{{.SiteURL}}">Site</a>{{else}}{{template "brand-nav" .}}{{end}}
     <a href="{{base}}/">Board{{if .Unread}} <span class="count" title="Items with unread updates">{{.Unread}}</span>{{end}}</a>
     <a href="{{base}}/items/new">New</a>
     <a href="{{base}}/runs">Runs</a>
-    {{with .SiteURL}}<a href="{{.}}">Site</a>{{end}}
     {{if .Me.IsAdmin}}<a href="{{base}}/admin">Admin</a>{{end}}
     <form method="post" action="{{base}}/theme" class="theme">
       <input type="hidden" name="back" value="{{.Path}}">

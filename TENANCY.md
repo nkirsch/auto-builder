@@ -61,7 +61,10 @@ Later, when an app needs them: database `x_<slug>` (user `x_<slug>`, secret
 `artifactregistry.admin`, `dns.admin`. It runs deterministic Go with no agent,
 calling `gcloud` for Google Cloud (each step describes first, so `sync` only
 fills gaps) and the App for GitHub. Its only inputs are `TENANT` (slug) and
-`ACTION` (`create`/`sync`; `delete` later). It reads the repo from the control
+`ACTION` (`create`/`sync`/`delete`). Delete removes the app's mapping,
+CNAME, service, image repo and accounts, archives its repo (code and history
+stay), and marks it `deleted`; its board schema stays. Boards don't run until
+their app is `ready`. It reads the repo from the control
 DB. The internet-facing server never holds these roles. It can only start this
 job (`run.jobs.runWithOverrides`): creating an app on the hub starts it, and a
 platform admin can re-run it from `/admin`. The job writes

@@ -157,6 +157,13 @@ func TestRegistry(t *testing.T) {
 	if all, _ := r.PlatformAdmins(ctx); len(all) != 1 {
 		t.Errorf("admins %+v", all)
 	}
+	r.AddPlatformAdmin(ctx, "setheck", "")
+	if err := r.RemovePlatformAdmin(ctx, "setheck"); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.RemovePlatformAdmin(ctx, "setheck"); !errors.Is(err, db.ErrNotFound) {
+		t.Errorf("removing twice: %v", err)
+	}
 
 	if name, _, err := r.User(ctx, "alice"); err != nil || name != "" {
 		t.Errorf("unknown user %q %v", name, err)

@@ -165,7 +165,9 @@ func (h *hub) routes() http.Handler {
 	mux.HandleFunc("POST /new", h.platformAdmin(h.create))
 	mux.HandleFunc("GET /admin", h.platformAdmin(h.admin))
 	mux.HandleFunc("POST /admin/platform-admins", h.platformAdmin(h.addAdmin))
+	mux.HandleFunc("POST /admin/platform-admins/{login}/delete", h.platformAdmin(h.removeAdmin))
 	mux.HandleFunc("POST /admin/tenants/{slug}/provision", h.platformAdmin(h.reprovision))
+	mux.HandleFunc("POST /admin/tenants/{slug}/delete", h.platformAdmin(h.deleteApp))
 	mux.HandleFunc("GET /{slug}", func(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/"+r.PathValue("slug")+"/", http.StatusMovedPermanently)
 	})
@@ -320,6 +322,10 @@ func (h *hub) board(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
+	if t, err := h.reg.Tenant(r.Context(), slug); err == nil && t.Status == "deleted" {
+		http.NotFound(w, r)
+		return
+	}
 	rt, err := h.tenantFor(r.Context(), slug)
 	if errors.Is(err, db.ErrNotFound) {
 		http.NotFound(w, r)
@@ -355,7 +361,15 @@ func (h *hub) tenantFor(ctx context.Context, slug string) (*tenantRT, error) {
 		gh = github.ForApp(h.app)
 	}
 	g := &gate.Gate{Store: st, Launcher: tenantLauncher{h, slug},
-		Idle: time.Duration(h.cfg.IdleHours) * time.Hour, Hold: h.hold}
+		Idle: time.Duration(h.cfg.IdleHours) * time.Hour, Hold: func(ctx context.Context) (string, error) {
+			// No runs until the provisioner has made the repo, nor after delete.
+			if t, err := h.reg.Tenant(ctx, slug); err != nil {
+				return "", err
+			} else if t.Status != "ready" {
+				return "the app is " + t.Status + ", not ready", nil
+			}
+			return h.hold(ctx)
+		}}
 	ta := h.auth.ForTenant(st, prefix)
 	b := &board.Board{
 		Store: st, Storage: storage, Auth: ta, Gate: g, BaseURL: base,
@@ -399,15 +413,17 @@ func (h *hub) tenantFor(ctx context.Context, slug string) (*tenantRT, error) {
 
 type hubPage struct {
 	Title, Site, Me, Flash, GitSHA string
+	Version, Repo                  string // footer: release name and the code's repo
+	MeLogin                        string // the viewer's platform admin login, if any
 	Admin                          bool
 	Data                           any
 }
 
 func (h *hub) render(w http.ResponseWriter, r *http.Request, name, title string, data any) {
 	me := h.auth.SignedIn(r)
-	_, err := h.reg.PlatformAdmin(r.Context(), me)
-	p := hubPage{Title: title, Site: h.host, Me: me, Admin: me != "" && err == nil,
-		Flash: r.URL.Query().Get("flash"), GitSHA: h.cfg.GitSHA, Data: data}
+	admin, err := h.reg.PlatformAdmin(r.Context(), me)
+	p := hubPage{Title: title, Site: h.host, Me: me, Admin: me != "" && err == nil, MeLogin: admin.Login,
+		Flash: r.URL.Query().Get("flash"), GitSHA: h.cfg.GitSHA, Version: h.cfg.Version, Repo: h.cfg.Repo, Data: data}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if err := h.tmpl[name].ExecuteTemplate(w, "layout", p); err != nil {
 		slog.Error("render", "page", name, "err", err)
@@ -470,6 +486,9 @@ func (h *hub) index(w http.ResponseWriter, r *http.Request) {
 	}
 	var apps []app
 	for _, t := range tenants {
+		if t.Status == "deleted" {
+			continue
+		}
 		st, err := h.reg.Store(ctx, t.Slug)
 		if err != nil {
 			slog.Error("tenant store", "tenant", t.Slug, "err", err)
@@ -551,6 +570,21 @@ func (h *hub) provision(ctx context.Context, slug, action string) error {
 	return nil
 }
 
+// deleteApp tears an app down once its slug is typed to confirm: the
+// provisioner removes its cloud resources and archives its repo.
+func (h *hub) deleteApp(w http.ResponseWriter, r *http.Request) {
+	slug := r.PathValue("slug")
+	msg := "Deleting " + slug
+	if r.FormValue("confirm") != slug {
+		msg = "Type the slug to delete " + slug
+	} else if err := h.reg.SetStatus(r.Context(), slug, "deleting", ""); err != nil {
+		msg = err.Error()
+	} else if err := h.provision(r.Context(), slug, "delete"); err != nil {
+		msg = "Delete didn't start: " + err.Error()
+	}
+	http.Redirect(w, r, "/admin?flash="+url.QueryEscape(msg), http.StatusSeeOther)
+}
+
 // reprovision re-runs the provisioner, filling in whatever is missing.
 func (h *hub) reprovision(w http.ResponseWriter, r *http.Request) {
 	slug := r.PathValue("slug")
@@ -593,6 +627,18 @@ func (h *hub) addAdmin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	http.Redirect(w, r, "/admin", http.StatusSeeOther)
+}
+
+// removeAdmin drops a platform admin; you can't remove yourself.
+func (h *hub) removeAdmin(w http.ResponseWriter, r *http.Request) {
+	login := r.PathValue("login")
+	msg := "Removed " + login
+	if me, _ := h.reg.PlatformAdmin(r.Context(), h.auth.SignedIn(r)); me.Login == login {
+		msg = "You can't remove yourself"
+	} else if err := h.reg.RemovePlatformAdmin(r.Context(), login); err != nil {
+		msg = err.Error()
+	}
+	http.Redirect(w, r, "/admin?flash="+url.QueryEscape(msg), http.StatusSeeOther)
 }
 
 func (h *hub) health(w http.ResponseWriter, r *http.Request) {

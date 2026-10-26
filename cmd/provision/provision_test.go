@@ -124,3 +124,42 @@ func TestCreate(t *testing.T) {
 		t.Errorf("stale CNAME kept:\n%s", strings.Join(sh.cmds, "\n"))
 	}
 }
+
+func TestDelete(t *testing.T) {
+	archived := false
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method+" "+r.URL.Path == "PATCH /repos/extreme-dot-org/alpha" {
+			archived = true
+		}
+		w.Write([]byte(`{}`))
+	}))
+	defer srv.Close()
+	sh := &goneShell{}
+	p := &Provisioner{Project: "proj", Region: "us-central1", Domain: "extreme.org", Zone: "extreme-org",
+		GitHub: github.New(srv.URL, "t"), Shell: sh}
+	if err := p.Delete(context.Background(), tenant.Tenant{Slug: "alpha", Repo: "extreme-dot-org/alpha"}); err != nil {
+		t.Fatal(err)
+	}
+	all := strings.Join(sh.cmds, "\n")
+	for _, want := range []string{"domain-mappings delete --domain alpha.extreme.org", "run services delete x-alpha",
+		"artifacts repositories delete x-alpha", "service-accounts delete app-alpha@", "service-accounts delete deploy-alpha@"} {
+		if !strings.Contains(all, want) {
+			t.Errorf("missing %q in\n%s", want, all)
+		}
+	}
+	if !archived {
+		t.Error("repo not archived")
+	}
+}
+
+// goneShell reports the DNS record as already deleted.
+type goneShell struct{ cmds []string }
+
+func (g *goneShell) Run(_ context.Context, _ []string, args ...string) (string, error) {
+	cmd := strings.Join(args, " ")
+	g.cmds = append(g.cmds, cmd)
+	if strings.Contains(cmd, "record-sets delete") {
+		return "", errors.New("HTTPError 404: does not exist")
+	}
+	return "", nil
+}

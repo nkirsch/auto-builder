@@ -520,3 +520,8 @@ func (c *Client) SetVariable(ctx context.Context, repo, name, value string) erro
 	}
 	return err
 }
+
+// Archive makes repo read-only.
+func (c *Client) Archive(ctx context.Context, repo string) error {
+	return c.do(ctx, http.MethodPatch, "/repos/"+repo, map[string]bool{"archived": true}, nil)
+}

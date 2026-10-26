@@ -243,6 +243,15 @@ func (r *Registry) AddPlatformAdmin(ctx context.Context, login, email string) er
 	return err
 }
 
+// RemovePlatformAdmin drops login from the platform admins.
+func (r *Registry) RemovePlatformAdmin(ctx context.Context, login string) error {
+	tag, err := r.Control.Exec(ctx, `DELETE FROM platform_admins WHERE login = $1`, login)
+	if err == nil && tag.RowsAffected() == 0 {
+		return db.ErrNotFound
+	}
+	return err
+}
+
 // SetUser records a signed-in identity's profile (auth.Users).
 func (r *Registry) SetUser(ctx context.Context, identity, name, avatar string) error {
 	_, err := r.Control.Exec(ctx, `INSERT INTO users (identity, name, avatar_url) VALUES ($1, $2, $3)

@@ -39,6 +39,7 @@ func testHub(t *testing.T) *hub {
 	cfg := config{
 		BaseURL: "https://hub.example", SessionKey: "0123456789abcdef", GitSHA: "abc1234",
 		ClientID: "gh", GoogleClientID: "g", BotLogin: "builder-bot", TenantOrg: "extreme-dot-org",
+		Version: "v26.10.25-9", Repo: "kirsch/extreme",
 		AdminLogin: "nkirsch", AdminEmail: "nick@example.org", TickToken: "tick", IdleHours: 6,
 	}
 	h, err := newHub(ctx, cfg, reg, store.Dir(t.TempDir()))
@@ -79,6 +80,7 @@ func TestHubTenants(t *testing.T) {
 	}
 
 	check(do(h, srv, "", "GET", "/", nil), 302, "/auth/login?next=%2F", "")
+	check(do(h, srv, "", "GET", "/auth/login", nil), 200, "", `href="https://github.com/kirsch/extreme/tree/v26.10.25-9">v26.10.25-9</a>`)
 	check(do(h, srv, "", "GET", "/auth/login?next=/alpha/", nil), 200, "", `href="/auth/google?next=%2falpha%2f"`)
 
 	// Platform admins (seeded from ADMIN_LOGIN/ADMIN_EMAIL) create apps and become their admin.
@@ -125,6 +127,13 @@ func TestHubTenants(t *testing.T) {
 	check(do(h, srv, "nkirsch", "POST", "/admin/platform-admins", url.Values{"login": {"katrina"}}), 303, "/admin", "")
 	if _, err := h.reg.PlatformAdmin(ctx, "katrina"); err != nil {
 		t.Errorf("katrina not a platform admin: %v", err)
+	}
+	check(do(h, srv, "nkirsch", "GET", "/admin", nil), 200, "", `action="/admin/platform-admins/katrina/delete"`)
+	check(do(h, srv, "nkirsch", "POST", "/admin/platform-admins/nkirsch/delete", url.Values{}), 303,
+		"/admin?flash=You+can%27t+remove+yourself", "")
+	check(do(h, srv, "nkirsch", "POST", "/admin/platform-admins/katrina/delete", url.Values{}), 303, "/admin?flash=Removed+katrina", "")
+	if _, err := h.reg.PlatformAdmin(ctx, "katrina"); err == nil {
+		t.Error("katrina still a platform admin")
 	}
 
 	// Cross-site POSTs are refused.
@@ -179,6 +188,13 @@ func TestHubRuns(t *testing.T) {
 		len(prov.launches) != 3 || prov.launches[2]["ACTION"] != "sync" {
 		t.Fatalf("reprovision: %d %v", w.Code, prov.launches)
 	}
+
+	// No runs until the app is ready.
+	h.reg.SetStatus(ctx, "alpha", "provisioning", "")
+	if w := do(h, srv, "nick@example.org", "POST", "/alpha/admin/run", url.Values{}); !strings.Contains(w.Header().Get("Location"), "Held") {
+		t.Fatalf("run now while provisioning: %q", w.Header().Get("Location"))
+	}
+	h.reg.SetStatus(ctx, "alpha", "ready", "")
 
 	// Run now launches the shared job with the tenant and a run token.
 	if w := do(h, srv, "nick@example.org", "POST", "/alpha/admin/run", url.Values{}); w.Code != 303 ||
@@ -253,5 +269,21 @@ func TestHubRuns(t *testing.T) {
 	}
 	if n, _ := h.reg.ActiveRuns(ctx); n != 2 {
 		t.Errorf("active runs %d", n)
+	}
+
+	// Deleting needs the slug typed, then starts the provisioner; a deleted app's board is gone.
+	if w := do(h, srv, "nkirsch", "POST", "/admin/tenants/beta/delete", url.Values{"confirm": {"nope"}}); !strings.Contains(w.Header().Get("Location"), "Type+the+slug") {
+		t.Fatalf("unconfirmed delete: %q", w.Header().Get("Location"))
+	}
+	if w := do(h, srv, "nkirsch", "POST", "/admin/tenants/beta/delete", url.Values{"confirm": {"beta"}}); w.Code != 303 ||
+		prov.launches[len(prov.launches)-1]["ACTION"] != "delete" {
+		t.Fatalf("delete: %d %v", w.Code, prov.launches)
+	}
+	if tn, _ := h.reg.Tenant(ctx, "beta"); tn.Status != "deleting" {
+		t.Errorf("beta %s", tn.Status)
+	}
+	h.reg.SetStatus(ctx, "beta", "deleted", "")
+	if w := do(h, srv, "nkirsch", "GET", "/beta/", nil); w.Code != 404 {
+		t.Errorf("deleted board: %d", w.Code)
 	}
 }

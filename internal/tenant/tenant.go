@@ -275,3 +275,22 @@ func (r *Registry) Settings(ctx context.Context) (Settings, error) {
 	err := r.Control.QueryRow(ctx, `SELECT spend_limit_usd::float8, max_runs FROM settings`).Scan(&s.SpendLimit, &s.MaxRuns)
 	return s, err
 }
+
+// UpstreamSync reports whether the platform repo keeps up with its upstream
+// and the upstream PR in flight (0 for none).
+func (r *Registry) UpstreamSync(ctx context.Context) (on bool, pr int, err error) {
+	err = r.Control.QueryRow(ctx, `SELECT upstream_sync, coalesce(upstream_pr, 0) FROM settings`).Scan(&on, &pr)
+	return on, pr, err
+}
+
+// SetUpstreamSync turns keeping up with upstream on or off.
+func (r *Registry) SetUpstreamSync(ctx context.Context, on bool) error {
+	_, err := r.Control.Exec(ctx, `UPDATE settings SET upstream_sync = $1`, on)
+	return err
+}
+
+// SetUpstreamPR records the upstream PR in flight; 0 clears it.
+func (r *Registry) SetUpstreamPR(ctx context.Context, pr int) error {
+	_, err := r.Control.Exec(ctx, `UPDATE settings SET upstream_pr = nullif($1, 0)`, pr)
+	return err
+}

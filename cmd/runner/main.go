@@ -20,6 +20,7 @@ import (
 	"time"
 
 	autobuilder "github.com/nkirsch/auto-builder"
+	"github.com/nkirsch/auto-builder/internal/upstream"
 )
 
 const (
@@ -64,7 +65,11 @@ func main() {
 
 	log := &capped{max: maxLog}
 	status := "done"
-	if err := build(ctx, cfg, api, claim, log); err != nil {
+	work := build
+	if claim.Upstream != "" {
+		work = mergeUpstream
+	}
+	if err := work(ctx, cfg, api, claim, log); err != nil {
 		status = "failed"
 		fmt.Fprintf(log, "\nrunner: %v\n", err)
 		slog.Error("build", "err", err)
@@ -136,6 +141,48 @@ func build(ctx context.Context, cfg config, api *api, claim claimResp, log io.Wr
 		return fmt.Errorf("agent timed out after %s", agentTimeout)
 	}
 	return err
+}
+
+// mergeUpstream merges claim.Upstream into an upstream-<sha> branch of the
+// repo; the server opens the PR and lands it on green CI.
+func mergeUpstream(ctx context.Context, cfg config, api *api, claim claimResp, log io.Writer) error {
+	gh, err := api.githubToken(ctx, cfg.RunID)
+	if err != nil {
+		return fmt.Errorf("github token: %w", err)
+	}
+	env := append(childEnv(os.Environ()), "GH_TOKEN="+gh.Token, "GIT_TERMINAL_PROMPT=0",
+		"GIT_AUTHOR_NAME="+gh.Name, "GIT_AUTHOR_EMAIL="+gh.Email,
+		"GIT_COMMITTER_NAME="+gh.Name, "GIT_COMMITTER_EMAIL="+gh.Email)
+	// gh serves git credentials from GH_TOKEN, so the token never lands in .git/config.
+	if err := runCmd(ctx, "", env, log, "gh", "auth", "setup-git"); err != nil {
+		return err
+	}
+	dir := filepath.Join(cfg.WorkDir, "repo")
+	os.RemoveAll(dir)
+	branch, err := upstream.Merge(ctx, logShell{log}, env, dir, claim.Repo, claim.Upstream, "master")
+	if err != nil {
+		return err
+	}
+	if branch == "" {
+		fmt.Fprintf(log, `{"type":"result","result":"Already up to date with %s."}`+"\n", claim.Upstream)
+	} else {
+		fmt.Fprintf(log, `{"type":"result","result":"Merged %s into branch %s; the board opens the PR and lands it once CI passes."}`+"\n", claim.Upstream, branch)
+	}
+	return nil
+}
+
+// logShell runs commands for upstream.Merge, echoing them and their output to the run log.
+type logShell struct{ log io.Writer }
+
+func (l logShell) Run(ctx context.Context, env []string, args ...string) (string, error) {
+	fmt.Fprintf(l.log, "$ %s\n", strings.Join(args, " "))
+	var out bytes.Buffer
+	cmd := exec.CommandContext(ctx, args[0], args[1:]...)
+	cmd.Env = env
+	cmd.Stdout = io.MultiWriter(&out, l.log)
+	cmd.Stderr = l.log
+	err := cmd.Run()
+	return out.String(), err
 }
 
 // installCommand puts auto-builder's /build-board in the user's commands when
@@ -296,6 +343,7 @@ type claimResp struct {
 	RunID    int    `json:"run_id"`
 	Repo     string `json:"repo"`
 	BotLogin string `json:"bot_login"`
+	Upstream string `json:"upstream"` // set for an upstream run: merge it, no agent
 }
 
 func (a *api) claim(ctx context.Context, id string) (claimResp, error) {

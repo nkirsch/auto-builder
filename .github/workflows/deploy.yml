@@ -21,6 +21,7 @@ jobs:
       DEPLOY_ON: ${{ steps.app.outputs.DEPLOY_ON }}
       ISSUE_SYNC: ${{ steps.app.outputs.ISSUE_SYNC }}
       TENANCY: ${{ steps.app.outputs.TENANCY }}
+      UPSTREAM: ${{ steps.app.outputs.UPSTREAM }}
       SITE_NAME: ${{ steps.app.outputs.SITE_NAME }}
       SITE_URL: ${{ steps.app.outputs.SITE_URL }}
     steps:
@@ -135,10 +136,11 @@ jobs:
           SERVE_SITE: ${{ needs.config.outputs.SERVE_SITE }}
           DEPLOY_ON: ${{ needs.config.outputs.DEPLOY_ON }}
           ISSUE_SYNC: ${{ needs.config.outputs.ISSUE_SYNC }}
+          UPSTREAM: ${{ needs.config.outputs.UPSTREAM }}
         run: |
           site=$([ "$SERVE_SITE" = true ] && echo /site || true)
           releases=$([ "$DEPLOY_ON" = release ] && echo true || echo false)
-          echo "vars=SITE_DIR=$site,RELEASES=$releases,ISSUE_SYNC=$ISSUE_SYNC" >> "$GITHUB_OUTPUT"
+          echo "vars=SITE_DIR=$site,RELEASES=$releases,ISSUE_SYNC=$ISSUE_SYNC,UPSTREAM=$UPSTREAM" >> "$GITHUB_OUTPUT"
       - uses: google-github-actions/auth@v3
         with:
           workload_identity_provider: ${{ vars.GCP_WIF_PROVIDER }}

@@ -525,3 +525,62 @@ func (c *Client) SetVariable(ctx context.Context, repo, name, value string) erro
 func (c *Client) Archive(ctx context.Context, repo string) error {
 	return c.do(ctx, http.MethodPatch, "/repos/"+repo, map[string]bool{"archived": true}, nil)
 }
+
+// Head returns the commit SHA at the tip of branch.
+func (c *Client) Head(ctx context.Context, repo, branch string) (string, error) {
+	var out struct {
+		SHA string `json:"sha"`
+	}
+	err := c.do(ctx, http.MethodGet, "/repos/"+repo+"/commits/"+branch, nil, &out)
+	return out.SHA, err
+}
+
+// ChecksPassed reports whether sha has check runs and all finished green.
+func (c *Client) ChecksPassed(ctx context.Context, repo, sha string) (bool, error) {
+	var out struct {
+		CheckRuns []struct {
+			Status     string `json:"status"`
+			Conclusion string `json:"conclusion"`
+		} `json:"check_runs"`
+	}
+	if err := c.do(ctx, http.MethodGet, fmt.Sprintf("/repos/%s/commits/%s/check-runs?per_page=100", repo, sha), nil, &out); err != nil {
+		return false, err
+	}
+	for _, r := range out.CheckRuns {
+		if r.Status != "completed" || (r.Conclusion != "success" && r.Conclusion != "neutral" && r.Conclusion != "skipped") {
+			return false, nil
+		}
+	}
+	return len(out.CheckRuns) > 0, nil
+}
+
+// OpenPR returns the number of the open PR from branch, or 0.
+func (c *Client) OpenPR(ctx context.Context, repo, branch string) (int, error) {
+	owner, _, _ := strings.Cut(repo, "/")
+	var out []struct {
+		Number int `json:"number"`
+	}
+	q := url.Values{"head": {owner + ":" + branch}, "state": {"open"}}
+	err := c.do(ctx, http.MethodGet, "/repos/"+repo+"/pulls?"+q.Encode(), nil, &out)
+	if err != nil || len(out) == 0 {
+		return 0, err
+	}
+	return out[0].Number, nil
+}
+
+// CreatePR opens a PR from head into base and returns its number.
+func (c *Client) CreatePR(ctx context.Context, repo, head, base, title, body string) (int, error) {
+	var out struct {
+		Number int `json:"number"`
+	}
+	err := c.do(ctx, http.MethodPost, "/repos/"+repo+"/pulls",
+		map[string]string{"head": head, "base": base, "title": title, "body": body}, &out)
+	return out.Number, err
+}
+
+// MergePR merges PR n with a merge commit titled title, keeping the
+// branch's history (an upstream merge must not be squashed).
+func (c *Client) MergePR(ctx context.Context, repo string, n int, title string) error {
+	return c.do(ctx, http.MethodPut, fmt.Sprintf("/repos/%s/pulls/%d/merge", repo, n),
+		map[string]string{"merge_method": "merge", "commit_title": title}, nil)
+}

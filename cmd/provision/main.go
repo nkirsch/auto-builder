@@ -7,6 +7,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"fmt"
 	"log/slog"
 	"os"
@@ -16,6 +17,7 @@ import (
 
 	"github.com/nkirsch/auto-builder/internal/github"
 	"github.com/nkirsch/auto-builder/internal/tenant"
+	"github.com/nkirsch/auto-builder/internal/upstream"
 )
 
 func env(key, def string) string {
@@ -35,11 +37,14 @@ func main() {
 
 func run() error {
 	slug, action := env("TENANT", ""), env("ACTION", "create")
-	if tenant.ValidSlug(slug) != nil || (action != "create" && action != "sync" && action != "delete") {
-		return fmt.Errorf("%w: TENANT=<slug> ACTION=create|sync|delete", errUsage)
-	}
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
 	defer cancel()
+	if action == "upstream" {
+		return mergePlatform(ctx)
+	}
+	if tenant.ValidSlug(slug) != nil || (action != "create" && action != "sync" && action != "delete") {
+		return fmt.Errorf("%w: TENANT=<slug> ACTION=create|sync|delete, or ACTION=upstream", errUsage)
+	}
 	reg, err := tenant.Open(ctx, env("DATABASE_URL", ""))
 	if err != nil {
 		return err
@@ -88,6 +93,43 @@ func run() error {
 	}
 	slog.Info("provisioned", "tenant", slug)
 	return reg.SetStatus(ctx, slug, "ready", "")
+}
+
+// mergePlatform merges UPSTREAM into an upstream-<sha> branch of
+// PLATFORM_REPO; the hub opens the PR and lands it on green CI.
+func mergePlatform(ctx context.Context) error {
+	repo, up := env("PLATFORM_REPO", ""), env("UPSTREAM", "")
+	if repo == "" || up == "" {
+		return fmt.Errorf("%w: ACTION=upstream needs PLATFORM_REPO and UPSTREAM", errUsage)
+	}
+	app, err := github.NewApp(env("GH_APP_ID", ""), env("GH_APP_INSTALLATION_ID", ""), env("GH_APP_PRIVATE_KEY", ""))
+	if err != nil || app == nil {
+		return fmt.Errorf("GitHub App: %v", err)
+	}
+	token, _, err := app.MintFor(ctx, repo)
+	if err != nil {
+		return err
+	}
+	name, email, err := app.BotIdentity(ctx)
+	if err != nil {
+		return err
+	}
+	dir, err := os.MkdirTemp("", "platform")
+	if err != nil {
+		return err
+	}
+	defer os.RemoveAll(dir)
+	// The token goes in an env-only header, never argv or .git/config.
+	auth := base64.StdEncoding.EncodeToString([]byte("x-access-token:" + token))
+	env := append(os.Environ(), "GIT_TERMINAL_PROMPT=0", "GIT_CONFIG_COUNT=1",
+		"GIT_CONFIG_KEY_0=http.https://github.com/.extraheader", "GIT_CONFIG_VALUE_0=AUTHORIZATION: basic "+auth,
+		"GIT_AUTHOR_NAME="+name, "GIT_AUTHOR_EMAIL="+email, "GIT_COMMITTER_NAME="+name, "GIT_COMMITTER_EMAIL="+email)
+	branch, err := upstream.Merge(ctx, execShell{}, env, dir+"/repo", repo, up, "master")
+	if err != nil {
+		return err
+	}
+	slog.Info("upstream merged", "repo", repo, "upstream", up, "branch", branch)
+	return nil
 }
 
 // execShell runs commands for real, logging each one.

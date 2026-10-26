@@ -49,6 +49,7 @@ type config struct {
 	Tenancy      bool   // TENANCY=on: multi-tenant mode (TENANCY.md)
 	TenantOrg    string // multi mode: GitHub org holding the apps' repos
 	ProvisionJob string // multi mode: Cloud Run Job that provisions an app
+	Upstream     string // the repo this one is a fork of; "" or Repo itself for none
 
 	StatsToken string       // STATS_TOKEN: bearer for GET /api/stats; the hub sends it to SITES
 	Sites      []remoteSite // multi mode: SITES, single-board sites on the all-sites page
@@ -96,6 +97,9 @@ func loadConfig() (config, error) {
 	c.Tenancy = env("TENANCY", "off") == "on"
 	c.TenantOrg = env("TENANT_ORG", "")
 	c.ProvisionJob = env("PROVISION_JOB", "")
+	if c.Upstream = env("UPSTREAM", ""); c.Upstream == c.Repo {
+		c.Upstream = ""
+	}
 	c.StatsToken = env("STATS_TOKEN", "")
 	if c.Sites, err = parseSites(env("SITES", "")); err != nil {
 		return c, err
@@ -228,6 +232,11 @@ func run() error {
 		g.Issues = &gate.IssueSync{Store: st, GitHub: gh, Repo: cfg.Repo, BaseURL: cfg.BaseURL, Notified: b.Notified}
 		b.Filer = g.Issues
 	}
+	if app != nil && cfg.Upstream != "" {
+		g.Upstream = &gate.Upstream{State: st, GitHub: gh, Repo: cfg.Repo, Upstream: cfg.Upstream,
+			Branch: "master", Start: g.StartUpstream}
+		b.Upstream = cfg.Upstream
+	}
 	g.SyncSoon()
 	if cfg.Version != "" {
 		b.SetVersion(cfg.Version)
@@ -355,7 +364,12 @@ func (s *server) claim(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	slog.Info("run claimed", "run", id)
-	writeJSON(w, http.StatusOK, map[string]any{"run_id": id, "repo": s.cfg.Repo, "bot_login": s.cfg.BotLogin})
+	resp := map[string]any{"run_id": id, "repo": s.cfg.Repo, "bot_login": s.cfg.BotLogin}
+	// An upstream run merges upstream instead of running the agent.
+	if run, err := s.store.Run(r.Context(), id); err == nil && run.Trigger == "upstream" && s.cfg.Upstream != "" {
+		resp["upstream"] = s.cfg.Upstream
+	}
+	writeJSON(w, http.StatusOK, resp)
 }
 
 // token mints a run's one GitHub installation token, so the App's private

@@ -71,6 +71,8 @@ type Board struct {
 	// brand's name and add a Site link.
 	Name    string
 	SiteURL string
+	// Upstream, when set, is the repo this one forks; admins can keep up with it.
+	Upstream string
 
 	tmpl    map[string]*template.Template
 	version atomic.Pointer[string]
@@ -125,6 +127,7 @@ func (b *Board) Routes(mux *http.ServeMux) error {
 	mux.Handle("POST /admin/release", admin(b.release))
 	mux.Handle("POST /admin/spend-limit", admin(b.setSpendLimit))
 	mux.Handle("POST /admin/auto-approve", admin(b.setAutoApprove))
+	mux.Handle("POST /admin/upstream", admin(b.setUpstreamSync))
 	mux.Handle("POST /theme", member(b.setTheme))
 	return nil
 }
@@ -799,8 +802,17 @@ func (b *Board) admin(w http.ResponseWriter, r *http.Request) {
 		b.fail(w, err)
 		return
 	}
+	var upstream map[string]any
+	if b.Upstream != "" {
+		on, pr, err := b.Store.UpstreamSync(r.Context())
+		if err != nil {
+			b.fail(w, err)
+			return
+		}
+		upstream = map[string]any{"Repo": b.Upstream, "On": on, "PR": pr}
+	}
 	b.render(w, r, "admin", "Admin", map[string]any{"Members": members, "Costs": costs,
-		"Limit": limit, "MemberCosts": byMember, "Stats": []db.RunStats{recent, all}})
+		"Limit": limit, "MemberCosts": byMember, "Stats": []db.RunStats{recent, all}, "Upstream": upstream})
 }
 
 func (b *Board) setSpendLimit(w http.ResponseWriter, r *http.Request) {
@@ -815,6 +827,19 @@ func (b *Board) setSpendLimit(w http.ResponseWriter, r *http.Request) {
 	}
 	b.Gate.Activity() // raising the limit may release held work
 	redirect(w, r, "/admin", fmt.Sprintf("Spend limit set to $%.2f", v))
+}
+
+func (b *Board) setUpstreamSync(w http.ResponseWriter, r *http.Request) {
+	on := r.FormValue("on") == "true"
+	if err := b.Store.SetUpstreamSync(r.Context(), on); err != nil {
+		b.fail(w, err)
+		return
+	}
+	msg := "No longer keeping up with " + b.Upstream
+	if on {
+		msg = "Keeping up with " + b.Upstream + ": new commits merge within a tick or two once CI passes"
+	}
+	redirect(w, r, "/admin", msg)
 }
 
 func (b *Board) setAutoApprove(w http.ResponseWriter, r *http.Request) {

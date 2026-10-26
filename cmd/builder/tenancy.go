@@ -58,6 +58,11 @@ func runTenancy(ctx context.Context, cfg config) error {
 		return err
 	}
 	h.launcher, h.provisioner, h.app = launcher, provisioner, app
+	if app != nil && cfg.Upstream != "" {
+		// The platform repo keeps up with upstream through the provision job.
+		h.upstream = &gate.Upstream{State: reg, GitHub: github.ForApp(app), Repo: cfg.Repo, Upstream: cfg.Upstream,
+			Branch: "master", Start: func(ctx context.Context) error { return h.provision(ctx, "", "upstream") }}
+	}
 	h.notify = notify.NewPushover(cfg.PushoverToken, cfg.PushoverUser)
 	srv := &http.Server{Addr: ":" + cfg.Port, Handler: logRequests(h.routes()), ReadHeaderTimeout: 10 * time.Second}
 	go func() {
@@ -85,6 +90,7 @@ type hub struct {
 
 	launcher    gate.EnvLauncher // the shared runner job
 	provisioner gate.EnvLauncher // the provision job
+	upstream    *gate.Upstream   // nil unless the platform repo has an upstream
 	app         *github.App      // nil when the GitHub App isn't configured
 	notify      *notify.Pushover
 
@@ -170,6 +176,7 @@ func (h *hub) routes() http.Handler {
 	mux.HandleFunc("POST /admin/platform-admins/{login}/delete", h.platformAdmin(h.removeAdmin))
 	mux.HandleFunc("POST /admin/tenants/{slug}/provision", h.platformAdmin(h.reprovision))
 	mux.HandleFunc("POST /admin/tenants/{slug}/delete", h.platformAdmin(h.deleteApp))
+	mux.HandleFunc("POST /admin/upstream", h.platformAdmin(h.setUpstream))
 	mux.HandleFunc("GET /{slug}", func(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/"+r.PathValue("slug")+"/", http.StatusMovedPermanently)
 	})
@@ -253,6 +260,11 @@ func (h *hub) tick(w http.ResponseWriter, r *http.Request) {
 		}
 		if err != nil {
 			errs = append(errs, fmt.Errorf("%s: %w", t.Slug, err))
+		}
+	}
+	if h.upstream != nil {
+		if err := h.upstream.Check(r.Context()); err != nil {
+			errs = append(errs, fmt.Errorf("upstream: %w", err))
 		}
 	}
 	if err := errors.Join(errs...); err != nil {
@@ -626,7 +638,15 @@ func (h *hub) admin(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
-	h.render(w, r, "admin", "Admin", map[string]any{"Tenants": tenants, "Admins": admins})
+	var up map[string]any
+	if h.upstream != nil {
+		on, pr, err := h.reg.UpstreamSync(ctx)
+		if err != nil {
+			slog.Error("upstream sync", "err", err)
+		}
+		up = map[string]any{"Repo": h.cfg.Upstream, "Platform": h.cfg.Repo, "On": on, "PR": pr}
+	}
+	h.render(w, r, "admin", "Admin", map[string]any{"Tenants": tenants, "Admins": admins, "Upstream": up})
 }
 
 func (h *hub) addAdmin(w http.ResponseWriter, r *http.Request) {
@@ -640,6 +660,18 @@ func (h *hub) addAdmin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	http.Redirect(w, r, "/admin", http.StatusSeeOther)
+}
+
+// setUpstream turns keeping the platform repo up with upstream on or off.
+func (h *hub) setUpstream(w http.ResponseWriter, r *http.Request) {
+	on := r.FormValue("on") == "true"
+	msg := "No longer keeping up with " + h.cfg.Upstream
+	if err := h.reg.SetUpstreamSync(r.Context(), on); err != nil {
+		msg = err.Error()
+	} else if on {
+		msg = "Keeping up with " + h.cfg.Upstream
+	}
+	http.Redirect(w, r, "/admin?flash="+url.QueryEscape(msg), http.StatusSeeOther)
 }
 
 // removeAdmin drops a platform admin; you can't remove yourself.

@@ -11,7 +11,7 @@ NAME=${NAME:-extreme}                  # prefixes every platform resource and se
 DOMAIN=${DOMAIN:-extreme.org}          # hub at the apex, apps on <slug>.$DOMAIN
 ZONE=${ZONE:-extreme-org}              # Cloud DNS zone for $DOMAIN
 ORG=${ORG:-extreme-dot-org}            # GitHub org holding the app repos
-PLATFORM_REPO=${PLATFORM_REPO:-kirsch/extreme}
+PLATFORM_REPO=${PLATFORM_REPO:-extreme-dot-org/extreme}
 SQL_INSTANCE=${SQL_INSTANCE:-builder}
 ADMIN_LOGIN=${ADMIN_LOGIN:-nkirsch}
 ADMIN_EMAIL=${ADMIN_EMAIL:-nick@kirsch.org}
@@ -167,7 +167,7 @@ if ! g run jobs describe "$NAME-provision" --region "$REGION" >/dev/null 2>&1; t
   g run jobs create "$NAME-provision" --region "$REGION" --image us-docker.pkg.dev/cloudrun/container/job:latest \
     --service-account "$(sa provisioner)" --task-timeout 30m --max-retries 0 \
     --set-cloudsql-instances "$PROJECT:$REGION:$SQL_INSTANCE" \
-    --set-env-vars "GCP_PROJECT=$PROJECT,GCP_REGION=$REGION,TENANT_ORG=$ORG,APP_DOMAIN=$DOMAIN,DNS_ZONE=$ZONE,WIF_POOL=$NAME,WIF_PROVIDER=github" \
+    --set-env-vars "GCP_PROJECT=$PROJECT,GCP_REGION=$REGION,TENANT_ORG=$ORG,APP_DOMAIN=$DOMAIN,DNS_ZONE=$ZONE,WIF_POOL=$NAME,WIF_PROVIDER=github,PLATFORM_REPO=$PLATFORM_REPO,UPSTREAM=${UPSTREAM:-nkirsch/auto-builder}" \
     --set-secrets "$(mounts "$PROVISION_MOUNTS")"
 fi
 for j in runner provision; do

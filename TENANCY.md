@@ -1,7 +1,7 @@
 # Multi-tenant mode
 
 Multi-tenant mode runs auto-builder (see `DESIGN.md`) for many apps at once.
-Its example deployment is `kirsch/extreme` at extreme.org, the name used
+Its example deployment is `extreme-dot-org/extreme` at extreme.org, the name used
 below. Each app is its own GitHub repo with its own board, members and spend
 limit. The shared agent builds the repo, and the result is deployed to
 `<app>.extreme.org`. Every app shares one GCP project
@@ -10,7 +10,7 @@ Artifact Registry. `DESIGN.md` still describes how a single board behaves.
 This file covers only what changes for multiple tenants.
 
 Status (2026-10-25): build order steps 1–4 done (`internal/tenant`, `cmd/builder/tenancy.go`). The code lives here, off unless `TENANCY=on`,
-so single-board deploys and site forks are unchanged. `kirsch/extreme` is a
+so single-board deploys and site forks are unchanged. `extreme-dot-org/extreme` is a
 fork that owns only its settings and docs and deploys this mode. Done for it:
 GitHub org `extreme-dot-org` and its App, Cloud DNS zone `extreme-org`,
 extreme.org verified in Search Console, secrets `extreme-<NAME>`.
@@ -26,7 +26,7 @@ extreme.org verified in Search Console, secrets `extreme-<NAME>`.
 | Tenant data | Postgres schema per tenant (`t_<slug>`) in database `extreme` on the existing `builder` Cloud SQL instance. The existing migrations run per schema; `db.Store` is unchanged and gets a pool with `search_path=t_<slug>` (lazy, `MaxConns` 2, idle conns closed after 1 min). Item numbers stay per tenant. Control tables live in schema `control`. |
 | Runs | One active run per tenant (existing `runs_one_active`, per schema); global cap `MAX_RUNS` (default 3) across tenants. Shared job `extreme-runner`. |
 | Runner auth | Per-run token instead of shared `RUNNER_TOKEN`: the launcher mints 32 random bytes, stores the SHA-256 in `control.run_tokens (hash, tenant, run_id, expires_at)` and passes `RUN_TOKEN` as a job env override. Runner API and `/mcp` resolve the token to (tenant, run), so one tenant's agent can't touch another's board. Expires when the run finishes or after 70 min. |
-| GitHub | Dedicated org `extreme-dot-org` holding only tenant repos; one GitHub App installed on all its repos. Installation tokens are minted with `repositories: [<repo>]` so a run's token reaches only its repo. The platform repo `kirsch/extreme` deploys the hub and isn't a tenant at first. |
+| GitHub | Dedicated org `extreme-dot-org` holding only tenant repos; one GitHub App installed on all its repos. Installation tokens are minted with `repositories: [<repo>]` so a run's token reaches only its repo. The platform repo `extreme-dot-org/extreme` deploys the hub and isn't a tenant at first. |
 | Agent command | `build-board.md` is embedded in the runner and written to `~/.claude/commands/` in the job, so tenant repos don't carry it. The repo's `CLAUDE.md` names its own checks (the template's: `hugo --minify && go vet ./... && go test ./...`). |
 | Routing | Cloud Run domain mapping per app (`<slug>.extreme.org` → service `x-<slug>`) plus a Cloud DNS CNAME to `ghs.googlehosted.com`. Certs take 15–60 min after the first mapping. |
 | DNS | Registration stays at Joker; nameservers move to a Cloud DNS zone `extreme-org` in `nkirsch-auto-builder`. Apex = hub (domain mapping A/AAAA); `www` keeps its current record until replaced. |

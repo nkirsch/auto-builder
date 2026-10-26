@@ -79,3 +79,34 @@ func TestAdminShowsRunStats(t *testing.T) {
 		}
 	}
 }
+
+func TestUpstreamSync(t *testing.T) {
+	ctx := context.Background()
+	b, _ := dbBoard(t)
+	b.Store.SetUpstreamSync(ctx, false)
+	b.Store.SetUpstreamPR(ctx, 0)
+	b.Upstream = "nkirsch/auto-builder"
+	if err := b.parse(); err != nil {
+		t.Fatal(err)
+	}
+	as := func(r *http.Request) *http.Request {
+		return r.WithContext(auth.WithMember(r.Context(), db.Member{Login: "nkirsch", Role: "admin"}))
+	}
+	w := httptest.NewRecorder()
+	b.admin(w, as(httptest.NewRequest(http.MethodGet, "/admin", nil)))
+	if !strings.Contains(w.Body.String(), "Keep up with upstream") {
+		t.Fatalf("no upstream switch on the admin page: %d %s", w.Code, w.Body.String())
+	}
+	r := httptest.NewRequest(http.MethodPost, "/admin/upstream", strings.NewReader("on=true"))
+	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	b.setUpstreamSync(httptest.NewRecorder(), as(r))
+	b.Store.SetUpstreamPR(ctx, 12)
+	if on, pr, _ := b.Store.UpstreamSync(ctx); !on || pr != 12 {
+		t.Fatalf("on=%v pr=%d", on, pr)
+	}
+	w = httptest.NewRecorder()
+	b.admin(w, as(httptest.NewRequest(http.MethodGet, "/admin", nil)))
+	if !strings.Contains(w.Body.String(), `/pull/12">PR #12</a> is in flight`) {
+		t.Errorf("admin page doesn't show the PR: %s", w.Body.String())
+	}
+}

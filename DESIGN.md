@@ -158,6 +158,27 @@ links the version to its tag and the short SHA to its commit.
 A `VERSION` env var, set by a deploy that tags the commit itself, takes
 precedence: the server shows it and neither names nor tags the commit.
 
+## Keeping up with upstream (deterministic, no agent)
+
+A fork (any repo whose `UPSTREAM` setting, default `nkirsch/auto-builder`,
+isn't itself) can turn on "Keep up with upstream" on its Admin page
+(`settings.upstream_sync`). Each tick then, with the GitHub App configured:
+- if the repo's `master` lacks upstream's head and there's no PR yet, the gate
+  starts an `upstream` run when no run is active. The runner skips the agent:
+  it clones the repo, merges `upstream/master` into `upstream-<sha7>` with
+  `merge.ours` (fork-owned files keep the fork's copy, as `make
+  merge-upstream` does), and pushes the branch; a conflict fails the run and
+  names the files. A run isn't restarted for 30 minutes;
+- once the branch exists, the server opens a PR from it
+  (`settings.upstream_pr`);
+- once that PR's checks all pass, the server merges it with a merge commit,
+  never squash (squashing would drop upstream's history and conflict next
+  time). The App's push deploys as usual. A merged or closed PR is forgotten.
+
+In multi-tenant mode the hub does the same for the platform repo
+(`control.settings`), with the provision job (`ACTION=upstream`) as the
+worker.
+
 ## GitHub issues (deterministic, no agent)
 
 With the GitHub App configured and `ISSUE_SYNC` not `off`, the tick also

@@ -5,7 +5,7 @@ DB_HOST  ?= $(or $(shell echo "$$DOCKER_HOST" | sed -nE 's|^(tcp://)?([^:/]+).*|
 LOCAL_DB := postgres://builder:builder@$(DB_HOST):$(PG_PORT)/builder?sslmode=disable
 TEST_DB  := postgres://builder:builder@$(DB_HOST):$(PG_PORT)/builder_test?sslmode=disable
 
-.PHONY: db-up db-down run test vet
+.PHONY: db-up db-down run test vet merge-upstream
 
 # Local Postgres 17 in Docker (matches Cloud SQL).
 db-up:
@@ -29,3 +29,9 @@ vet:
 
 test: db-up
 	TEST_DATABASE_URL="$(TEST_DB)" go test -p 1 ./...
+
+# Forks: merge upstream, keeping fork-owned files (.gitattributes) on conflict.
+merge-upstream:
+	git config merge.ours.driver true
+	git fetch upstream
+	git merge -X no-renames --no-edit upstream/master

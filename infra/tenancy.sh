@@ -132,7 +132,7 @@ if ! g run services describe "$NAME" --region "$REGION" >/dev/null 2>&1; then
   g run deploy "$NAME" --region "$REGION" --image us-docker.pkg.dev/cloudrun/container/hello \
     --service-account "$(sa server)" --allow-unauthenticated \
     --add-cloudsql-instances "$PROJECT:$REGION:$SQL_INSTANCE" \
-    --set-env-vars "TENANCY=on,TENANT_ORG=$ORG,BASE_URL=https://$DOMAIN,GCS_BUCKET=$PROJECT-$NAME,GCP_PROJECT=$PROJECT,GCP_REGION=$REGION,RUNNER_JOB=$NAME-runner,PROVISION_JOB=$NAME-provision,ADMIN_LOGIN=$ADMIN_LOGIN,ADMIN_EMAIL=$ADMIN_EMAIL,ISSUE_SYNC=on" \
+    --set-env-vars "TENANCY=on,REPO=$PLATFORM_REPO,TENANT_ORG=$ORG,BASE_URL=https://$DOMAIN,GCS_BUCKET=$PROJECT-$NAME,GCP_PROJECT=$PROJECT,GCP_REGION=$REGION,RUNNER_JOB=$NAME-runner,PROVISION_JOB=$NAME-provision,ADMIN_LOGIN=$ADMIN_LOGIN,ADMIN_EMAIL=$ADMIN_EMAIL,ISSUE_SYNC=on" \
     --set-secrets "$(mounts "$SERVER_MOUNTS")" \
     --min-instances 0 --max-instances 2 --memory 512Mi
 fi

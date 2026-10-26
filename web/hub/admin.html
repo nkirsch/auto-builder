@@ -15,7 +15,10 @@
 <h2>Platform admins</h2>
 <p class="hint">They create apps and see every app here; each app's board has its own members and admins.</p>
 <ul class="items">
-  {{range .Data.Admins}}<li class="row"><b>{{.Login}}</b>{{with .Email}} <span class="muted">{{.}}</span>{{end}}</li>{{end}}
+  {{range .Data.Admins}}<li class="row"><b>{{.Login}}</b>{{with .Email}} <span class="muted">{{.}}</span>{{end}}
+    <span class="spacer"></span>
+    {{if ne .Login $.MeLogin}}<form method="post" action="/admin/platform-admins/{{.Login}}/delete"><button class="secondary">Remove</button></form>{{end}}
+  </li>{{end}}
 </ul>
 <form method="post" action="/admin/platform-admins" class="row">
   <input name="login" placeholder="GitHub login" required>

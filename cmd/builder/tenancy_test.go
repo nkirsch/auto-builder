@@ -39,6 +39,7 @@ func testHub(t *testing.T) *hub {
 	cfg := config{
 		BaseURL: "https://hub.example", SessionKey: "0123456789abcdef", GitSHA: "abc1234",
 		ClientID: "gh", GoogleClientID: "g", BotLogin: "builder-bot", TenantOrg: "extreme-dot-org",
+		Version: "v26.10.25-9", Repo: "kirsch/extreme",
 		AdminLogin: "nkirsch", AdminEmail: "nick@example.org", TickToken: "tick", IdleHours: 6,
 	}
 	h, err := newHub(ctx, cfg, reg, store.Dir(t.TempDir()))
@@ -79,6 +80,7 @@ func TestHubTenants(t *testing.T) {
 	}
 
 	check(do(h, srv, "", "GET", "/", nil), 302, "/auth/login?next=%2F", "")
+	check(do(h, srv, "", "GET", "/auth/login", nil), 200, "", `href="https://github.com/kirsch/extreme/tree/v26.10.25-9">v26.10.25-9</a>`)
 	check(do(h, srv, "", "GET", "/auth/login?next=/alpha/", nil), 200, "", `href="/auth/google?next=%2falpha%2f"`)
 
 	// Platform admins (seeded from ADMIN_LOGIN/ADMIN_EMAIL) create apps and become their admin.
@@ -125,6 +127,13 @@ func TestHubTenants(t *testing.T) {
 	check(do(h, srv, "nkirsch", "POST", "/admin/platform-admins", url.Values{"login": {"katrina"}}), 303, "/admin", "")
 	if _, err := h.reg.PlatformAdmin(ctx, "katrina"); err != nil {
 		t.Errorf("katrina not a platform admin: %v", err)
+	}
+	check(do(h, srv, "nkirsch", "GET", "/admin", nil), 200, "", `action="/admin/platform-admins/katrina/delete"`)
+	check(do(h, srv, "nkirsch", "POST", "/admin/platform-admins/nkirsch/delete", url.Values{}), 303,
+		"/admin?flash=You+can%27t+remove+yourself", "")
+	check(do(h, srv, "nkirsch", "POST", "/admin/platform-admins/katrina/delete", url.Values{}), 303, "/admin?flash=Removed+katrina", "")
+	if _, err := h.reg.PlatformAdmin(ctx, "katrina"); err == nil {
+		t.Error("katrina still a platform admin")
 	}
 
 	// Cross-site POSTs are refused.

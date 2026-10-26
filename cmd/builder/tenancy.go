@@ -450,6 +450,7 @@ func (h *hub) tenantFor(ctx context.Context, slug string) (*tenantRT, error) {
 
 type hubPage struct {
 	Title, Site, Me, Flash, GitSHA string
+	Feedback                       string // FEEDBACK_URL: where to ask for changes to the platform
 	Version, Repo                  string // footer: release name and the code's repo
 	MeLogin                        string // the viewer's platform admin login, if any
 	Admin                          bool
@@ -460,7 +461,7 @@ func (h *hub) render(w http.ResponseWriter, r *http.Request, name, title string,
 	me := h.auth.SignedIn(r)
 	admin, err := h.reg.PlatformAdmin(r.Context(), me)
 	p := hubPage{Title: title, Site: h.host, Me: me, Admin: me != "" && err == nil, MeLogin: admin.Login,
-		Flash: r.URL.Query().Get("flash"), GitSHA: h.cfg.GitSHA, Version: h.cfg.Version, Repo: h.cfg.Repo, Data: data}
+		Flash: r.URL.Query().Get("flash"), GitSHA: h.cfg.GitSHA, Feedback: h.cfg.FeedbackURL, Version: h.cfg.Version, Repo: h.cfg.Repo, Data: data}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if err := h.tmpl[name].ExecuteTemplate(w, "layout", p); err != nil {
 		slog.Error("render", "page", name, "err", err)

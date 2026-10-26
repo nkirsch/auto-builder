@@ -132,6 +132,37 @@ func (p *Provisioner) Create(ctx context.Context, t tenant.Tenant) error {
 	return nil
 }
 
+// Delete tears down t's Google Cloud resources and archives its repo, so
+// its code and history stay readable. Missing pieces are skipped.
+func (p *Provisioner) Delete(ctx context.Context, t tenant.Tenant) error {
+	svc := "x-" + t.Slug
+	host := t.Slug + "." + p.Domain
+	steps := [][]string{
+		{"beta", "run", "domain-mappings", "delete", "--domain", host, "--region", p.Region},
+		{"dns", "record-sets", "delete", host + ".", "--type", "CNAME", "--zone", p.Zone},
+		{"run", "services", "delete", svc, "--region", p.Region},
+		{"artifacts", "repositories", "delete", svc, "--location", p.Region},
+		{"iam", "service-accounts", "delete", p.sa("deploy-" + t.Slug)},
+		{"iam", "service-accounts", "delete", p.sa("app-" + t.Slug)},
+	}
+	var errs []error
+	for _, s := range steps {
+		if _, err := p.gcloud(ctx, s...); err != nil && !notFound(err) {
+			errs = append(errs, fmt.Errorf("%s %s: %w", s[0], s[1], err))
+		}
+	}
+	if err := p.GitHub.Archive(ctx, t.Repo); err != nil && !github.IsNotFound(err) {
+		errs = append(errs, fmt.Errorf("archive repo: %w", err))
+	}
+	return errors.Join(errs...)
+}
+
+// notFound is a gcloud error for something already gone.
+func notFound(err error) bool {
+	m := err.Error()
+	return strings.Contains(m, "NOT_FOUND") || strings.Contains(m, "not found") || strings.Contains(m, "does not exist")
+}
+
 // cname points host at Cloud Run's domain-mapping front end, replacing a
 // record that points elsewhere (e.g. www's old static site).
 func (p *Provisioner) cname(ctx context.Context, host string) error {

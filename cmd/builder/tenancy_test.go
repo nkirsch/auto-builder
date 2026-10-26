@@ -189,6 +189,13 @@ func TestHubRuns(t *testing.T) {
 		t.Fatalf("reprovision: %d %v", w.Code, prov.launches)
 	}
 
+	// No runs until the app is ready.
+	h.reg.SetStatus(ctx, "alpha", "provisioning", "")
+	if w := do(h, srv, "nick@example.org", "POST", "/alpha/admin/run", url.Values{}); !strings.Contains(w.Header().Get("Location"), "Held") {
+		t.Fatalf("run now while provisioning: %q", w.Header().Get("Location"))
+	}
+	h.reg.SetStatus(ctx, "alpha", "ready", "")
+
 	// Run now launches the shared job with the tenant and a run token.
 	if w := do(h, srv, "nick@example.org", "POST", "/alpha/admin/run", url.Values{}); w.Code != 303 ||
 		!strings.Contains(w.Header().Get("Location"), "Started") {
@@ -262,5 +269,21 @@ func TestHubRuns(t *testing.T) {
 	}
 	if n, _ := h.reg.ActiveRuns(ctx); n != 2 {
 		t.Errorf("active runs %d", n)
+	}
+
+	// Deleting needs the slug typed, then starts the provisioner; a deleted app's board is gone.
+	if w := do(h, srv, "nkirsch", "POST", "/admin/tenants/beta/delete", url.Values{"confirm": {"nope"}}); !strings.Contains(w.Header().Get("Location"), "Type+the+slug") {
+		t.Fatalf("unconfirmed delete: %q", w.Header().Get("Location"))
+	}
+	if w := do(h, srv, "nkirsch", "POST", "/admin/tenants/beta/delete", url.Values{"confirm": {"beta"}}); w.Code != 303 ||
+		prov.launches[len(prov.launches)-1]["ACTION"] != "delete" {
+		t.Fatalf("delete: %d %v", w.Code, prov.launches)
+	}
+	if tn, _ := h.reg.Tenant(ctx, "beta"); tn.Status != "deleting" {
+		t.Errorf("beta %s", tn.Status)
+	}
+	h.reg.SetStatus(ctx, "beta", "deleted", "")
+	if w := do(h, srv, "nkirsch", "GET", "/beta/", nil); w.Code != 404 {
+		t.Errorf("deleted board: %d", w.Code)
 	}
 }

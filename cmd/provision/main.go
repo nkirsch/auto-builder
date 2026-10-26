@@ -35,8 +35,8 @@ func main() {
 
 func run() error {
 	slug, action := env("TENANT", ""), env("ACTION", "create")
-	if tenant.ValidSlug(slug) != nil || (action != "create" && action != "sync") {
-		return fmt.Errorf("%w: TENANT=<slug> ACTION=create|sync", errUsage)
+	if tenant.ValidSlug(slug) != nil || (action != "create" && action != "sync" && action != "delete") {
+		return fmt.Errorf("%w: TENANT=<slug> ACTION=create|sync|delete", errUsage)
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
 	defer cancel()
@@ -65,6 +65,16 @@ func run() error {
 			return tok, err
 		},
 		Shell: execShell{},
+	}
+	if action == "delete" {
+		slog.Info("deleting", "tenant", slug, "repo", t.Repo)
+		if err := p.Delete(ctx, t); err != nil {
+			if serr := reg.SetStatus(context.WithoutCancel(ctx), slug, "deleting", err.Error()); serr != nil {
+				slog.Error("record failure", "err", serr)
+			}
+			return err
+		}
+		return reg.SetStatus(ctx, slug, "deleted", "")
 	}
 	if err := reg.SetStatus(ctx, slug, "provisioning", ""); err != nil {
 		return err

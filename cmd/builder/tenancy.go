@@ -86,7 +86,7 @@ type hub struct {
 	auth    *auth.Auth
 	storage store.Storage
 	tmpl    map[string]*template.Template
-	host    string // BASE_URL's host; apps live on <slug>.<host>
+	host    string // APP_DOMAIN, else BASE_URL's host; apps live on <slug>.<host>
 
 	launcher    gate.EnvLauncher         // the shared runner job
 	provisioner gate.EnvLauncher         // the provision job
@@ -139,7 +139,11 @@ func newHub(ctx context.Context, cfg config, reg *tenant.Registry, storage store
 	if err != nil {
 		return nil, err
 	}
-	h := &hub{cfg: cfg, reg: reg, auth: a, storage: storage, host: u.Host, launcher: gate.LogLauncher{},
+	host := u.Host
+	if cfg.AppDomain != "" {
+		host = cfg.AppDomain
+	}
+	h := &hub{cfg: cfg, reg: reg, auth: a, storage: storage, host: host, launcher: gate.LogLauncher{},
 		provisioner: gate.LogLauncher{}, tenants: map[string]*tenantRT{}}
 	return h, h.parse()
 }
@@ -214,7 +218,9 @@ func (h *hub) routes() http.Handler {
 		rt.srv.attachment(w, r)
 	}))
 	mux.Handle("POST /api/gate/tick", auth.Bearer(h.cfg.TickToken, http.HandlerFunc(h.tick)))
-	return mux
+	// Aliases (e.g. hub.<domain>) 308 to BASE_URL's host, where the session
+	// cookie and the OAuth callbacks live.
+	return redirectHosts(h.cfg.BaseURL, h.cfg.RedirectHosts, mux)
 }
 
 // runner authenticates a RUN_TOKEN and hands its tenant and run to f.

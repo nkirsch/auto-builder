@@ -14,7 +14,7 @@ func TestValidSlug(t *testing.T) {
 	for slug, ok := range map[string]bool{
 		"ab": true, "www": true, "my-app": true, "a1": true, "abcdefghijklmnopqrstu": true,
 		"a": false, "1a": false, "a-": false, "A": false, "a_b": false,
-		"abcdefghijklmnopqrstuv": false, "admin": false, "new": false, "x": false,
+		"abcdefghijklmnopqrstuv": false, "admin": false, "new": false, "x": false, "hub": false,
 	} {
 		if err := ValidSlug(slug); (err == nil) != ok {
 			t.Errorf("%q: %v", slug, err)

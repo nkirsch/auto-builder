@@ -314,3 +314,36 @@ func TestHubRuns(t *testing.T) {
 		t.Errorf("deleted board: %d", w.Code)
 	}
 }
+
+func TestHubAliasAndAppDomain(t *testing.T) {
+	ctx := context.Background()
+	h := testHub(t)
+	cfg := h.cfg
+	cfg.RedirectHosts, cfg.AppDomain = []string{"alias.example"}, "apps.example"
+	h, err := newHub(ctx, cfg, h.reg, h.storage)
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv := h.routes()
+	get := func(host, path string) *httptest.ResponseRecorder {
+		r := httptest.NewRequest("GET", path, nil)
+		r.Host = host
+		w := httptest.NewRecorder()
+		srv.ServeHTTP(w, r)
+		return w
+	}
+	if w := get("alias.example", "/admin?x=1"); w.Code != http.StatusPermanentRedirect ||
+		w.Header().Get("Location") != "https://hub.example/admin?x=1" {
+		t.Errorf("alias: %d %q", w.Code, w.Header().Get("Location"))
+	}
+	if w := get("alias.example", "/health"); w.Code == http.StatusPermanentRedirect {
+		t.Error("alias redirected /health")
+	}
+	if w := get("hub.example", "/admin"); w.Code == http.StatusPermanentRedirect {
+		t.Error("BASE_URL's host redirected")
+	}
+	w := do(h, srv, "nkirsch", "GET", "/new", nil)
+	if !strings.Contains(w.Body.String(), "&lt;slug&gt;.apps.example") {
+		t.Errorf("new page doesn't name APP_DOMAIN: %.300q", w.Body.String())
+	}
+}

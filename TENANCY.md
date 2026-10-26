@@ -42,8 +42,8 @@ Created by the provisioner (below). Each step is idempotent, and every name deri
 | Repo | `<org>/<repo>`, created empty and private, then given the template's `master` (`<org>/extreme-template`: Hugo site served by a small Go server; CI; deploy workflow) once its variables are set, so that push is the first deploy | App installation covers it (all repos) |
 | Repo variables | `GCP_PROJECT`, `GCP_REGION`, `SERVICE`, `IMAGE`, `GCP_DEPLOYER`, `GCP_WIF_PROVIDER` | App permission Variables: write |
 | Cloud Run service | `x-<slug>` (placeholder `cloudrun/container/hello` until first deploy) | public invoker |
-| Runtime SA | `x-<slug>@` | none yet |
-| Deployer SA | `x-<slug>-deploy@` | `run.developer` on `x-<slug>`, `serviceAccountUser` on `x-<slug>@`, `artifactregistry.writer` on its own AR repo; `workloadIdentityUser` for `attribute.repository/<org>/<repo>` in pool `extreme` (the provider's condition requires `refs/heads/master`) |
+| Runtime SA | `app-<slug>@` (account IDs need 6–30 characters) | none yet |
+| Deployer SA | `deploy-<slug>@` | `run.developer` on `x-<slug>`, `serviceAccountUser` on `app-<slug>@`, `artifactregistry.writer` on its own AR repo; `workloadIdentityUser` for `attribute.repository/<org>/<repo>` in pool `extreme` (the provider's condition requires `refs/heads/master`) |
 | Image repo | AR `x-<slug>` (one per app, so no app can overwrite another's images) | — |
 | Domain | mapping `<slug>.extreme.org`, CNAME in zone `extreme-org` | — |
 

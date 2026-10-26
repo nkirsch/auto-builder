@@ -76,10 +76,10 @@ func TestCreate(t *testing.T) {
 	}
 	all := strings.Join(sh.cmds, "\n")
 	for _, want := range []string{
-		"gcloud --project proj --quiet iam service-accounts create x-alpha --display-name alpha app",
-		"iam service-accounts create x-alpha-deploy",
+		"gcloud --project proj --quiet iam service-accounts create app-alpha --display-name alpha app",
+		"iam service-accounts create deploy-alpha",
 		"artifacts repositories create x-alpha --location us-central1 --repository-format docker",
-		"run deploy x-alpha --region us-central1 --image us-docker.pkg.dev/cloudrun/container/hello --service-account x-alpha@proj.iam.gserviceaccount.com --allow-unauthenticated",
+		"run deploy x-alpha --region us-central1 --image us-docker.pkg.dev/cloudrun/container/hello --service-account app-alpha@proj.iam.gserviceaccount.com --allow-unauthenticated",
 		"beta run domain-mappings create --service x-alpha --domain alpha.extreme.org",
 		"dns record-sets --zone extreme-org create alpha.extreme.org. --type CNAME --ttl 300 --rrdatas ghs.googlehosted.com.",
 		"--member principalSet://iam.googleapis.com/projects/123/locations/global/workloadIdentityPools/extreme/attribute.repository/extreme-dot-org/alpha --role roles/iam.workloadIdentityUser",
@@ -99,7 +99,7 @@ func TestCreate(t *testing.T) {
 		t.Error("template copy without the auth header")
 	}
 	if vars["SERVICE"] != "x-alpha" || vars["IMAGE"] != "us-central1-docker.pkg.dev/proj/x-alpha/app" ||
-		vars["GCP_DEPLOYER"] != "x-alpha-deploy@proj.iam.gserviceaccount.com" ||
+		vars["GCP_DEPLOYER"] != "deploy-alpha@proj.iam.gserviceaccount.com" ||
 		vars["GCP_WIF_PROVIDER"] != "projects/123/locations/global/workloadIdentityPools/extreme/providers/github" {
 		t.Errorf("vars %v", vars)
 	}

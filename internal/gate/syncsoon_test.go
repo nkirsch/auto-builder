@@ -89,7 +89,11 @@ func TestSyncSoon(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if it.Status == "shipped" {
+		mu.Lock()
+		replied := len(replies) > 0
+		mu.Unlock()
+		// The reply lands just after the status; wait for both.
+		if it.Status == "shipped" && replied {
 			break
 		}
 		if time.Now().After(deadline) {

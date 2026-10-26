@@ -1,0 +1,13 @@
+# The extreme-provision job (TENANCY.md): the provision binary on the gcloud
+# image, which has the beta commands (domain mappings) and git.
+FROM golang:1.26 AS build
+WORKDIR /src
+COPY go.mod go.sum ./
+RUN go mod download
+COPY . .
+ARG TARGETOS TARGETARCH
+RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -trimpath -ldflags=-s -o /provision ./cmd/provision
+
+FROM gcr.io/google.com/cloudsdktool/google-cloud-cli:slim
+COPY --from=build /provision /usr/local/bin/provision
+ENTRYPOINT ["/usr/local/bin/provision"]

@@ -488,3 +488,35 @@ func (c *Client) CreateRelease(ctx context.Context, repo, tag, sha string) (stri
 	}
 	return out.URL, nil
 }
+
+// RepoState reports whether repo exists and, if so, whether it has no commits.
+func (c *Client) RepoState(ctx context.Context, repo string) (exists, empty bool, err error) {
+	if err := c.do(ctx, http.MethodGet, "/repos/"+repo, nil, nil); IsNotFound(err) {
+		return false, false, nil
+	} else if err != nil {
+		return false, false, err
+	}
+	var se *StatusError
+	err = c.do(ctx, http.MethodGet, "/repos/"+repo+"/commits?per_page=1", nil, nil)
+	if errors.As(err, &se) && se.Code == http.StatusConflict { // "Git Repository is empty."
+		return true, true, nil
+	}
+	return true, false, err
+}
+
+// CreateOrgRepo creates an empty private repo in org.
+func (c *Client) CreateOrgRepo(ctx context.Context, org, name, description string) error {
+	return c.do(ctx, http.MethodPost, "/orgs/"+org+"/repos",
+		map[string]any{"name": name, "description": description, "private": true}, nil)
+}
+
+// SetVariable creates or updates an Actions variable on repo.
+func (c *Client) SetVariable(ctx context.Context, repo, name, value string) error {
+	v := map[string]string{"name": name, "value": value}
+	err := c.do(ctx, http.MethodPost, "/repos/"+repo+"/actions/variables", v, nil)
+	var se *StatusError
+	if errors.As(err, &se) && se.Code == http.StatusConflict {
+		return c.do(ctx, http.MethodPatch, "/repos/"+repo+"/actions/variables/"+name, v, nil)
+	}
+	return err
+}

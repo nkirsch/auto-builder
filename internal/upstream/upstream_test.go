@@ -52,7 +52,7 @@ func TestMerge(t *testing.T) {
 	t.Setenv("GIT_COMMITTER_EMAIL", "t@x")
 
 	run(t, root, "init", "-q", "-b", "master", up)
-	write(t, up, ".gitattributes", "app.env merge=ours\n")
+	write(t, up, ".gitattributes", "app.env merge=ours\nlayouts/** merge=ours\n")
 	write(t, up, "app.env", "SITE=upstream\n")
 	write(t, up, "code.go", "v1\n")
 	run(t, up, "add", "-A")
@@ -67,7 +67,10 @@ func TestMerge(t *testing.T) {
 	run(t, work, "push", "-q", "origin", "master")
 	write(t, up, "code.go", "v2\n")
 	write(t, up, "app.env", "SITE=upstream2\n")
-	run(t, up, "commit", "-q", "-am", "v2")
+	write(t, up, "layouts/index.html", "redirect to iterate/\n") // new, fork-owned
+	write(t, up, "new.go", "v2\n")                               // new, upstream's
+	run(t, up, "add", "-A")
+	run(t, up, "commit", "-q", "-m", "v2")
 
 	sh := shell{remotes: map[string]string{"https://github.com/o/fork.git": fork, "https://github.com/o/up.git": up}}
 	branch, err := Merge(context.Background(), sh, env, filepath.Join(root, "m1"), "o/fork", "o/up", "master")
@@ -84,6 +87,12 @@ func TestMerge(t *testing.T) {
 	}
 	if b, _ := os.ReadFile(filepath.Join(check, "app.env")); string(b) != "SITE=fork\n" {
 		t.Errorf("app.env %q, want the fork's", b)
+	}
+	if _, err := os.Stat(filepath.Join(check, "layouts/index.html")); err == nil {
+		t.Error("upstream's new fork-owned layouts/index.html landed in the fork")
+	}
+	if _, err := os.Stat(filepath.Join(check, "new.go")); err != nil {
+		t.Errorf("upstream's new file missing: %v", err)
 	}
 
 	// Once the branch lands, the fork is up to date.

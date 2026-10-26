@@ -167,8 +167,10 @@ isn't itself) can turn on "Keep up with upstream" on its Admin page
   starts an `upstream` run when no run is active. The runner skips the agent:
   it clones the repo, merges `upstream/master` into `upstream-<sha7>` with
   `merge.ours` (fork-owned files keep the fork's copy, as `make
-  merge-upstream` does), and pushes the branch; a conflict fails the run and
-  names the files. A run isn't restarted for 30 minutes;
+  merge-upstream` does), drops files upstream newly added under fork-owned
+  paths (`merge=ours` only settles files both sides have; upstream's
+  `layouts/index.html` redirect once broke a fork's site), and pushes the
+  branch; a conflict fails the run and names the files. A run isn't restarted for 30 minutes;
 - once the branch exists, the server opens a PR from it
   (`settings.upstream_pr`);
 - once that PR's checks all pass, the server merges it with a merge commit,

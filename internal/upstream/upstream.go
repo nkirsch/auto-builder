@@ -48,9 +48,30 @@ func Merge(ctx context.Context, sh Shell, env []string, dir, repo, upstream, bra
 	if _, err := git("switch", "--quiet", "-c", name); err != nil {
 		return "", err
 	}
-	if _, err := git("merge", "--quiet", "-X", "no-renames", "--no-edit", "upstream/"+branch); err != nil {
+	if _, err := git("merge", "--quiet", "--no-ff", "-X", "no-renames", "--no-edit", "upstream/"+branch); err != nil {
 		files, _ := git("diff", "--name-only", "--diff-filter=U")
 		return "", fmt.Errorf("conflicts merging %s: %s", upstream, strings.Join(strings.Fields(files), ", "))
+	}
+	// merge=ours only settles files both sides have; a file upstream adds under
+	// a fork-owned path (say layouts/index.html, upstream's redirect page)
+	// would land silently, so drop those.
+	added, err := git("diff", "--name-only", "--diff-filter=A", "HEAD^1", "HEAD")
+	if err != nil {
+		return "", err
+	}
+	var owned []string
+	for _, f := range strings.Fields(added) {
+		if attr, err := git("check-attr", "merge", "--", f); err == nil && strings.HasSuffix(strings.TrimSpace(attr), ": ours") {
+			owned = append(owned, f)
+		}
+	}
+	if len(owned) > 0 {
+		if _, err := git(append([]string{"rm", "--quiet", "--"}, owned...)...); err != nil {
+			return "", err
+		}
+		if _, err := git("commit", "--quiet", "--amend", "--no-edit"); err != nil {
+			return "", err
+		}
 	}
 	if _, err := git("push", "--quiet", "--force", "origin", name); err != nil {
 		return "", err

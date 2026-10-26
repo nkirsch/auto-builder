@@ -113,6 +113,29 @@ func (g *Gate) held(ctx context.Context) (string, error) {
 	return g.Hold(ctx)
 }
 
+// Canceler stops a runner execution (a Launcher that can).
+type Canceler interface {
+	Cancel(ctx context.Context, runID int, execution string) error
+}
+
+// Cancel marks an active run cancelled and stops its execution if the
+// launcher can; a run that already finished is ErrNotFound.
+func (g *Gate) Cancel(ctx context.Context, id int, by string) error {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	r, err := g.Store.CancelRun(ctx, id, by)
+	if err != nil {
+		return err
+	}
+	slog.Info("run cancelled", "run", id, "by", by, "execution", r.Execution)
+	if c, ok := g.Launcher.(Canceler); ok && r.Execution != "" && r.Execution != "none" {
+		if err := c.Cancel(ctx, id, r.Execution); err != nil {
+			return fmt.Errorf("run %d is cancelled, but stopping %s failed: %w", id, r.Execution, err)
+		}
+	}
+	return nil
+}
+
 // holdErr says why Run now was held.
 func holdErr(s db.GateState) error {
 	if s.Active {

@@ -76,7 +76,9 @@ non-bot change (create, reply, approve) and drives the gate.
   `/runs` (history, items the agent read/tagged/replied on/opened a PR
   for/closed/filed during each run via MCP or listed as `#N` lines in its
   summary, summary, log link, cost, runtime, and a progress ring plus
-  per-stage timings: queued → setup → agent → report), `/admin` (members, Run now,
+  per-stage timings: queued → setup → agent → report; admins can Cancel an
+  active run, which stops its Cloud Run execution and marks it `cancelled`,
+  not a failure, so no backoff), `/admin` (members, Run now,
   agent cost over the last 30 days and in total, the spend limit, and cost
   by member: each run's cost split evenly across its run items and charged
   to each item's author; runs with no items stay unattributed; run stats

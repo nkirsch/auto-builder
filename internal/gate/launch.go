@@ -51,6 +51,27 @@ func (c *CloudRunJob) Launch(ctx context.Context, runID int) (string, error) {
 	return c.LaunchEnv(ctx, map[string]string{"RUN_ID": strconv.Itoa(runID)})
 }
 
+// Cancel stops one execution of the job.
+func (c *CloudRunJob) Cancel(ctx context.Context, _ int, execution string) error {
+	u := fmt.Sprintf("https://run.googleapis.com/v2/projects/%s/locations/%s/jobs/%s/executions/%s:cancel",
+		c.Project, c.Region, c.Job, execution)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, u, strings.NewReader("{}"))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := c.client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		b, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<10))
+		return fmt.Errorf("executions.cancel: %s %s", resp.Status, strings.TrimSpace(string(b)))
+	}
+	return nil
+}
+
 // LaunchEnv runs the job with env overridden, returning the execution name.
 func (c *CloudRunJob) LaunchEnv(ctx context.Context, env map[string]string) (string, error) {
 	var vars []any

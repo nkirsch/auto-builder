@@ -762,6 +762,17 @@ func (s *Store) FinishRun(ctx context.Context, id int, status, summary, logObjec
 	return err
 }
 
+// CancelRun stops an active run, returning it as it was (for its
+// execution), or ErrNotFound when it isn't active.
+func (s *Store) CancelRun(ctx context.Context, id int, by string) (Run, error) {
+	r, err := s.Run(ctx, id)
+	if err != nil {
+		return r, err
+	}
+	return r, s.execOne(ctx, `UPDATE runs SET status = 'cancelled', summary = 'Cancelled by ' || $2 || '.',
+		finished_at = now() WHERE id = $1 AND status IN ('requested', 'running')`, id, by)
+}
+
 // summaryItemRE matches an item reference at the start of a summary line,
 // after any list marker or bold, e.g. "- **#12** (open): skipped".
 var summaryItemRE = regexp.MustCompile(`(?m)^[\s*•-]*#(\d{1,9})\b`)

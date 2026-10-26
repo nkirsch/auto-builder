@@ -40,6 +40,8 @@ type Gate interface {
 	// Activity re-evaluates the gate after a human change; it must not block.
 	Activity()
 	RunNow(ctx context.Context, by string) (int, error)
+	// Cancel stops an active run; a finished one is db.ErrNotFound.
+	Cancel(ctx context.Context, id int, by string) error
 }
 
 // Filer files a new item, opening its GitHub issue first.
@@ -119,6 +121,7 @@ func (b *Board) Routes(mux *http.ServeMux) error {
 	mux.Handle("POST /admin/members", admin(b.addMember))
 	mux.Handle("POST /admin/members/{login}/delete", admin(b.deleteMember))
 	mux.Handle("POST /admin/run", admin(b.runNow))
+	mux.Handle("POST /runs/{id}/cancel", admin(b.cancelRun))
 	mux.Handle("POST /admin/release", admin(b.release))
 	mux.Handle("POST /admin/spend-limit", admin(b.setSpendLimit))
 	mux.Handle("POST /admin/auto-approve", admin(b.setAutoApprove))
@@ -889,6 +892,23 @@ func (b *Board) runNow(w http.ResponseWriter, r *http.Request) {
 		redirect(w, r, "/runs", "Launch failed: "+err.Error())
 	default:
 		redirect(w, r, "/runs", fmt.Sprintf("Started run %d", id))
+	}
+}
+
+func (b *Board) cancelRun(w http.ResponseWriter, r *http.Request) {
+	id, ok := pathID(r)
+	if !ok {
+		http.NotFound(w, r)
+		return
+	}
+	switch err := b.Gate.Cancel(r.Context(), id, auth.Member(r.Context()).Login); {
+	case errors.Is(err, db.ErrNotFound):
+		redirect(w, r, "/runs", fmt.Sprintf("Run %d already finished", id))
+	case err != nil:
+		slog.Error("cancel run", "run", id, "err", err)
+		redirect(w, r, "/runs", err.Error())
+	default:
+		redirect(w, r, "/runs", fmt.Sprintf("Cancelled run %d", id))
 	}
 }
 

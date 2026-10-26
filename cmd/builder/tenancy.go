@@ -296,6 +296,17 @@ func (h *hub) hold(ctx context.Context) (string, error) {
 	return "", nil
 }
 
+// Cancel revokes the run's token and stops its execution.
+func (l tenantLauncher) Cancel(ctx context.Context, runID int, execution string) error {
+	if err := l.h.reg.RevokeRunToken(ctx, l.slug, runID); err != nil {
+		return err
+	}
+	if c, ok := l.h.launcher.(gate.Canceler); ok {
+		return c.Cancel(ctx, runID, execution)
+	}
+	return nil
+}
+
 // tenantLauncher mints a run token and starts the shared runner job for one tenant.
 type tenantLauncher struct {
 	h    *hub

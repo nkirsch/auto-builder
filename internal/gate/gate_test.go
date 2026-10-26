@@ -1,6 +1,9 @@
 package gate
 
 import (
+	"context"
+	"errors"
+	"fmt"
 	"testing"
 	"time"
 
@@ -43,5 +46,48 @@ func TestDecide(t *testing.T) {
 		if got, reason := Decide(under(c.s), now, c.trigger, idle); got != c.want {
 			t.Errorf("%s: got %v (%s), want %v", c.name, got, reason, c.want)
 		}
+	}
+}
+
+// fakeLauncher launches as "exec-<id>" and records cancels.
+type fakeLauncher struct{ cancelled []string }
+
+func (f *fakeLauncher) Launch(_ context.Context, id int) (string, error) {
+	return fmt.Sprintf("exec-%d", id), nil
+}
+
+func (f *fakeLauncher) Cancel(_ context.Context, _ int, execution string) error {
+	f.cancelled = append(f.cancelled, execution)
+	return nil
+}
+
+func TestCancel(t *testing.T) {
+	ctx := context.Background()
+	st := testStore(t)
+	l := &fakeLauncher{}
+	g := &Gate{Store: st, Launcher: l}
+	id, err := g.RunNow(ctx, "nkirsch")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := g.Cancel(ctx, id, "nkirsch"); err != nil {
+		t.Fatal(err)
+	}
+	r, _ := st.Run(ctx, id)
+	if r.Status != "cancelled" || r.Summary != "Cancelled by nkirsch." || r.FinishedAt == nil {
+		t.Errorf("run %+v", r)
+	}
+	if len(l.cancelled) != 1 || l.cancelled[0] != fmt.Sprintf("exec-%d", id) {
+		t.Errorf("cancelled %v", l.cancelled)
+	}
+	if err := g.Cancel(ctx, id, "nkirsch"); !errors.Is(err, db.ErrNotFound) {
+		t.Errorf("cancel twice: %v", err)
+	}
+	// A cancelled run isn't a failure: no backoff, and the next run can start.
+	if s, _ := st.GateState(ctx); s.LastFailure != nil || s.Active {
+		t.Errorf("gate state %+v", s)
+	}
+	if _, err := g.RunNow(ctx, "nkirsch"); err != nil {
+		t.Errorf("run after cancel: %v", err)
 	}
 }

@@ -136,14 +136,18 @@ func (p *Provisioner) Create(ctx context.Context, t tenant.Tenant) error {
 // record that points elsewhere (e.g. www's old static site).
 func (p *Provisioner) cname(ctx context.Context, host string) error {
 	const target = "ghs.googlehosted.com."
-	args := []string{"dns", "record-sets", "--zone", p.Zone}
-	rec := []string{host + ".", "--type", "CNAME", "--ttl", "300", "--rrdatas", target}
-	got, err := p.gcloud(ctx, append(args, "describe", host+".", "--type", "CNAME", "--format=value(rrdatas)")...)
+	// gcloud takes the zone after the verb, not after "record-sets".
+	rec := func(verb string) []string {
+		return []string{"dns", "record-sets", verb, host + ".", "--type", "CNAME", "--ttl", "300",
+			"--rrdatas", target, "--zone", p.Zone}
+	}
+	got, err := p.gcloud(ctx, "dns", "record-sets", "describe", host+".", "--type", "CNAME",
+		"--zone", p.Zone, "--format=value(rrdatas)")
 	switch {
 	case err != nil:
-		_, err = p.gcloud(ctx, append(append(args, "create"), rec...)...)
+		_, err = p.gcloud(ctx, rec("create")...)
 	case strings.TrimSpace(got) != target:
-		_, err = p.gcloud(ctx, append(append(args, "update"), rec...)...)
+		_, err = p.gcloud(ctx, rec("update")...)
 	}
 	return err
 }

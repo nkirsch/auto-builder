@@ -81,7 +81,7 @@ func TestCreate(t *testing.T) {
 		"artifacts repositories create x-alpha --location us-central1 --repository-format docker",
 		"run deploy x-alpha --region us-central1 --image us-docker.pkg.dev/cloudrun/container/hello --service-account app-alpha@proj.iam.gserviceaccount.com --allow-unauthenticated",
 		"beta run domain-mappings create --service x-alpha --domain alpha.extreme.org",
-		"dns record-sets --zone extreme-org create alpha.extreme.org. --type CNAME --ttl 300 --rrdatas ghs.googlehosted.com.",
+		"dns record-sets create alpha.extreme.org. --type CNAME --ttl 300 --rrdatas ghs.googlehosted.com. --zone extreme-org",
 		"--member principalSet://iam.googleapis.com/projects/123/locations/global/workloadIdentityPools/extreme/attribute.repository/extreme-dot-org/alpha --role roles/iam.workloadIdentityUser",
 		"git clone --quiet --branch master https://github.com/extreme-dot-org/extreme-template.git",
 		"https://github.com/extreme-dot-org/alpha.git HEAD:refs/heads/master",
@@ -120,7 +120,7 @@ func TestCreate(t *testing.T) {
 	if err := p.Create(ctx, tn); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(strings.Join(sh.cmds, "\n"), "dns record-sets --zone extreme-org update alpha.extreme.org. --type CNAME --ttl 300 --rrdatas ghs.googlehosted.com.") {
+	if !strings.Contains(strings.Join(sh.cmds, "\n"), "dns record-sets update alpha.extreme.org. --type CNAME --ttl 300 --rrdatas ghs.googlehosted.com. --zone extreme-org") {
 		t.Errorf("stale CNAME kept:\n%s", strings.Join(sh.cmds, "\n"))
 	}
 }

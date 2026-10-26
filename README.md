@@ -27,6 +27,7 @@ repo is built from.
   agent token limited to the repo.
 - **Sites**: a fork adds its own Hugo site and branding and keeps merging
   upstream. momo.kirsch.org, youkoh.org and nick.org run this way.
+
 ## Multi-tenant mode
 
 With `TENANCY=on`, one deployment builds many apps. It runs at
@@ -40,8 +41,8 @@ With `TENANCY=on`, one deployment builds many apps. It runs at
   accounts, deploy access through Workload Identity Federation, and
   `<app>.extreme.org` with DNS and TLS. The first deploy happens on its own.
 - **A board per app** at `extreme.org/<app>/`, with its own members, items,
-  runs and spend limit. Each app's data lives in its own Postgres schema and
-  storage prefix.
+  runs and spend limit. Each board's data lives in its own Postgres schema
+  and storage prefix.
 - **Isolation**: each run gets a run token that reaches only its own app's
   board, and a GitHub token limited to that app's repo. Deployers can touch
   only their own app.

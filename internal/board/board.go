@@ -65,6 +65,10 @@ type Board struct {
 	BotLogin string
 	GitSHA   string
 	Repo     string
+	// Name and SiteURL, when set (a multi-tenant app's board), replace the
+	// brand's name and add a Site link.
+	Name    string
+	SiteURL string
 
 	tmpl    map[string]*template.Template
 	version atomic.Pointer[string]
@@ -193,6 +197,8 @@ type page struct {
 	Theme   string // "light", "dark" or "" (system)
 	Path    string // current page, for forms that return here
 	BaseURL string // absolute links for link previews
+	AppName string // a multi-tenant app's name, shown instead of the brand's
+	SiteURL string // the app's site, linked from the nav
 	Data    any
 }
 
@@ -212,7 +218,8 @@ func (b *Board) render(w http.ResponseWriter, r *http.Request, name, title strin
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	p := page{Me: me, Unread: unread, Title: title, GitSHA: b.GitSHA, Repo: b.Repo, Flash: r.URL.Query().Get("m"),
-		BotName: b.BotLogin, Theme: theme(r), Path: r.URL.RequestURI(), BaseURL: strings.TrimSuffix(b.BaseURL, "/"), Data: data}
+		BotName: b.BotLogin, Theme: theme(r), Path: r.URL.RequestURI(), BaseURL: strings.TrimSuffix(b.BaseURL, "/"),
+		AppName: b.Name, SiteURL: b.SiteURL, Data: data}
 	p.Version = b.Version()
 	if err := t.ExecuteTemplate(w, "layout", p); err != nil {
 		slog.Error("render", "page", name, "err", err)

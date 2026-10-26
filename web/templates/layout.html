@@ -6,7 +6,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="color-scheme" content="{{if eq .Theme "light"}}only light{{else if eq .Theme "dark"}}dark{{else}}light dark{{end}}">
-<title>{{.Title}} · {{template "brand-site" .}}</title>
+<title>{{.Title}} · {{if .AppName}}{{.AppName}}{{else}}{{template "brand-site" .}}{{end}}</title>
 <meta name="description" content="{{template "brand-description" .}}">
 <meta property="og:site_name" content="{{template "brand-site" .}}">
 <meta property="og:type" content="website">
@@ -25,10 +25,11 @@
 <body>
 <header>
   {{if .Me.Login}}<nav>
-    <a href="{{base}}/" class="brand">{{template "brand-name" .}}{{with .Version}} <span class="version" title="{{$.GitSHA}}">{{.}}</span>{{end}}</a>{{template "brand-nav" .}}
+    <a href="{{base}}/" class="brand">{{if .AppName}}{{.AppName}}{{else}}{{template "brand-name" .}}{{end}}{{with .Version}} <span class="version" title="{{$.GitSHA}}">{{.}}</span>{{end}}</a>{{template "brand-nav" .}}
     <a href="{{base}}/">Board{{if .Unread}} <span class="count" title="Items with unread updates">{{.Unread}}</span>{{end}}</a>
     <a href="{{base}}/items/new">New</a>
     <a href="{{base}}/runs">Runs</a>
+    {{with .SiteURL}}<a href="{{.}}">Site</a>{{end}}
     {{if .Me.IsAdmin}}<a href="{{base}}/admin">Admin</a>{{end}}
     <form method="post" action="{{base}}/theme" class="theme">
       <input type="hidden" name="back" value="{{.Path}}">
@@ -38,7 +39,7 @@
     <form method="post" action="{{base}}/auth/logout" class="logout">
       <button class="link" title="Sign out">{{.Me.Login}} ⎋</button>
     </form>
-  </nav>{{else}}<nav>{{template "brand-signed-out" .}}</nav>{{end}}
+  </nav>{{else}}<nav>{{if .AppName}}<a href="{{base}}/" class="brand">{{.AppName}}</a>{{else}}{{template "brand-signed-out" .}}{{end}}</nav>{{end}}
 </header>
 <main>
 {{with .Flash}}<p class="flash">{{.}}</p>{{end}}

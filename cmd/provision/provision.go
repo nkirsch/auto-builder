@@ -50,7 +50,9 @@ func (p *Provisioner) sa(name string) string {
 // repo variables, then the template's code (whose push deploys it).
 func (p *Provisioner) Create(ctx context.Context, t tenant.Tenant) error {
 	svc := "x-" + t.Slug
-	runtime, deployer := p.sa(svc), p.sa(svc+"-deploy")
+	// Account IDs must be 6–30 characters; slugs are 2–21.
+	runtimeID, deployerID := "app-"+t.Slug, "deploy-"+t.Slug
+	runtime, deployer := p.sa(runtimeID), p.sa(deployerID)
 	host := t.Slug + "." + p.Domain
 	org, name, _ := strings.Cut(t.Repo, "/")
 
@@ -72,9 +74,9 @@ func (p *Provisioner) Create(ctx context.Context, t tenant.Tenant) error {
 	number = strings.TrimSpace(number)
 	steps := []struct{ describe, create []string }{
 		{[]string{"iam", "service-accounts", "describe", runtime},
-			[]string{"iam", "service-accounts", "create", svc, "--display-name", t.Slug + " app"}},
+			[]string{"iam", "service-accounts", "create", runtimeID, "--display-name", t.Slug + " app"}},
 		{[]string{"iam", "service-accounts", "describe", deployer},
-			[]string{"iam", "service-accounts", "create", svc + "-deploy", "--display-name", t.Slug + " deploys"}},
+			[]string{"iam", "service-accounts", "create", deployerID, "--display-name", t.Slug + " deploys"}},
 		{[]string{"artifacts", "repositories", "describe", svc, "--location", p.Region},
 			[]string{"artifacts", "repositories", "create", svc, "--location", p.Region, "--repository-format", "docker"}},
 		{[]string{"run", "services", "describe", svc, "--region", p.Region},

@@ -93,6 +93,8 @@ func TestHubTenants(t *testing.T) {
 
 	// The creator's member has their email, so a board takes Google sign-in only.
 	check(do(h, srv, "nick@example.org", "GET", "/alpha/", nil), 200, "", `href="/alpha/items/new"`)
+	check(do(h, srv, "nick@example.org", "GET", "/alpha/", nil), 200, "", `<a href="https://alpha.hub.example">Site</a>`)
+	check(do(h, srv, "", "GET", "/alpha/auth/login", nil), 200, "", "<h1>Alpha</h1>")
 	check(do(h, srv, "nkirsch", "GET", "/alpha/", nil), 403, "", "signs in with Google")
 	check(do(h, srv, "mallory", "GET", "/alpha/", nil), 403, "", "not a member")
 	check(do(h, srv, "", "GET", "/alpha/items/1", nil), 302, "/alpha/auth/login?next=%2Fitems%2F1", "")

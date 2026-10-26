@@ -360,6 +360,7 @@ func (h *hub) tenantFor(ctx context.Context, slug string) (*tenantRT, error) {
 	b := &board.Board{
 		Store: st, Storage: storage, Auth: ta, Gate: g, BaseURL: base,
 		BotLogin: h.cfg.BotLogin, GitSHA: h.cfg.GitSHA, Repo: t.Repo, GitHub: gh,
+		Name: t.Name, SiteURL: "https://" + slug + "." + h.host,
 	}
 	if h.cfg.Version != "" {
 		b.SetVersion(h.cfg.Version)

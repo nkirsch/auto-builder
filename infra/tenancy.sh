@@ -25,7 +25,7 @@ NUMBER=$(gcloud projects describe "$PROJECT" --format 'value(projectNumber)')
 log "apis"
 g services enable run.googleapis.com sqladmin.googleapis.com artifactregistry.googleapis.com \
   secretmanager.googleapis.com cloudscheduler.googleapis.com iamcredentials.googleapis.com \
-  sts.googleapis.com dns.googleapis.com storage.googleapis.com
+  sts.googleapis.com dns.googleapis.com storage.googleapis.com cloudresourcemanager.googleapis.com
 
 secret() { # name value: create once; later runs keep the value
   g secrets describe "$1" >/dev/null 2>&1 ||

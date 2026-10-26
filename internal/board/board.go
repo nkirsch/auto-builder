@@ -184,7 +184,7 @@ func (b *Board) parse() error {
 		return err
 	}
 	for _, p := range pages {
-		t, err := template.New("").Funcs(funcs).Funcs(template.FuncMap{"base": b.prefix}).ParseFS(web.FS, "templates/layout.html", "templates/brand.html", "templates/"+p)
+		t, err := template.New("").Funcs(funcs).Funcs(template.FuncMap{"base": b.prefix, "invite": b.invite}).ParseFS(web.FS, "templates/layout.html", "templates/brand.html", "templates/"+p)
 		if err != nil {
 			return fmt.Errorf("template %s: %w", p, err)
 		}
@@ -894,6 +894,25 @@ func (b *Board) addMember(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	redirect(w, r, "/admin", "Saved "+login)
+}
+
+// invite is a mailto: link telling m they're a member and how to sign in,
+// addressed to m.Email when set (else the admin fills in the address).
+func (b *Board) invite(m db.Member) string {
+	name := b.Name
+	if u, err := url.Parse(b.BaseURL); name == "" && err == nil {
+		name = u.Host
+	}
+	how := "Sign in with GitHub as " + m.Login + "."
+	if m.Email != "" {
+		how = "Sign in with Google as " + m.Email + "."
+	}
+	q := url.Values{
+		"subject": {"You're on the " + name + " board"},
+		"body":    {"I added you to the " + name + " board, where you can ask for changes and follow them as they're built:\n\n" + strings.TrimSuffix(b.BaseURL, "/") + "/\n\n" + how + "\n"},
+	}
+	// mailto wants %20, not +, for spaces.
+	return "mailto:" + url.PathEscape(m.Email) + "?" + strings.ReplaceAll(q.Encode(), "+", "%20")
 }
 
 func (b *Board) deleteMember(w http.ResponseWriter, r *http.Request) {

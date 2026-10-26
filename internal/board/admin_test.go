@@ -110,3 +110,39 @@ func TestUpstreamSync(t *testing.T) {
 		t.Errorf("admin page doesn't show the PR: %s", w.Body.String())
 	}
 }
+
+func TestAdminInviteLink(t *testing.T) {
+	b := &Board{BaseURL: "https://builder.example/iterate"}
+	if err := b.parse(); err != nil {
+		t.Fatal(err)
+	}
+	seen := time.Now()
+	var sb strings.Builder
+	p := page{Title: "Admin", Me: db.Member{Login: "x", Role: "admin"}, Data: map[string]any{
+		"Members": []db.Member{{Login: "x", Role: "admin", LastSeen: &seen}, {Login: "newbie", Role: "member"},
+			{Login: "g", Role: "member", Email: "g@example.org"}},
+		"Costs": db.RunCosts{}, "Limit": 20.0,
+	}}
+	if err := b.tmpl["admin"].ExecuteTemplate(&sb, "layout", p); err != nil {
+		t.Fatal(err)
+	}
+	html := sb.String()
+	if n := strings.Count(html, ">Invite</a>"); n != 2 {
+		t.Errorf("%d Invite links, want 2 (members who never signed in)", n)
+	}
+	for _, want := range []string{
+		`href="mailto:?body=I%20added%20you%20to%20the%20builder.example%20board`,
+		`%0A%0Ahttps%3A%2F%2Fbuilder.example%2Fiterate%2F%0A%0ASign%20in%20with%20GitHub%20as%20newbie.`,
+		`href="mailto:g@example.org?body=`,
+		`Sign%20in%20with%20Google%20as%20g%40example.org.`,
+		`subject=You%27re%20on%20the%20builder.example%20board`,
+	} {
+		if !strings.Contains(html, want) {
+			t.Errorf("admin missing %s", want)
+		}
+	}
+	if t.Failed() {
+		i := strings.Index(html, "mailto:")
+		t.Logf("%.600s", html[i:])
+	}
+}

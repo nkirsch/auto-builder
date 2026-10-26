@@ -17,6 +17,9 @@ type Shipper struct {
 	GitHub *github.Client
 	Repo   string
 	GitSHA string
+	// Deployed, when set, reports the live SHA instead of GitSHA: a tenant's
+	// app deploys apart from this server (TENANCY.md).
+	Deployed func(ctx context.Context) (string, error)
 	// Reply posts a bot reply on an item.
 	Reply func(ctx context.Context, it db.Item, body string) error
 }
@@ -77,10 +80,17 @@ func (s *Shipper) checkItem(ctx context.Context, it db.Item) error {
 }
 
 func (s *Shipper) ship(ctx context.Context, it db.Item) error {
-	if it.MergeSHA == "" || s.GitSHA == "" || s.GitSHA == "dev" {
+	live := s.GitSHA
+	if s.Deployed != nil {
+		var err error
+		if live, err = s.Deployed(ctx); err != nil {
+			return fmt.Errorf("deployed sha: %w", err)
+		}
+	}
+	if it.MergeSHA == "" || live == "" || live == "dev" {
 		return nil
 	}
-	ok, err := s.GitHub.Contains(ctx, s.Repo, s.GitSHA, it.MergeSHA)
+	ok, err := s.GitHub.Contains(ctx, s.Repo, live, it.MergeSHA)
 	if err != nil || !ok {
 		return err
 	}

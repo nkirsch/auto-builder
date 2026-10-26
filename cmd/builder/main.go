@@ -46,8 +46,9 @@ type config struct {
 	GoogleClientID, GoogleClientSecret string
 	RedirectHosts                      []string // old hosts that 308 to BASE_URL's
 
-	Tenancy   bool   // TENANCY=on: multi-tenant mode (TENANCY.md)
-	TenantOrg string // multi mode: GitHub org holding the apps' repos
+	Tenancy      bool   // TENANCY=on: multi-tenant mode (TENANCY.md)
+	TenantOrg    string // multi mode: GitHub org holding the apps' repos
+	ProvisionJob string // multi mode: Cloud Run Job that provisions an app
 }
 
 func loadConfig() (config, error) {
@@ -91,6 +92,7 @@ func loadConfig() (config, error) {
 	c.GoogleClientID, c.GoogleClientSecret = env("GOOGLE_CLIENT_ID", ""), env("GOOGLE_CLIENT_SECRET", "")
 	c.Tenancy = env("TENANCY", "off") == "on"
 	c.TenantOrg = env("TENANT_ORG", "")
+	c.ProvisionJob = env("PROVISION_JOB", "")
 	for _, h := range strings.Split(env("REDIRECT_HOSTS", ""), ",") {
 		if h = strings.TrimSpace(h); h != "" {
 			c.RedirectHosts = append(c.RedirectHosts, h)

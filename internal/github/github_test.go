@@ -240,3 +240,59 @@ func TestMintForScopesToRepo(t *testing.T) {
 		t.Fatalf("bodies %q", bodies)
 	}
 }
+
+func TestRepoSetup(t *testing.T) {
+	ctx := context.Background()
+	vars := map[string]string{}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method + " " + r.URL.Path {
+		case "GET /repos/o/new":
+			w.Write([]byte(`{}`))
+		case "GET /repos/o/new/commits":
+			http.Error(w, `{"message":"Git Repository is empty."}`, http.StatusConflict)
+		case "GET /repos/o/full", "GET /repos/o/full/commits":
+			w.Write([]byte(`[]`))
+		case "POST /orgs/o/repos":
+			var in map[string]any
+			json.NewDecoder(r.Body).Decode(&in)
+			if in["name"] != "new" || in["private"] != true {
+				t.Errorf("create %v", in)
+			}
+			w.WriteHeader(http.StatusCreated)
+		case "POST /repos/o/new/actions/variables":
+			var in map[string]string
+			json.NewDecoder(r.Body).Decode(&in)
+			if _, ok := vars[in["name"]]; ok {
+				http.Error(w, "exists", http.StatusConflict)
+				return
+			}
+			vars[in["name"]] = in["value"]
+			w.WriteHeader(http.StatusCreated)
+		case "PATCH /repos/o/new/actions/variables/SERVICE":
+			var in map[string]string
+			json.NewDecoder(r.Body).Decode(&in)
+			vars["SERVICE"] = in["value"]
+			w.WriteHeader(http.StatusNoContent)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+	c := New(srv.URL, "t")
+	for repo, want := range map[string][2]bool{"o/missing": {false, false}, "o/new": {true, true}, "o/full": {true, false}} {
+		if exists, empty, err := c.RepoState(ctx, repo); err != nil || exists != want[0] || empty != want[1] {
+			t.Errorf("%s: exists=%v empty=%v %v", repo, exists, empty, err)
+		}
+	}
+	if err := c.CreateOrgRepo(ctx, "o", "new", "an app"); err != nil {
+		t.Fatal(err)
+	}
+	for _, v := range []string{"x-old", "x-new"} {
+		if err := c.SetVariable(ctx, "o/new", "SERVICE", v); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if vars["SERVICE"] != "x-new" {
+		t.Errorf("vars %v", vars)
+	}
+}

@@ -9,7 +9,7 @@ limit. The shared agent builds the repo, and the result is deployed to
 Artifact Registry. `DESIGN.md` still describes how a single board behaves.
 This file covers only what changes for multiple tenants.
 
-Status (2026-10-25): build order steps 1–3a done (`internal/tenant`, `cmd/builder/tenancy.go`). The code lives here, off unless `TENANCY=on`,
+Status (2026-10-25): build order steps 1–4 done (`internal/tenant`, `cmd/builder/tenancy.go`). The code lives here, off unless `TENANCY=on`,
 so single-board deploys and site forks are unchanged. `kirsch/extreme` is a
 fork that owns only its settings and docs and deploys this mode. Done for it:
 GitHub org `extreme-dot-org` and its App, Cloud DNS zone `extreme-org`,
@@ -39,27 +39,34 @@ Created by the provisioner (below). Each step is idempotent, and every name deri
 
 | Resource | Name | Grants |
 |---|---|---|
-| Cloud Run service | `x-<slug>` (placeholder image until first deploy) | public invoker |
-| Runtime SA | `x-<slug>@` | `cloudsql.client`; `secretAccessor` on its own secrets; `storage.objectUser` on the apps bucket, IAM condition `objects/<slug>/` prefix |
-| Deployer SA | `x-<slug>-deploy@` | `run.developer` on `x-<slug>`, `serviceAccountUser` on `x-<slug>@`, `artifactregistry.writer` on AR repo `apps`; WIF (pool `extreme`) bound to `attribute.repository == <org>/<repo>`, provider condition requires `refs/heads/master` |
-| Database | `x_<slug>`, user `x_<slug>` | secret `x-<slug>-DATABASE_URL` |
-| Bucket prefix | `gs://nkirsch-auto-builder-apps/<slug>/` | env `GCS_BUCKET`, `GCS_PREFIX` |
-| Secrets | `x-<slug>-<NAME>` for names listed on the tenant's admin page | created as `unset`, then filled by hand with `gcloud secrets versions add` (v1) |
+| Repo | `<org>/<repo>`, created empty and private, then given the template's `master` (`<org>/extreme-template`: Hugo site served by a small Go server; CI; deploy workflow) once its variables are set, so that push is the first deploy | App installation covers it (all repos) |
+| Repo variables | `GCP_PROJECT`, `GCP_REGION`, `SERVICE`, `IMAGE`, `GCP_DEPLOYER`, `GCP_WIF_PROVIDER` | App permission Variables: write |
+| Cloud Run service | `x-<slug>` (placeholder `cloudrun/container/hello` until first deploy) | public invoker |
+| Runtime SA | `x-<slug>@` | none yet |
+| Deployer SA | `x-<slug>-deploy@` | `run.developer` on `x-<slug>`, `serviceAccountUser` on `x-<slug>@`, `artifactregistry.writer` on its own AR repo; `workloadIdentityUser` for `attribute.repository/<org>/<repo>` in pool `extreme` (the provider's condition requires `refs/heads/master`) |
+| Image repo | AR `x-<slug>` (one per app, so no app can overwrite another's images) | — |
 | Domain | mapping `<slug>.extreme.org`, CNAME in zone `extreme-org` | — |
-| Repo | `<org>/<repo>` from template `<org>/extreme-template` (Hugo site served by a small Go server, as on the family sites; CI; deploy workflow using repo variables the provisioner sets) | App installation covers it (all repos) |
+
+Later, when an app needs them: database `x_<slug>` (user `x_<slug>`, secret
+`x-<slug>-DATABASE_URL`, runtime SA `cloudsql.client`), bucket prefix
+`gs://nkirsch-auto-builder-apps/<slug>/`, and secrets `x-<slug>-<NAME>` from
+`control.tenant_secrets`. The template needs none of them.
 
 ## Provisioner
 
-`cmd/provision`, run as the Cloud Run Job `extreme-provision` with SA
+`cmd/provision`, run as the Cloud Run Job `extreme-provision` (image
+`Dockerfile.provision`: the Go binary on the gcloud image) with SA
 `extreme-provisioner`. That SA holds the broad roles: `run.admin`,
-`iam.serviceAccountAdmin`, `resourcemanager.projectIamAdmin`, `cloudsql.admin`,
-`dns.admin`, `secretmanager.admin`, `storage.admin`. It runs deterministic Go
-with no agent, and its only inputs are `TENANT` (slug) and `ACTION`
-(`create`/`sync`/`delete`). It reads the repo and secret names from the control
+`iam.serviceAccountAdmin`, `resourcemanager.projectIamAdmin`,
+`artifactregistry.admin`, `dns.admin`. It runs deterministic Go with no agent,
+calling `gcloud` for Google Cloud (each step describes first, so `sync` only
+fills gaps) and the App for GitHub. Its only inputs are `TENANT` (slug) and
+`ACTION` (`create`/`sync`; `delete` later). It reads the repo from the control
 DB. The internet-facing server never holds these roles. It can only start this
-job (`run.jobs.runWithOverrides`), and only a platform admin can trigger that
-from the hub. The job writes `control.tenants.status`
-(`provisioning`/`ready`/`failed`) and its log to GCS.
+job (`run.jobs.runWithOverrides`): creating an app on the hub starts it, and a
+platform admin can re-run it from `/admin`. The job writes
+`control.tenants.status` (`provisioning`/`ready`/`failed` with the error); its
+log is in Cloud Logging.
 
 Domain mappings require the caller to be a verified owner of extreme.org, so
 the provisioner SA is added as an owner in Search Console (manual, once).
@@ -128,7 +135,8 @@ All done for extreme.org (2026-10-25):
    module root (`commands.go`) for repos without one, global cap and spend via
    `gate.Hold`. Tenants without a Shipper until step 4.
 3a. Item numbers follow issue numbers, on every board. Done (`IssueSync.File`).
-4. Provisioner + template repo.
+4. Provisioner + template repo. Done: `cmd/provision`, the hub starts it
+   (`PROVISION_JOB`), tenant shipping reads the app's serving `GIT_SHA`.
 5. Bootstrap, DNS cutover, first tenant.
 
 ## Open risks

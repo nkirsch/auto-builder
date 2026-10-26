@@ -38,10 +38,15 @@ func runTenancy(ctx context.Context, cfg config) error {
 			return err
 		}
 	}
-	var launcher gate.EnvLauncher = gate.LogLauncher{}
+	var launcher, provisioner gate.EnvLauncher = gate.LogLauncher{}, gate.LogLauncher{}
 	if cfg.Launcher == "cloudrun" {
 		if launcher, err = gate.NewCloudRunJob(ctx, cfg.Project, cfg.Region, cfg.Job); err != nil {
 			return err
+		}
+		if cfg.ProvisionJob != "" {
+			if provisioner, err = gate.NewCloudRunJob(ctx, cfg.Project, cfg.Region, cfg.ProvisionJob); err != nil {
+				return err
+			}
 		}
 	}
 	app, err := github.NewApp(cfg.AppID, cfg.AppInstallation, cfg.AppKey)
@@ -52,7 +57,7 @@ func runTenancy(ctx context.Context, cfg config) error {
 	if err != nil {
 		return err
 	}
-	h.launcher, h.app = launcher, app
+	h.launcher, h.provisioner, h.app = launcher, provisioner, app
 	h.notify = notify.NewPushover(cfg.PushoverToken, cfg.PushoverUser)
 	srv := &http.Server{Addr: ":" + cfg.Port, Handler: logRequests(h.routes()), ReadHeaderTimeout: 10 * time.Second}
 	go func() {
@@ -78,9 +83,10 @@ type hub struct {
 	tmpl    map[string]*template.Template
 	host    string // BASE_URL's host; apps live on <slug>.<host>
 
-	launcher gate.EnvLauncher
-	app      *github.App // nil when the GitHub App isn't configured
-	notify   *notify.Pushover
+	launcher    gate.EnvLauncher // the shared runner job
+	provisioner gate.EnvLauncher // the provision job
+	app         *github.App      // nil when the GitHub App isn't configured
+	notify      *notify.Pushover
 
 	mu      sync.Mutex
 	tenants map[string]*tenantRT
@@ -126,7 +132,7 @@ func newHub(ctx context.Context, cfg config, reg *tenant.Registry, storage store
 		return nil, err
 	}
 	h := &hub{cfg: cfg, reg: reg, auth: a, storage: storage, host: u.Host, launcher: gate.LogLauncher{},
-		tenants: map[string]*tenantRT{}}
+		provisioner: gate.LogLauncher{}, tenants: map[string]*tenantRT{}}
 	return h, h.parse()
 }
 
@@ -159,6 +165,7 @@ func (h *hub) routes() http.Handler {
 	mux.HandleFunc("POST /new", h.platformAdmin(h.create))
 	mux.HandleFunc("GET /admin", h.platformAdmin(h.admin))
 	mux.HandleFunc("POST /admin/platform-admins", h.platformAdmin(h.addAdmin))
+	mux.HandleFunc("POST /admin/tenants/{slug}/provision", h.platformAdmin(h.reprovision))
 	mux.HandleFunc("GET /{slug}", func(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/"+r.PathValue("slug")+"/", http.StatusMovedPermanently)
 	})
@@ -357,11 +364,18 @@ func (h *hub) tenantFor(ctx context.Context, slug string) (*tenantRT, error) {
 	if h.cfg.Version != "" {
 		b.SetVersion(h.cfg.Version)
 	}
-	// Shipping waits on the app's own deploy (TENANCY.md step 4), so no Shipper yet.
 	tools := &mcp.Board{Store: st, BotLogin: h.cfg.BotLogin, BaseURL: base, GitSHA: h.cfg.GitSHA, Reply: b.BotReply}
 	if h.app != nil && h.cfg.IssueSync {
 		g.Issues = &gate.IssueSync{Store: st, GitHub: gh, Repo: t.Repo, BaseURL: base, Notified: b.Notified}
 		b.Filer, tools.Filer = g.Issues, g.Issues
+		// Merged items ship once the app's own service serves them.
+		if h.cfg.Project != "" {
+			live, err := gate.NewServiceSHA(ctx, h.cfg.Project, h.cfg.Region, "x-"+slug)
+			if err != nil {
+				return nil, err
+			}
+			g.Ship = &gate.Shipper{Store: st, GitHub: gh, Repo: t.Repo, Deployed: live.SHA, Reply: b.BotReply}
+		}
 	}
 	mux := http.NewServeMux()
 	ta.TenantRoutes(mux)
@@ -518,7 +532,36 @@ func (h *hub) create(w http.ResponseWriter, r *http.Request) {
 		back("created, but adding you as its admin failed: " + err.Error())
 		return
 	}
+	if err := h.provision(ctx, slug, "create"); err != nil {
+		back("created, but provisioning didn't start: " + err.Error())
+		return
+	}
 	http.Redirect(w, r, "/"+slug+"/", http.StatusSeeOther)
+}
+
+// provision starts the provision job for one tenant.
+func (h *hub) provision(ctx context.Context, slug, action string) error {
+	exec, err := h.provisioner.LaunchEnv(ctx, map[string]string{"TENANT": slug, "ACTION": action})
+	if err != nil {
+		slog.Error("provision", "tenant", slug, "err", err)
+		return err
+	}
+	slog.Info("provisioning", "tenant", slug, "action", action, "execution", exec)
+	return nil
+}
+
+// reprovision re-runs the provisioner, filling in whatever is missing.
+func (h *hub) reprovision(w http.ResponseWriter, r *http.Request) {
+	slug := r.PathValue("slug")
+	if _, err := h.reg.Tenant(r.Context(), slug); err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	msg := "Provisioning " + slug
+	if err := h.provision(r.Context(), slug, "sync"); err != nil {
+		msg = "Provisioning didn't start: " + err.Error()
+	}
+	http.Redirect(w, r, "/admin?flash="+url.QueryEscape(msg), http.StatusSeeOther)
 }
 
 func (h *hub) admin(w http.ResponseWriter, r *http.Request) {

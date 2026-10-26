@@ -159,14 +159,23 @@ func runnerDo(srv http.Handler, token, method, path, body string) *httptest.Resp
 func TestHubRuns(t *testing.T) {
 	ctx := context.Background()
 	h := testHub(t)
-	job := &fakeJob{}
-	h.launcher = job
+	job, prov := &fakeJob{}, &fakeJob{}
+	h.launcher, h.provisioner = job, prov
 	srv := h.routes()
 	for _, slug := range []string{"alpha", "beta"} {
 		if w := do(h, srv, "nkirsch", "POST", "/new", url.Values{"slug": {slug}}); w.Code != 303 {
 			t.Fatalf("create %s: %d", slug, w.Code)
 		}
 		h.reg.SetStatus(ctx, slug, "ready", "")
+	}
+
+	// Creating an app provisions it; an admin can provision again.
+	if len(prov.launches) != 2 || prov.launches[0]["TENANT"] != "alpha" || prov.launches[0]["ACTION"] != "create" {
+		t.Fatalf("provision launches %v", prov.launches)
+	}
+	if w := do(h, srv, "nkirsch", "POST", "/admin/tenants/alpha/provision", url.Values{}); w.Code != 303 ||
+		len(prov.launches) != 3 || prov.launches[2]["ACTION"] != "sync" {
+		t.Fatalf("reprovision: %d %v", w.Code, prov.launches)
 	}
 
 	// Run now launches the shared job with the tenant and a run token.

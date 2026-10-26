@@ -8,6 +8,7 @@
     <span class="spacer"></span>
     <a class="muted" href="https://github.com/{{.Repo}}">{{.Repo}}</a>
     <span class="muted">by {{.CreatedBy}} {{ago .CreatedAt}}</span>
+    <form method="post" action="/admin/tenants/{{.Slug}}/provision"><button class="secondary">Provision</button></form>
   </li>
   {{else}}<li class="muted">No apps yet.</li>{{end}}
 </ul>

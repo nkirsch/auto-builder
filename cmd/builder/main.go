@@ -200,10 +200,10 @@ func run() error {
 		GitHub: gh, Releases: cfg.Releases,
 	}
 	g.Ship = &gate.Shipper{Store: st, GitHub: gh, Repo: cfg.Repo, GitSHA: cfg.GitSHA, Reply: b.BotReply}
-	g.ShipSoon()
 	if app != nil && cfg.IssueSync {
 		g.Issues = &gate.IssueSync{Store: st, GitHub: gh, Repo: cfg.Repo, BaseURL: cfg.BaseURL, Notified: b.Notified}
 	}
+	g.SyncSoon()
 	if cfg.Version != "" {
 		b.SetVersion(cfg.Version)
 	} else if cfg.GitSHA != "dev" {
@@ -447,7 +447,7 @@ func (s *server) finish(w http.ResponseWriter, r *http.Request) {
 	if req.Status == "failed" && outOfCredits(req.Summary+"\n"+req.Log) {
 		s.alertCredits(context.WithoutCancel(r.Context()), time.Now())
 	}
-	s.gate.ShipSoon()
+	s.gate.SyncSoon()
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }
 

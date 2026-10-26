@@ -1,6 +1,8 @@
 package board
 
 import (
+	"html/template"
+	"io/fs"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -8,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/nkirsch/auto-builder/internal/db"
+	"github.com/nkirsch/auto-builder/web"
 )
 
 func TestBackPath(t *testing.T) {
@@ -131,8 +134,8 @@ func TestLayoutFooterCommitLink(t *testing.T) {
 		t.Fatal(err)
 	}
 	for repo, want := range map[string]string{
-		"nkirsch/auto-builder": `<footer><a href="https://github.com/nkirsch/auto-builder/commit/abc1234def" title="abc1234def">abc1234</a></footer>`,
-		"":                     `<footer>abc1234</footer>`,
+		"nkirsch/auto-builder": `<footer><a href="https://github.com/nkirsch/auto-builder/commit/abc1234def" title="abc1234def">abc1234</a>`,
+		"":                     `<footer>abc1234`,
 	} {
 		var sb strings.Builder
 		p := page{Me: db.Member{Login: "alice"}, GitSHA: "abc1234def", Repo: repo}
@@ -197,10 +200,37 @@ func TestLayoutBrand(t *testing.T) {
 		"<title>New · " + brand("brand-site") + "</title>",
 		`class="brand">` + brand("brand-name") + "</a>" + brand("brand-nav"),
 		brand("brand-head"),
+		brand("brand-footer") + "</footer>",
 		`href="/static/brand.css"`,
 	} {
 		if !strings.Contains(sb.String(), want) {
 			t.Errorf("layout missing %s", want)
 		}
+	}
+	if !strings.Contains(brand("brand-footer"), "llc.nick.org") {
+		t.Error("brand-footer missing the NICK LLC link")
+	}
+}
+
+// A fork's brand.html from before the brand-footer hook still renders.
+func TestLayoutBrandFooterDefault(t *testing.T) {
+	lay, err := fs.ReadFile(web.FS, "templates/layout.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+	brand := `{{define "brand-site"}}s{{end}}{{define "brand-og-title"}}{{end}}{{define "brand-description"}}{{end}}{{define "brand-head"}}{{end}}{{define "brand-name"}}{{end}}{{define "brand-nav"}}{{end}}{{define "brand-signed-out"}}{{end}}{{define "content"}}{{end}}`
+	tmpl, err := template.New("").Funcs(funcs).Funcs(template.FuncMap{"base": func() string { return "" }}).Parse(string(lay))
+	if err == nil {
+		_, err = tmpl.Parse(brand)
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+	var sb strings.Builder
+	if err := tmpl.ExecuteTemplate(&sb, "layout", page{Title: "New"}); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(sb.String(), "</footer>") {
+		t.Error("layout missing footer")
 	}
 }

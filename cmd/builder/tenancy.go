@@ -15,6 +15,10 @@ import (
 	"github.com/nkirsch/auto-builder/internal/auth"
 	"github.com/nkirsch/auto-builder/internal/board"
 	"github.com/nkirsch/auto-builder/internal/db"
+	"github.com/nkirsch/auto-builder/internal/gate"
+	"github.com/nkirsch/auto-builder/internal/github"
+	"github.com/nkirsch/auto-builder/internal/mcp"
+	"github.com/nkirsch/auto-builder/internal/notify"
 	"github.com/nkirsch/auto-builder/internal/store"
 	"github.com/nkirsch/auto-builder/internal/tenant"
 	"github.com/nkirsch/auto-builder/web"
@@ -34,10 +38,22 @@ func runTenancy(ctx context.Context, cfg config) error {
 			return err
 		}
 	}
+	var launcher gate.EnvLauncher = gate.LogLauncher{}
+	if cfg.Launcher == "cloudrun" {
+		if launcher, err = gate.NewCloudRunJob(ctx, cfg.Project, cfg.Region, cfg.Job); err != nil {
+			return err
+		}
+	}
+	app, err := github.NewApp(cfg.AppID, cfg.AppInstallation, cfg.AppKey)
+	if err != nil {
+		return err
+	}
 	h, err := newHub(ctx, cfg, reg, storage)
 	if err != nil {
 		return err
 	}
+	h.launcher, h.app = launcher, app
+	h.notify = notify.NewPushover(cfg.PushoverToken, cfg.PushoverUser)
 	srv := &http.Server{Addr: ":" + cfg.Port, Handler: logRequests(h.routes()), ReadHeaderTimeout: 10 * time.Second}
 	go func() {
 		<-ctx.Done()
@@ -62,8 +78,21 @@ type hub struct {
 	tmpl    map[string]*template.Template
 	host    string // BASE_URL's host; apps live on <slug>.<host>
 
-	mu     sync.Mutex
-	boards map[string]http.Handler
+	launcher gate.EnvLauncher
+	app      *github.App // nil when the GitHub App isn't configured
+	notify   *notify.Pushover
+
+	mu      sync.Mutex
+	tenants map[string]*tenantRT
+}
+
+// tenantRT is one tenant's board, gate and runner endpoints, built on first use.
+type tenantRT struct {
+	slug  string
+	board http.Handler
+	gate  *gate.Gate
+	srv   *server // runner API, against this tenant's store and repo
+	mcp   http.Handler
 }
 
 func newHub(ctx context.Context, cfg config, reg *tenant.Registry, storage store.Storage) (*hub, error) {
@@ -96,7 +125,8 @@ func newHub(ctx context.Context, cfg config, reg *tenant.Registry, storage store
 	if err != nil {
 		return nil, err
 	}
-	h := &hub{cfg: cfg, reg: reg, auth: a, storage: storage, host: u.Host, boards: map[string]http.Handler{}}
+	h := &hub{cfg: cfg, reg: reg, auth: a, storage: storage, host: u.Host, launcher: gate.LogLauncher{},
+		tenants: map[string]*tenantRT{}}
 	return h, h.parse()
 }
 
@@ -133,7 +163,147 @@ func (h *hub) routes() http.Handler {
 		http.Redirect(w, r, "/"+r.PathValue("slug")+"/", http.StatusMovedPermanently)
 	})
 	mux.HandleFunc("/{slug}/", h.board)
+
+	// The runner's endpoints take its run's RUN_TOKEN, which names the tenant.
+	for _, m := range []string{"GET", "POST", "DELETE"} {
+		mux.HandleFunc(m+" /mcp", h.runner(func(rt *tenantRT, _ int, w http.ResponseWriter, r *http.Request) {
+			rt.mcp.ServeHTTP(w, r)
+		}))
+	}
+	run := func(f func(*server, http.ResponseWriter, *http.Request)) http.HandlerFunc {
+		return h.runner(func(rt *tenantRT, id int, w http.ResponseWriter, r *http.Request) {
+			if r.PathValue("id") != fmt.Sprint(id) {
+				http.Error(w, "token is for another run", http.StatusForbidden)
+				return
+			}
+			f(rt.srv, w, r)
+		})
+	}
+	mux.HandleFunc("POST /api/runner/runs/{id}/claim", run((*server).claim))
+	mux.HandleFunc("POST /api/runner/runs/{id}/token", run((*server).token))
+	mux.HandleFunc("POST /api/runner/runs/{id}/stage", run((*server).stage))
+	mux.HandleFunc("POST /api/runner/runs/{id}/finish", run(func(s *server, w http.ResponseWriter, r *http.Request) {
+		s.finish(w, r)
+		if err := h.reg.RevokeRunToken(context.WithoutCancel(r.Context()), s.slug, s.runID(r)); err != nil {
+			slog.Error("revoke run token", "tenant", s.slug, "err", err)
+		}
+	}))
+	mux.HandleFunc("GET /api/runner/attachments/{id}", h.runner(func(rt *tenantRT, _ int, w http.ResponseWriter, r *http.Request) {
+		rt.srv.attachment(w, r)
+	}))
+	mux.Handle("POST /api/gate/tick", auth.Bearer(h.cfg.TickToken, http.HandlerFunc(h.tick)))
 	return mux
+}
+
+// runner authenticates a RUN_TOKEN and hands its tenant and run to f.
+func (h *hub) runner(f func(rt *tenantRT, runID int, w http.ResponseWriter, r *http.Request)) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		token, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
+		if !ok || token == "" {
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+		slug, runID, err := h.reg.RunToken(r.Context(), token)
+		if errors.Is(err, db.ErrNotFound) {
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+		if err != nil {
+			slog.Error("run token", "err", err)
+			http.Error(w, "internal error", http.StatusInternalServerError)
+			return
+		}
+		rt, err := h.tenantFor(r.Context(), slug)
+		if err != nil {
+			slog.Error("tenant", "tenant", slug, "err", err)
+			http.Error(w, "internal error", http.StatusInternalServerError)
+			return
+		}
+		f(rt, runID, w, r)
+	}
+}
+
+// tick runs every ready tenant's gate duties.
+func (h *hub) tick(w http.ResponseWriter, r *http.Request) {
+	tenants, err := h.reg.Tenants(r.Context())
+	if err != nil {
+		slog.Error("tick", "err", err)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	var errs []error
+	for _, t := range tenants {
+		if t.Status != "ready" {
+			continue
+		}
+		rt, err := h.tenantFor(r.Context(), t.Slug)
+		if err == nil {
+			err = rt.gate.Tick(r.Context())
+		}
+		if err != nil {
+			errs = append(errs, fmt.Errorf("%s: %w", t.Slug, err))
+		}
+	}
+	if err := errors.Join(errs...); err != nil {
+		slog.Error("tick", "err", err)
+		writeJSON(w, http.StatusOK, map[string]string{"status": "partial", "error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+}
+
+// hold stops launches past the platform's run cap or spend limit.
+func (h *hub) hold(ctx context.Context) (string, error) {
+	set, err := h.reg.Settings(ctx)
+	if err != nil {
+		return "", err
+	}
+	active, err := h.reg.ActiveRuns(ctx)
+	if err != nil {
+		return "", err
+	}
+	if active >= set.MaxRuns {
+		return fmt.Sprintf("%d runs are active across all apps (the cap is %d)", active, set.MaxRuns), nil
+	}
+	tenants, err := h.reg.Tenants(ctx)
+	if err != nil {
+		return "", err
+	}
+	var spent float64
+	for _, t := range tenants {
+		st, err := h.reg.Store(ctx, t.Slug)
+		if err != nil {
+			return "", err
+		}
+		c, err := st.RunCosts(ctx)
+		if err != nil {
+			return "", err
+		}
+		spent += c.Last30Days
+	}
+	if spent >= set.SpendLimit {
+		return fmt.Sprintf("all apps spent $%.2f in 30 days (the limit is $%.2f)", spent, set.SpendLimit), nil
+	}
+	return "", nil
+}
+
+// tenantLauncher mints a run token and starts the shared runner job for one tenant.
+type tenantLauncher struct {
+	h    *hub
+	slug string
+}
+
+func (l tenantLauncher) Launch(ctx context.Context, runID int) (string, error) {
+	token, err := l.h.reg.IssueRunToken(ctx, l.slug, runID)
+	if err != nil {
+		return "", err
+	}
+	exec, err := l.h.launcher.LaunchEnv(ctx, map[string]string{
+		"RUN_ID": fmt.Sprint(runID), "TENANT": l.slug, "RUN_TOKEN": token})
+	if err != nil {
+		l.h.reg.RevokeRunToken(context.WithoutCancel(ctx), l.slug, runID)
+	}
+	return exec, err
 }
 
 // board serves a tenant's board, building it on first use.
@@ -143,7 +313,7 @@ func (h *hub) board(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	b, err := h.boardFor(r.Context(), slug)
+	rt, err := h.tenantFor(r.Context(), slug)
 	if errors.Is(err, db.ErrNotFound) {
 		http.NotFound(w, r)
 		return
@@ -153,14 +323,14 @@ func (h *hub) board(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
-	b.ServeHTTP(w, r)
+	rt.board.ServeHTTP(w, r)
 }
 
-func (h *hub) boardFor(ctx context.Context, slug string) (http.Handler, error) {
+func (h *hub) tenantFor(ctx context.Context, slug string) (*tenantRT, error) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	if b, ok := h.boards[slug]; ok {
-		return b, nil
+	if rt, ok := h.tenants[slug]; ok {
+		return rt, nil
 	}
 	t, err := h.reg.Tenant(ctx, slug)
 	if err != nil {
@@ -171,31 +341,43 @@ func (h *hub) boardFor(ctx context.Context, slug string) (http.Handler, error) {
 		return nil, err
 	}
 	prefix := "/" + slug
+	base := h.cfg.BaseURL + prefix
+	storage := store.Prefixed{Storage: h.storage, Prefix: "t/" + slug + "/"}
+	gh := github.New("", "")
+	if h.app != nil {
+		gh = github.ForApp(h.app)
+	}
+	g := &gate.Gate{Store: st, Launcher: tenantLauncher{h, slug},
+		Idle: time.Duration(h.cfg.IdleHours) * time.Hour, Hold: h.hold}
 	ta := h.auth.ForTenant(st, prefix)
 	b := &board.Board{
-		Store: st, Storage: store.Prefixed{Storage: h.storage, Prefix: "t/" + slug + "/"},
-		Auth: ta, Gate: holdGate{}, BaseURL: h.cfg.BaseURL + prefix,
-		BotLogin: h.cfg.BotLogin, GitSHA: h.cfg.GitSHA, Repo: t.Repo,
+		Store: st, Storage: storage, Auth: ta, Gate: g, BaseURL: base,
+		BotLogin: h.cfg.BotLogin, GitSHA: h.cfg.GitSHA, Repo: t.Repo, GitHub: gh,
 	}
 	if h.cfg.Version != "" {
 		b.SetVersion(h.cfg.Version)
+	}
+	// Shipping waits on the app's own deploy (TENANCY.md step 4), so no Shipper yet.
+	if h.app != nil && h.cfg.IssueSync {
+		g.Issues = &gate.IssueSync{Store: st, GitHub: gh, Repo: t.Repo, BaseURL: base, Notified: b.Notified}
 	}
 	mux := http.NewServeMux()
 	ta.TenantRoutes(mux)
 	if err := b.Routes(mux); err != nil {
 		return nil, err
 	}
-	handler := http.StripPrefix(prefix, prefixLocation(prefix, mux))
-	h.boards[slug] = handler
-	return handler, nil
-}
-
-// holdGate stands in until runs are wired per tenant (TENANCY.md step 3).
-type holdGate struct{}
-
-func (holdGate) Activity() {}
-func (holdGate) RunNow(context.Context, string) (int, error) {
-	return 0, errors.New("runs aren't wired for multi-tenant boards yet")
+	scfg := h.cfg
+	scfg.Repo, scfg.BaseURL = t.Repo, base
+	rt := &tenantRT{
+		slug:  slug,
+		board: http.StripPrefix(prefix, prefixLocation(prefix, mux)),
+		gate:  g,
+		srv: &server{cfg: scfg, store: st, storage: storage, gate: g, app: h.app, version: b.Version,
+			notify: h.notify, slug: slug},
+		mcp: (&mcp.Board{Store: st, BotLogin: h.cfg.BotLogin, BaseURL: base, GitSHA: h.cfg.GitSHA, Reply: b.BotReply}).Handler(),
+	}
+	h.tenants[slug] = rt
+	return rt, nil
 }
 
 type hubPage struct {

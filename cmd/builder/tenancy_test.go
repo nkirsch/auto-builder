@@ -39,7 +39,7 @@ func testHub(t *testing.T) *hub {
 	cfg := config{
 		BaseURL: "https://hub.example", SessionKey: "0123456789abcdef", GitSHA: "abc1234",
 		ClientID: "gh", GoogleClientID: "g", BotLogin: "builder-bot", TenantOrg: "extreme-dot-org",
-		AdminLogin: "nkirsch", AdminEmail: "nick@example.org",
+		AdminLogin: "nkirsch", AdminEmail: "nick@example.org", TickToken: "tick", IdleHours: 6,
 	}
 	h, err := newHub(ctx, cfg, reg, store.Dir(t.TempDir()))
 	if err != nil {
@@ -133,4 +133,114 @@ func TestHubTenants(t *testing.T) {
 	w = httptest.NewRecorder()
 	srv.ServeHTTP(w, r)
 	check(w, 403, "", "cross-origin")
+}
+
+// fakeJob records the env each runner launch gets.
+type fakeJob struct{ launches []map[string]string }
+
+func (f *fakeJob) LaunchEnv(_ context.Context, env map[string]string) (string, error) {
+	f.launches = append(f.launches, env)
+	return "exec-" + env["RUN_ID"], nil
+}
+
+// runnerDo calls a runner endpoint with a RUN_TOKEN.
+func runnerDo(srv http.Handler, token, method, path, body string) *httptest.ResponseRecorder {
+	r := httptest.NewRequest(method, path, strings.NewReader(body))
+	r.Header.Set("Content-Type", "application/json")
+	r.Header.Set("Accept", "application/json, text/event-stream")
+	if token != "" {
+		r.Header.Set("Authorization", "Bearer "+token)
+	}
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, r)
+	return w
+}
+
+func TestHubRuns(t *testing.T) {
+	ctx := context.Background()
+	h := testHub(t)
+	job := &fakeJob{}
+	h.launcher = job
+	srv := h.routes()
+	for _, slug := range []string{"alpha", "beta"} {
+		if w := do(h, srv, "nkirsch", "POST", "/new", url.Values{"slug": {slug}}); w.Code != 303 {
+			t.Fatalf("create %s: %d", slug, w.Code)
+		}
+		h.reg.SetStatus(ctx, slug, "ready", "")
+	}
+
+	// Run now launches the shared job with the tenant and a run token.
+	if w := do(h, srv, "nick@example.org", "POST", "/alpha/admin/run", url.Values{}); w.Code != 303 ||
+		!strings.Contains(w.Header().Get("Location"), "Started") {
+		t.Fatalf("run now: %d %q", w.Code, w.Header().Get("Location"))
+	}
+	if len(job.launches) != 1 || job.launches[0]["TENANT"] != "alpha" || job.launches[0]["RUN_ID"] != "1" {
+		t.Fatalf("launches %v", job.launches)
+	}
+	tok := job.launches[0]["RUN_TOKEN"]
+
+	claim := runnerDo(srv, tok, "POST", "/api/runner/runs/1/claim", "")
+	if claim.Code != 200 || !strings.Contains(claim.Body.String(), `"repo":"extreme-dot-org/alpha"`) {
+		t.Fatalf("claim: %d %s", claim.Code, claim.Body.String())
+	}
+	for _, c := range []struct {
+		token, path string
+		code        int
+	}{
+		{"", "/api/runner/runs/1/stage", 401},
+		{"bogus", "/api/runner/runs/1/stage", 401},
+		{tok, "/api/runner/runs/2/stage", 403}, // another run's id
+	} {
+		if w := runnerDo(srv, c.token, "POST", c.path, `{"stage":"agent"}`); w.Code != c.code {
+			t.Errorf("%q %s: %d, want %d", c.token, c.path, w.Code, c.code)
+		}
+	}
+	if w := runnerDo(srv, tok, "POST", "/api/runner/runs/1/stage", `{"stage":"agent"}`); w.Code != 200 {
+		t.Errorf("stage: %d %s", w.Code, w.Body.String())
+	}
+
+	// MCP reaches only the token's tenant.
+	alpha, _ := h.reg.Store(ctx, "alpha")
+	beta, _ := h.reg.Store(ctx, "beta")
+	alpha.CreateItem(ctx, "alpha ask", "", "nkirsch")
+	beta.CreateItem(ctx, "beta ask", "", "nkirsch")
+	alpha.SetApproved(ctx, 1, true, "nkirsch")
+	beta.SetApproved(ctx, 1, true, "nkirsch")
+	w := runnerDo(srv, tok, "POST", "/mcp", `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"list_items","arguments":{}}}`)
+	if w.Code != 200 || !strings.Contains(w.Body.String(), "alpha ask") || strings.Contains(w.Body.String(), "beta ask") {
+		t.Fatalf("mcp: %d %s", w.Code, w.Body.String())
+	}
+
+	// The platform cap holds other tenants' launches while alpha's run is active.
+	h.reg.Control.Exec(ctx, `UPDATE settings SET max_runs = 1`)
+	if w := do(h, srv, "nick@example.org", "POST", "/beta/admin/run", url.Values{}); !strings.Contains(w.Header().Get("Location"), "Held") {
+		t.Fatalf("beta run now under the cap: %q", w.Header().Get("Location"))
+	}
+	if len(job.launches) != 1 {
+		t.Fatalf("held run launched: %v", job.launches)
+	}
+
+	// Finishing revokes the token.
+	if w := runnerDo(srv, tok, "POST", "/api/runner/runs/1/finish", `{"status":"done","summary":"ok"}`); w.Code != 200 {
+		t.Fatalf("finish: %d %s", w.Code, w.Body.String())
+	}
+	if w := runnerDo(srv, tok, "POST", "/api/runner/runs/1/stage", `{"stage":"report"}`); w.Code != 401 {
+		t.Errorf("revoked token: %d", w.Code)
+	}
+
+	// The tick walks ready tenants, launching each one's approved work.
+	h.reg.Control.Exec(ctx, `UPDATE settings SET max_runs = 3`)
+	tick := httptest.NewRequest("POST", "/api/gate/tick", nil)
+	tick.Header.Set("Authorization", "Bearer tick")
+	tw := httptest.NewRecorder()
+	srv.ServeHTTP(tw, tick)
+	if tw.Code != 200 || !strings.Contains(tw.Body.String(), `"ok"`) {
+		t.Fatalf("tick: %d %s", tw.Code, tw.Body.String())
+	}
+	if len(job.launches) != 3 || job.launches[1]["TENANT"] != "alpha" || job.launches[2]["TENANT"] != "beta" {
+		t.Fatalf("tick launches %v", job.launches)
+	}
+	if n, _ := h.reg.ActiveRuns(ctx); n != 2 {
+		t.Errorf("active runs %d", n)
+	}
 }

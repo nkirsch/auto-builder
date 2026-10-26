@@ -23,6 +23,10 @@ var ErrRunActive = errors.New("a run is already active")
 // ErrSpendLimit is returned when the last 30 days' agent cost has reached the limit.
 var ErrSpendLimit = errors.New("spend limit reached")
 
+// ErrHeld is a launch the board allows but its platform holds (multi-tenant
+// run cap or spend limit); the wrapping error says why.
+var ErrHeld = errors.New("held")
+
 // Store wraps the pool with the app's queries.
 type Store struct{ Pool *pgxpool.Pool }
 

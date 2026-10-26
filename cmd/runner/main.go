@@ -18,6 +18,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	autobuilder "github.com/nkirsch/auto-builder"
 )
 
 const (
@@ -42,11 +44,12 @@ func main() {
 	cfg := config{
 		RunID:   env("RUN_ID", ""),
 		BaseURL: strings.TrimSuffix(env("BASE_URL", ""), "/"),
-		Token:   env("RUNNER_TOKEN", ""),
+		// A multi-tenant run gets its own RUN_TOKEN; a single board shares RUNNER_TOKEN.
+		Token:   env("RUN_TOKEN", env("RUNNER_TOKEN", "")),
 		WorkDir: env("WORK_DIR", os.TempDir()),
 	}
 	if cfg.RunID == "" || cfg.BaseURL == "" || cfg.Token == "" {
-		slog.Error("RUN_ID, BASE_URL and RUNNER_TOKEN are required")
+		slog.Error("RUN_ID, BASE_URL and RUN_TOKEN or RUNNER_TOKEN are required")
 		os.Exit(2)
 	}
 	api := &api{base: cfg.BaseURL, token: cfg.Token, client: &http.Client{Timeout: 2 * time.Minute}}
@@ -100,6 +103,14 @@ func build(ctx context.Context, cfg config, api *api, claim claimResp, log io.Wr
 		}
 	}
 
+	if home, err := os.UserHomeDir(); err == nil {
+		if installed, err := installCommand(repoDir, home); err != nil {
+			return fmt.Errorf("install /build-board: %w", err)
+		} else if installed {
+			fmt.Fprintln(log, "runner: repo has no /build-board; using auto-builder's")
+		}
+	}
+
 	mcpConfig := filepath.Join(cfg.WorkDir, "mcp.json")
 	b, _ := json.Marshal(map[string]any{"mcpServers": map[string]any{"board": map[string]any{
 		"type": "http", "url": cfg.BaseURL + "/mcp",
@@ -120,6 +131,19 @@ func build(ctx context.Context, cfg config, api *api, claim claimResp, log io.Wr
 		return fmt.Errorf("agent timed out after %s", agentTimeout)
 	}
 	return err
+}
+
+// installCommand puts auto-builder's /build-board in the user's commands when
+// the repo doesn't carry its own (a tenant repo), reporting whether it did.
+func installCommand(repoDir, home string) (bool, error) {
+	if _, err := os.Stat(filepath.Join(repoDir, ".claude", "commands", "build-board.md")); err == nil {
+		return false, nil
+	}
+	dir := filepath.Join(home, ".claude", "commands")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return false, err
+	}
+	return true, os.WriteFile(filepath.Join(dir, "build-board.md"), []byte(autobuilder.BuildBoard), 0o644)
 }
 
 // childEnv drops GH_APP_* (a job still mounting the App secrets) so neither

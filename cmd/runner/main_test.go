@@ -4,9 +4,13 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
+
+	autobuilder "github.com/nkirsch/auto-builder"
 )
 
 func TestSummaryPrefersResult(t *testing.T) {
@@ -67,5 +71,22 @@ func TestChildEnvDropsAppSecrets(t *testing.T) {
 	got := childEnv([]string{"PATH=/bin", "GH_APP_PRIVATE_KEY=k", "GH_APP_ID=1", "RUNNER_TOKEN=rt"})
 	if !slices.Equal(got, []string{"PATH=/bin", "RUNNER_TOKEN=rt"}) {
 		t.Fatalf("got %v", got)
+	}
+}
+
+func TestInstallCommand(t *testing.T) {
+	repo, home := t.TempDir(), t.TempDir()
+	if ok, err := installCommand(repo, home); err != nil || !ok {
+		t.Fatalf("tenant repo: %v %v", ok, err)
+	}
+	b, err := os.ReadFile(filepath.Join(home, ".claude", "commands", "build-board.md"))
+	if err != nil || len(b) == 0 || string(b) != autobuilder.BuildBoard {
+		t.Fatalf("installed %d bytes, %v", len(b), err)
+	}
+	own := filepath.Join(repo, ".claude", "commands")
+	os.MkdirAll(own, 0o755)
+	os.WriteFile(filepath.Join(own, "build-board.md"), []byte("site's own"), 0o644)
+	if ok, err := installCommand(repo, t.TempDir()); err != nil || ok {
+		t.Fatalf("repo with its own command: %v %v", ok, err)
 	}
 }

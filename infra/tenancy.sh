@@ -15,6 +15,12 @@ PLATFORM_REPO=${PLATFORM_REPO:-kirsch/extreme}
 SQL_INSTANCE=${SQL_INSTANCE:-builder}
 ADMIN_LOGIN=${ADMIN_LOGIN:-nkirsch}
 ADMIN_EMAIL=${ADMIN_EMAIL:-nick@kirsch.org}
+# Claude auth for the runner: the comma-separated ANTHROPIC_* IDs printed by
+# kirsch/home infrastructure/claude-wif/provision.sh gcp (Workload Identity
+# Federation). Set, the job gets them as env and no API key; unset, it mounts
+# the ANTHROPIC_API_KEY secret.
+CLAUDE_FEDERATION=${CLAUDE_FEDERATION:-}
+KEY_SECRET=$([ -n "$CLAUDE_FEDERATION" ] || echo ANTHROPIC_API_KEY)
 
 g() { gcloud --project "$PROJECT" --quiet "$@"; }
 log() { echo "== $*"; }
@@ -47,7 +53,7 @@ secret "$NAME-SESSION_KEY" "$(openssl rand -hex 32)"
 secret "$NAME-TICK_TOKEN" "$(openssl rand -hex 32)"
 # Filled in by hand (TENANCY.md manual steps).
 for s in GITHUB_CLIENT_ID GITHUB_CLIENT_SECRET GOOGLE_CLIENT_ID GOOGLE_CLIENT_SECRET \
-  GH_APP_ID GH_APP_INSTALLATION_ID GH_APP_PRIVATE_KEY ANTHROPIC_API_KEY; do
+  GH_APP_ID GH_APP_INSTALLATION_ID GH_APP_PRIVATE_KEY $KEY_SECRET; do
   secret "$NAME-$s" unset
 done
 # mounts "ENV=SECRET ..." → ENV=SECRET:latest,...
@@ -55,7 +61,7 @@ mounts() { for m in $1; do printf '%s:latest,' "$m"; done | sed 's/,$//'; }
 prefixed() { for s in $1; do printf '%s=%s ' "$s" "$NAME-$s"; done; }
 APP_SECRETS="GH_APP_ID GH_APP_INSTALLATION_ID GH_APP_PRIVATE_KEY"
 SERVER_MOUNTS="$(prefixed "DATABASE_URL SESSION_KEY TICK_TOKEN GITHUB_CLIENT_ID GITHUB_CLIENT_SECRET GOOGLE_CLIENT_ID GOOGLE_CLIENT_SECRET $APP_SECRETS") PUSHOVER_TOKEN=PUSHOVER_TOKEN PUSHOVER_USER=PUSHOVER_USER"
-RUNNER_MOUNTS="$(prefixed ANTHROPIC_API_KEY)"
+RUNNER_MOUNTS=$(prefixed "$KEY_SECRET")
 PROVISION_MOUNTS="$(prefixed "DATABASE_URL $APP_SECRETS")"
 
 log "artifact registry $NAME, bucket $PROJECT-$NAME"
@@ -143,7 +149,12 @@ log "jobs $NAME-runner, $NAME-provision"
 if ! g run jobs describe "$NAME-runner" --region "$REGION" >/dev/null 2>&1; then
   g run jobs create "$NAME-runner" --region "$REGION" --image us-docker.pkg.dev/cloudrun/container/job:latest \
     --service-account "$(sa runner)" --task-timeout 60m --max-retries 0 --cpu 2 --memory 4Gi \
-    --set-env-vars "BASE_URL=https://$DOMAIN" --set-secrets "$(mounts "$RUNNER_MOUNTS")"
+    --set-env-vars "BASE_URL=https://$DOMAIN${CLAUDE_FEDERATION:+,$CLAUDE_FEDERATION}" \
+    ${RUNNER_MOUNTS:+--set-secrets "$(mounts "$RUNNER_MOUNTS")"}
+fi
+if [ -n "$CLAUDE_FEDERATION" ]; then
+  g run jobs update "$NAME-runner" --region "$REGION" --update-env-vars "$CLAUDE_FEDERATION" \
+    --remove-secrets ANTHROPIC_API_KEY >/dev/null
 fi
 if ! g run jobs describe "$NAME-provision" --region "$REGION" >/dev/null 2>&1; then
   g run jobs create "$NAME-provision" --region "$REGION" --image us-docker.pkg.dev/cloudrun/container/job:latest \

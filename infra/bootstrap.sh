@@ -14,6 +14,12 @@ AR_REPO=${AR_REPO:-builder}
 BUCKET=${BUCKET:-$PROJECT-data}
 SERVICE=${SERVICE:-builder}
 JOB=${JOB:-builder-runner}
+# Claude auth for the runner: the comma-separated ANTHROPIC_* IDs printed by
+# kirsch/home infrastructure/claude-wif/provision.sh gcp (Workload Identity
+# Federation). Set, the job gets them as env and no API key; unset, it mounts
+# the ANTHROPIC_API_KEY secret.
+CLAUDE_FEDERATION=${CLAUDE_FEDERATION:-}
+KEY_SECRET=$([ -n "$CLAUDE_FEDERATION" ] || echo ANTHROPIC_API_KEY)
 
 g() { gcloud --project "$PROJECT" --quiet "$@"; }
 log() { echo "== $*"; }
@@ -83,7 +89,7 @@ done
 # the resource where IAM allows it. Older broad grants are removed on re-run.
 SERVER_SECRETS="DATABASE_URL SESSION_KEY RUNNER_TOKEN TICK_TOKEN GITHUB_CLIENT_ID GITHUB_CLIENT_SECRET GOOGLE_CLIENT_ID GOOGLE_CLIENT_SECRET GH_APP_ID GH_APP_INSTALLATION_ID GH_APP_PRIVATE_KEY PUSHOVER_TOKEN PUSHOVER_USER"
 # The runner gets GitHub tokens from the server: no GH_APP_* secrets.
-RUNNER_SECRETS="RUNNER_TOKEN ANTHROPIC_API_KEY"
+RUNNER_SECRETS="RUNNER_TOKEN $KEY_SECRET"
 APP_SECRETS="GH_APP_ID GH_APP_INSTALLATION_ID GH_APP_PRIVATE_KEY"
 mounts() { for s in $1; do printf '%s=%s:latest,' "$s" "$s"; done | sed 's/,$//'; }
 proj_role() { retry g projects add-iam-policy-binding "$PROJECT" --member "serviceAccount:$(sa $1)" \
@@ -163,8 +169,12 @@ if ! g run jobs describe "$JOB" --region "$REGION" >/dev/null 2>&1; then
   g run jobs create "$JOB" --region "$REGION" --image us-docker.pkg.dev/cloudrun/container/job:latest \
     --service-account "$(sa builder-runner)" --task-timeout 60m --max-retries 0 \
     --cpu 2 --memory 4Gi \
-    --set-env-vars "BASE_URL=https://$DOMAIN" \
+    --set-env-vars "BASE_URL=https://$DOMAIN${CLAUDE_FEDERATION:+,$CLAUDE_FEDERATION}" \
     --set-secrets "$(mounts "$RUNNER_SECRETS")"
+fi
+if [ -n "$CLAUDE_FEDERATION" ]; then
+  g run jobs update "$JOB" --region "$REGION" --update-env-vars "$CLAUDE_FEDERATION" \
+    --remove-secrets ANTHROPIC_API_KEY >/dev/null
 fi
 # Older jobs mounted the App secrets; unmount them, then revoke the runner's access.
 g run jobs update "$JOB" --region "$REGION" --remove-secrets "${APP_SECRETS// /,}" >/dev/null

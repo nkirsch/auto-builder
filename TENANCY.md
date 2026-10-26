@@ -121,8 +121,15 @@ All done for extreme.org (2026-10-25):
 2. Cloud DNS zone `extreme-org`; Joker's nameservers point at its four
    `ns-cloud-a*` servers.
 3. extreme.org verified in Search Console; `extreme-provisioner@` is an owner.
-4. Secrets `extreme-<NAME>` (`GITHUB_CLIENT_*`, `GOOGLE_CLIENT_*`, `GH_APP_*`,
-   `ANTHROPIC_API_KEY`); unprefixed names are the single board's.
+4. Secrets `extreme-<NAME>` (`GITHUB_CLIENT_*`, `GOOGLE_CLIENT_*`, `GH_APP_*`);
+   unprefixed names are the single board's.
+5. Claude: Workload Identity Federation, no API key. Run kirsch/home
+   `infrastructure/claude-wif/provision.sh gcp extreme-runner
+   extreme-runner@nkirsch-auto-builder.iam.gserviceaccount.com` (`WORKSPACE=extreme.org`)
+   and pass its output as `CLAUDE_FEDERATION=...` to `infra/tenancy.sh`, which
+   sets the IDs on `extreme-runner` and unmounts `ANTHROPIC_API_KEY`
+   (`bootstrap.sh` takes the same for `builder-runner`). Without it the
+   runner mounts `extreme-ANTHROPIC_API_KEY`.
 
 ## Build order
 

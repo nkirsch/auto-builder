@@ -1,6 +1,7 @@
 # Fork-owned files: when upstream and a fork both change one, a fork's
 # merge keeps its own copy (needs merge.ours.driver; make merge-upstream sets it).
 CLAUDE.md merge=ours
+README.md merge=ours
 .claude/site.md merge=ours
 app.env merge=ours
 Makefile merge=ours

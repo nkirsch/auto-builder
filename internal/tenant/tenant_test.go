@@ -12,7 +12,7 @@ import (
 
 func TestValidSlug(t *testing.T) {
 	for slug, ok := range map[string]bool{
-		"ab": true, "my-app": true, "a1": true, "abcdefghijklmnopqrstu": true,
+		"ab": true, "www": true, "my-app": true, "a1": true, "abcdefghijklmnopqrstu": true,
 		"a": false, "1a": false, "a-": false, "A": false, "a_b": false,
 		"abcdefghijklmnopqrstuv": false, "admin": false, "new": false, "x": false,
 	} {

@@ -82,14 +82,14 @@ func (p *Provisioner) Create(ctx context.Context, t tenant.Tenant) error {
 				"--service-account", runtime, "--allow-unauthenticated"}},
 		{[]string{"beta", "run", "domain-mappings", "describe", "--domain", host, "--region", p.Region},
 			[]string{"beta", "run", "domain-mappings", "create", "--service", svc, "--domain", host, "--region", p.Region}},
-		{[]string{"dns", "record-sets", "describe", host + ".", "--type", "CNAME", "--zone", p.Zone},
-			[]string{"dns", "record-sets", "create", host + ".", "--type", "CNAME", "--ttl", "300",
-				"--rrdatas", "ghs.googlehosted.com.", "--zone", p.Zone}},
 	}
 	for _, s := range steps {
 		if err := p.ensure(ctx, s.describe, s.create); err != nil {
 			return fmt.Errorf("%s: %w", strings.Join(s.create[:2], " "), err)
 		}
+	}
+	if err := p.cname(ctx, host); err != nil {
+		return fmt.Errorf("dns: %w", err)
 	}
 	// The deployer reaches only this app: its service, its image repo, acting
 	// as its runtime account, and only from this repo's master branch.
@@ -128,6 +128,22 @@ func (p *Provisioner) Create(ctx context.Context, t tenant.Tenant) error {
 		}
 	}
 	return nil
+}
+
+// cname points host at Cloud Run's domain-mapping front end, replacing a
+// record that points elsewhere (e.g. www's old static site).
+func (p *Provisioner) cname(ctx context.Context, host string) error {
+	const target = "ghs.googlehosted.com."
+	args := []string{"dns", "record-sets", "--zone", p.Zone}
+	rec := []string{host + ".", "--type", "CNAME", "--ttl", "300", "--rrdatas", target}
+	got, err := p.gcloud(ctx, append(args, "describe", host+".", "--type", "CNAME", "--format=value(rrdatas)")...)
+	switch {
+	case err != nil:
+		_, err = p.gcloud(ctx, append(append(args, "create"), rec...)...)
+	case strings.TrimSpace(got) != target:
+		_, err = p.gcloud(ctx, append(append(args, "update"), rec...)...)
+	}
+	return err
 }
 
 // pushTemplate copies the template's master into the empty repo; the push

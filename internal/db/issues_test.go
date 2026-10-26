@@ -121,3 +121,26 @@ func TestMirrorQueries(t *testing.T) {
 		t.Fatalf("reopened issue still to reopen: %+v", todo)
 	}
 }
+
+// An item takes its issue's number when that's free, and the sequence moves past it.
+func TestCreateIssueItemNumbers(t *testing.T) {
+	ctx := context.Background()
+	s := testStore(t)
+	if id, _, err := s.CreateIssueItem(ctx, 12, "From GitHub", "", "alice", false); err != nil || id != 12 {
+		t.Fatalf("issue 12: id=%d err=%v", id, err)
+	}
+	if id, err := s.CreateItem(ctx, "Unsynced", "", "alice"); err != nil || id != 13 {
+		t.Fatalf("sequence after a numbered item: id=%d err=%v", id, err)
+	}
+	// Issue 13's number is taken on the board: it gets the next free one.
+	id, created, err := s.CreateIssueItem(ctx, 13, "Raced", "", "builder-bot", true)
+	if err != nil || !created || id != 14 {
+		t.Fatalf("issue 13: id=%d created=%v err=%v", id, created, err)
+	}
+	if it, _ := s.Item(ctx, id); it.IssueNumber == nil || *it.IssueNumber != 13 || it.HumanActivityAt.Unix() != 0 {
+		t.Fatalf("raced item %+v", it)
+	}
+	if _, created, err := s.CreateIssueItem(ctx, 13, "Again", "", "alice", false); err != nil || created {
+		t.Fatalf("issue 13 twice: created=%v err=%v", created, err)
+	}
+}

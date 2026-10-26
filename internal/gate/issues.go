@@ -99,6 +99,26 @@ func (s *IssueSync) forGitHub(body string) string {
 	return b.String() + body[at:]
 }
 
+// File opens the GitHub issue first and files the item under its number,
+// so board and issue numbers match. A private item, or one whose issue
+// can't be opened, takes the board's next number (mirrorItems retries the
+// issue). A bot's item doesn't count as human activity.
+func (s *IssueSync) File(ctx context.Context, title, body, author string, bot, private bool) (int, error) {
+	if !private {
+		gh := strings.TrimSpace(s.forGitHub(body) + fmt.Sprintf("\n\n_Filed on the [board](%s/) by **%s**._", s.BaseURL, author))
+		n, err := s.GitHub.CreateIssue(ctx, s.Repo, title, gh)
+		if err == nil {
+			id, _, err := s.Store.CreateIssueItem(ctx, n, title, body, author, bot)
+			return id, err
+		}
+		slog.Warn("open issue before item", "err", err)
+	}
+	if bot {
+		return s.Store.CreateBotItem(ctx, title, body, author)
+	}
+	return s.Store.CreateItem(ctx, title, body, author)
+}
+
 // mirrorItems opens an issue for each active item that has none.
 func (s *IssueSync) mirrorItems(ctx context.Context) error {
 	items, err := s.Store.ItemsToMirror(ctx)

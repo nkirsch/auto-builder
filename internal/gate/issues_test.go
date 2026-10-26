@@ -188,3 +188,51 @@ func TestIssueMirror(t *testing.T) {
 		t.Fatalf("calls =\n%q\nwant\n%q", calls, want)
 	}
 }
+
+// File opens the issue first so the item takes its number; private items and
+// a failed issue fall back to the board's next number.
+func TestFileTakesIssueNumber(t *testing.T) {
+	ctx := context.Background()
+	st := testStore(t)
+	next, fail := 41, false
+	var bodies []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method+" "+r.URL.Path != "POST /repos/o/r/issues" || fail {
+			http.Error(w, "nope", http.StatusBadGateway)
+			return
+		}
+		var in map[string]string
+		json.NewDecoder(r.Body).Decode(&in)
+		bodies = append(bodies, in["body"])
+		next++
+		fmt.Fprintf(w, `{"number":%d}`, next)
+	}))
+	defer srv.Close()
+	s := &IssueSync{Store: st, GitHub: github.New(srv.URL, "t"), Repo: "o/r", BaseURL: "https://b.example"}
+
+	if id, err := s.File(ctx, "Dark mode", "see #3", "alice", false, false); err != nil || id != 42 {
+		t.Fatalf("filed %d %v", id, err)
+	}
+	if it, _ := st.Item(ctx, 42); it.IssueNumber == nil || *it.IssueNumber != 42 || it.HumanActivityAt.Unix() == 0 {
+		t.Fatalf("item %+v", it)
+	}
+	if len(bodies) != 1 || bodies[0] != "see [#3](https://b.example/items/3)\n\n_Filed on the [board](https://b.example/) by **alice**._" {
+		t.Errorf("issue body %q", bodies)
+	}
+	if id, err := s.File(ctx, "Split out", "", "builder-bot", true, false); err != nil || id != 43 {
+		t.Fatalf("bot item %d %v", id, err)
+	}
+	if it, _ := st.Item(ctx, 43); it.HumanActivityAt.Unix() != 0 {
+		t.Error("bot item counts as human activity")
+	}
+	if id, err := s.File(ctx, "Secret", "", "alice", false, true); err != nil || id != 44 || len(bodies) != 2 {
+		t.Fatalf("private item %d %v, issues %d", id, err, len(bodies))
+	}
+	fail = true
+	if id, err := s.File(ctx, "GitHub down", "", "alice", false, false); err != nil || id != 45 {
+		t.Fatalf("fallback %d %v", id, err)
+	}
+	if it, _ := st.Item(ctx, 45); it.IssueNumber != nil {
+		t.Errorf("fallback item has an issue: %+v", it)
+	}
+}

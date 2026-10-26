@@ -164,6 +164,13 @@ syncs issues (the App needs Issues read & write):
   (`items.issue_number`, human activity, unapproved unless an admin approves;
   the body ends with a link to the issue). Issues and comments by non-members
   are ignored: the repo is public.
+- Item numbers follow issue numbers: an item filed on the board (or by the
+  agent's `file_item`) opens its issue first and takes the issue's number
+  (footer "Filed on the board by …"), and an imported issue keeps its number,
+  whenever that number is free on the board. PRs share GitHub's numbering, so
+  the board has gaps; a private item, a failed issue, or a number already
+  taken (older items, a race) takes the board's next number instead, and the
+  sequence always moves past every item.
 - Member comments on an imported issue become replies
   (`responses.issue_comment_id`, human activity, notifications as usual).
 - Board items are mirrored the other way (the admin chose: everything except

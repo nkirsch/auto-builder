@@ -9,7 +9,7 @@ limit. The shared agent builds the repo, and the result is deployed to
 Artifact Registry. `DESIGN.md` still describes how a single board behaves.
 This file covers only what changes for multiple tenants.
 
-Status (2026-10-25): build order steps 1–3 done (`internal/tenant`, `cmd/builder/tenancy.go`). The code lives here, off unless `TENANCY=on`,
+Status (2026-10-25): build order steps 1–3a done (`internal/tenant`, `cmd/builder/tenancy.go`). The code lives here, off unless `TENANCY=on`,
 so single-board deploys and site forks are unchanged. `kirsch/extreme` is a
 fork that owns only its settings and docs and deploys this mode. Done for it:
 GitHub org `extreme-dot-org` and its App, Cloud DNS zone `extreme-org`,
@@ -127,7 +127,7 @@ All done for extreme.org (2026-10-25):
    overrides, repo-scoped App tokens (`MintFor`), `/build-board` embedded at the
    module root (`commands.go`) for repos without one, global cap and spend via
    `gate.Hold`. Tenants without a Shipper until step 4.
-3a. Item numbers follow issue numbers, on every board.
+3a. Item numbers follow issue numbers, on every board. Done (`IssueSync.File`).
 4. Provisioner + template repo.
 5. Bootstrap, DNS cutover, first tenant.
 

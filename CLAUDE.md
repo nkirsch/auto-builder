@@ -9,5 +9,5 @@ Board-wide docs go in `.claude/board.md`, not here, so forks pick them up
 without conflicts.
 
 GCP project `nkirsch-auto-builder`, region `us-central1`, host
-`builder.nick.org`. `BASE_URL` has no path, so the board is at `/` and the
+`builder.extreme.org`. `BASE_URL` has no path, so the board is at `/` and the
 site isn't served.

@@ -88,10 +88,11 @@ type hub struct {
 	tmpl    map[string]*template.Template
 	host    string // BASE_URL's host; apps live on <slug>.<host>
 
-	launcher    gate.EnvLauncher // the shared runner job
-	provisioner gate.EnvLauncher // the provision job
-	upstream    *gate.Upstream   // nil unless the platform repo has an upstream
-	app         *github.App      // nil when the GitHub App isn't configured
+	launcher    gate.EnvLauncher         // the shared runner job
+	provisioner gate.EnvLauncher         // the provision job
+	upstream    *gate.Upstream           // nil unless the platform repo has an upstream
+	appBase     func(slug string) string // tests: where apps are served instead of <slug>.<host>
+	app         *github.App              // nil when the GitHub App isn't configured
 	notify      *notify.Pushover
 
 	mu      sync.Mutex

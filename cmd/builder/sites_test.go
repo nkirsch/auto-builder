@@ -79,6 +79,13 @@ func TestHubSites(t *testing.T) {
 	}))
 	defer remote.Close()
 	h.cfg.Sites, h.cfg.StatsToken = []remoteSite{{Name: "momo", URL: remote.URL}}, "tok"
+	app := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/alpha/health" {
+			json.NewEncoder(w).Encode(map[string]string{"status": "ok", "sha": "aaa1111bbb"})
+		}
+	}))
+	defer app.Close()
+	h.appBase = func(slug string) string { return app.URL + "/" + slug }
 	srv := h.routes()
 	if w := do(h, srv, "nkirsch", "POST", "/new", url.Values{"slug": {"alpha"}, "name": {"Alpha"}}); w.Code != 303 {
 		t.Fatalf("create: %d", w.Code)
@@ -94,7 +101,8 @@ func TestHubSites(t *testing.T) {
 	w := do(h, srv, "nkirsch", "GET", "/admin/sites", nil)
 	body := w.Body.String()
 	for _, want := range []string{
-		`<a href="/alpha/"><b>Alpha</b></a> <span class="muted">app</span>`, "v26.10.25-9", `<td class="num">1</td>`,
+		`<a href="/alpha/"><b>alpha</b></a> <span class="muted">Alpha</span> · <a href="` + app.URL + `/alpha">site</a>`,
+		"aaa1111", `<td class="num">1</td>`,
 		`<a href="` + remote.URL + `/"><b>momo</b></a>`, "v26.10.20-1", `<td class="num">4</td>`, "$2.25", "<b>$2.25</b>",
 		`<a href="/admin/sites">Sites</a>`,
 	} {

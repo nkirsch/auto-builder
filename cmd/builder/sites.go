@@ -85,6 +85,7 @@ func parseSites(v string) ([]remoteSite, error) {
 // siteRow is one line of the all-sites page.
 type siteRow struct {
 	Name, Board string
+	Slug, Site  string // hub apps: the slug and the app's own URL
 	App         bool   // a hub app, read from its store; else a remote single board
 	Health      string // "ok", or why not
 	Stats       siteStats
@@ -135,6 +136,14 @@ func fetchSite(ctx context.Context, c *http.Client, s remoteSite, token string) 
 	return row
 }
 
+// appURL is where an app is served.
+func (h *hub) appURL(slug string) string {
+	if h.appBase != nil {
+		return h.appBase(slug)
+	}
+	return "https://" + slug + "." + h.host
+}
+
 // sites is the platform admin's view of every board: the hub's apps and the SITES list.
 func (h *hub) sites(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 8*time.Second)
@@ -146,23 +155,36 @@ func (h *hub) sites(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var rows []siteRow
+	var wg sync.WaitGroup
+	client := &http.Client{Timeout: 5 * time.Second}
 	for _, t := range tenants {
 		if t.Status == "deleted" {
 			continue
 		}
-		row := siteRow{Name: t.Name, Board: "/" + t.Slug + "/", App: true, Health: t.Status}
+		row := siteRow{Name: t.Name, Slug: t.Slug, Site: h.appURL(t.Slug), Board: "/" + t.Slug + "/", App: true, Health: t.Status}
 		if st, err := h.reg.Store(ctx, t.Slug); err != nil {
 			row.Health = err.Error()
-		} else if row.Stats, err = statsFor(ctx, st, h.cfg.Version, h.cfg.GitSHA); err != nil {
+		} else if row.Stats, err = statsFor(ctx, st, "", ""); err != nil {
 			row.Health = err.Error()
 		} else {
 			row.Detail = true
 		}
 		rows = append(rows, row)
 	}
+	// A ready app's health and version are its own service's, like a board's.
+	for i := range rows {
+		if rows[i].Health != "ready" {
+			continue
+		}
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			live := fetchSite(ctx, client, remoteSite{URL: rows[i].Site}, "")
+			rows[i].Health, rows[i].Stats.GitSHA = live.Health, live.Stats.GitSHA
+		}()
+	}
+	wg.Wait()
 	remote := make([]siteRow, len(h.cfg.Sites))
-	var wg sync.WaitGroup
-	client := &http.Client{Timeout: 5 * time.Second}
 	for i, s := range h.cfg.Sites {
 		wg.Add(1)
 		go func() {

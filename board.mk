@@ -29,6 +29,8 @@ vet:
 
 test: db-up
 	TEST_DATABASE_URL="$(TEST_DB)" go test -p 1 ./...
+	@psql "$(TEST_DB)" -qc 'CREATE SCHEMA IF NOT EXISTS t_test'
+	TEST_DATABASE_URL="$(TEST_DB)&search_path=t_test" go test -p 1 ./...
 
 # Forks: merge upstream, keeping fork-owned files (.gitattributes) on conflict.
 merge-upstream:

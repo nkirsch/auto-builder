@@ -9,7 +9,7 @@ limit. The shared agent builds the repo, and the result is deployed to
 Artifact Registry. `DESIGN.md` still describes how a single board behaves.
 This file covers only what changes for multiple tenants.
 
-Status (2026-10-25): design only. The code lives here, off unless `TENANCY=on`,
+Status (2026-10-25): build order step 1 done (`internal/tenant`). The code lives here, off unless `TENANCY=on`,
 so single-board deploys and site forks are unchanged. `kirsch/extreme` is a
 fork that owns only its settings and docs and deploys this mode. Done for it:
 GitHub org `extreme-dot-org` and its App, Cloud DNS zone `extreme-org`,
@@ -19,14 +19,14 @@ extreme.org verified in Search Console, secrets `extreme-<NAME>`.
 
 | Topic | Decision |
 |---|---|
-| Tenant | One app = one repo = one board. Slug `[a-z][a-z0-9-]{1,20}`, reserved: `www api auth admin mcp static health x`. |
+| Tenant | One app = one repo = one board. Slug `[a-z][a-z0-9-]{1,20}`, no trailing `-` (it's a DNS label); reserved: `www api auth admin mcp static health x new`. |
 | Hosts | Hub and every board on `extreme.org` (`/` hub, `/<slug>/…` board). Apps on `<slug>.extreme.org`. Agent-written apps never share a host with the boards; the session cookie is `__Host-session` (host-only, no `Domain`), so subdomains can neither read nor toss it. |
-| Sign-in | One GitHub App OAuth callback, `https://extreme.org/auth/callback`; one session across all boards. Membership and role are per tenant; `platform admins` (control table) can create tenants. |
+| Sign-in | GitHub (the App's OAuth callback `https://extreme.org/auth/callback`) and Google (`/auth/google/callback`, the client shared with the single boards); one session across all boards. Membership and role are per tenant; `platform admins` (control table) can create tenants. |
 | Tenant data | Postgres schema per tenant (`t_<slug>`) in database `extreme` on the existing `builder` Cloud SQL instance. The existing migrations run per schema; `db.Store` is unchanged and gets a pool with `search_path=t_<slug>` (lazy, `MaxConns` 2, idle conns closed after 1 min). Item numbers stay per tenant. Control tables live in schema `control`. |
 | Runs | One active run per tenant (existing `runs_one_active`, per schema); global cap `MAX_RUNS` (default 3) across tenants. Shared job `extreme-runner`. |
 | Runner auth | Per-run token instead of shared `RUNNER_TOKEN`: the launcher mints 32 random bytes, stores the SHA-256 in `control.run_tokens (hash, tenant, run_id, expires_at)` and passes `RUN_TOKEN` as a job env override. Runner API and `/mcp` resolve the token to (tenant, run), so one tenant's agent can't touch another's board. Expires when the run finishes or after 70 min. |
 | GitHub | Dedicated org `extreme-dot-org` holding only tenant repos; one GitHub App installed on all its repos. Installation tokens are minted with `repositories: [<repo>]` so a run's token reaches only its repo. The platform repo `kirsch/extreme` deploys the hub and isn't a tenant at first. |
-| Agent command | `build-board.md` is embedded in the runner and written to `~/.claude/commands/` in the job, so tenant repos don't carry it. The repo's `CLAUDE.md` names its own checks (the default template: `go vet ./... && go test ./...`). |
+| Agent command | `build-board.md` is embedded in the runner and written to `~/.claude/commands/` in the job, so tenant repos don't carry it. The repo's `CLAUDE.md` names its own checks (the template's: `hugo --minify && go vet ./... && go test ./...`). |
 | Routing | Cloud Run domain mapping per app (`<slug>.extreme.org` → service `x-<slug>`) plus a Cloud DNS CNAME to `ghs.googlehosted.com`. Certs take 15–60 min after the first mapping. |
 | DNS | Registration stays at Joker; nameservers move to a Cloud DNS zone `extreme-org` in `nkirsch-auto-builder`. Apex = hub (domain mapping A/AAAA); `www` keeps its current record until replaced. |
 | Shipping | `merged` → `shipped` when the app's Cloud Run service's latest ready revision has a `GIT_SHA` env that contains `merge_sha` (compare API), not the server's own SHA. The server SA gets `run.viewer`. |
@@ -45,7 +45,7 @@ Created by the provisioner (below). Each step is idempotent, and every name deri
 | Bucket prefix | `gs://nkirsch-auto-builder-apps/<slug>/` | env `GCS_BUCKET`, `GCS_PREFIX` |
 | Secrets | `x-<slug>-<NAME>` for names listed on the tenant's admin page | created as `unset`, then filled by hand with `gcloud secrets versions add` (v1) |
 | Domain | mapping `<slug>.extreme.org`, CNAME in zone `extreme-org` | — |
-| Repo | `<org>/<repo>` from template `<org>/extreme-template` (Go server, CI, deploy workflow using repo variables the provisioner sets) | App installation covers it (all repos) |
+| Repo | `<org>/<repo>` from template `<org>/extreme-template` (Hugo site served by a small Go server, as on the family sites; CI; deploy workflow using repo variables the provisioner sets) | App installation covers it (all repos) |
 
 ## Provisioner
 
@@ -109,13 +109,13 @@ control.tenant_secrets (tenant, name, PK(tenant,name))
 2. Run `infra/bootstrap.sh` (creates Cloud DNS zone), then set Joker's
    nameservers for extreme.org to the zone's four `ns-cloud-*` servers.
 3. Verify extreme.org in Search Console; add `extreme-provisioner@` as owner.
-4. Fill secrets `extreme-<NAME>` (`GITHUB_CLIENT_*`, `GH_APP_*`, `ANTHROPIC_API_KEY`);
+4. Fill secrets `extreme-<NAME>` (`GITHUB_CLIENT_*`, `GOOGLE_CLIENT_*`, `GH_APP_*`, `ANTHROPIC_API_KEY`);
    unprefixed names are the single board's.
 
 ## Build order
 
 1. Control schema + tenant registry + schema-per-tenant pools; existing
-   tests pass against a `t_test` schema.
+   tests pass against a `t_test` schema (CI runs the suite twice). Done.
 2. Path-prefixed board, hub, auth changes; run locally with two tenants.
 3. Per-run tokens, gate loop, runner changes.
 4. Provisioner + template repo.

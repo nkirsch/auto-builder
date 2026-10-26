@@ -37,8 +37,14 @@ func Open(ctx context.Context, url string) (*pgxpool.Pool, error) {
 }
 
 // Migrate applies each embedded migration not yet in schema_migrations, in
-// filename order, one transaction per file.
+// filename order, one transaction per file. Tables land in the pool's
+// search_path schema, so a tenant's pool migrates its own schema.
 func Migrate(ctx context.Context, pool *pgxpool.Pool) error {
+	return MigrateFS(ctx, pool, migrations, "migrations")
+}
+
+// MigrateFS applies dir/*.sql from fsys the way Migrate does.
+func MigrateFS(ctx context.Context, pool *pgxpool.Pool, fsys fs.FS, dir string) error {
 	conn, err := pool.Acquire(ctx)
 	if err != nil {
 		return err
@@ -56,13 +62,13 @@ func Migrate(ctx context.Context, pool *pgxpool.Pool) error {
 		return err
 	}
 
-	names, err := fs.Glob(migrations, "migrations/*.sql")
+	names, err := fs.Glob(fsys, dir+"/*.sql")
 	if err != nil {
 		return err
 	}
 	sort.Strings(names)
 	for _, name := range names {
-		version := strings.TrimSuffix(strings.TrimPrefix(name, "migrations/"), ".sql")
+		version := strings.TrimSuffix(strings.TrimPrefix(name, dir+"/"), ".sql")
 		var done bool
 		if err := conn.QueryRow(ctx,
 			`SELECT EXISTS (SELECT 1 FROM schema_migrations WHERE version = $1)`, version).Scan(&done); err != nil {
@@ -71,7 +77,7 @@ func Migrate(ctx context.Context, pool *pgxpool.Pool) error {
 		if done {
 			continue
 		}
-		sql, err := migrations.ReadFile(name)
+		sql, err := fs.ReadFile(fsys, name)
 		if err != nil {
 			return err
 		}

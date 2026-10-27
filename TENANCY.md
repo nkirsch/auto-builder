@@ -9,7 +9,7 @@ limit. The shared agent builds the repo, and the result is deployed to
 Artifact Registry. `DESIGN.md` still describes how a single board behaves.
 This file covers only what changes for multiple tenants.
 
-Status (2026-10-25): build order steps 1–4 done (`internal/tenant`, `cmd/builder/tenancy.go`). The code lives here, off unless `TENANCY=on`,
+Status (2026-10-26): build order steps 1–4 done, plus existing repos (below) (`internal/tenant`, `cmd/builder/tenancy.go`). The code lives here, off unless `TENANCY=on`,
 so single-board deploys and site forks are unchanged. `extreme-dot-org/extreme` is a
 fork that owns only its settings and docs and deploys this mode. Done for it:
 GitHub org `extreme-dot-org` and its App, Cloud DNS zone `extreme-org`,
@@ -32,6 +32,25 @@ extreme.org verified in Search Console, secrets `extreme-<NAME>`.
 | DNS | Registration stays at Joker; nameservers move to a Cloud DNS zone `extreme-org` in `nkirsch-auto-builder`. Apex = hub (domain mapping A/AAAA); `www` keeps its current record until replaced. |
 | Shipping | `merged` → `shipped` when the app's Cloud Run service's latest ready revision has a `GIT_SHA` env that contains `merge_sha` (compare API), not the server's own SHA. The server SA gets `run.viewer`. |
 | Spend | Per-tenant `settings.spend_limit_usd` as today, plus `control.settings.spend_limit_usd` across all tenants (default $50/30 days). |
+
+## Existing repos
+
+A hub can also take apps that already exist and deploy themselves (nick.org's
+hub: www, meet, parties, panic, fifty). `/new` with **Existing repo** creates
+the tenant `ready`, with `control.tenants.existing` set, and never starts the
+provisioner (which refuses one if asked). Such an app:
+
+- is served at `<slug>.<APP_DOMAIN>` like any app, so the slug matches its host (`www` for the platform's own site);
+- needs the hub's GitHub App installed on its repo, and a `CLAUDE.md` naming its checks;
+- ships when its `GET /health` JSON reports a `sha` (full `GIT_SHA`) containing the merge. The platform repo's own tenant ships on the hub's `GIT_SHA` instead, since the hub deploys with it;
+- gets the board's Release button when the hub sets `RELEASES=true` (items read "merged" until a release ships them);
+- on Delete, only leaves the hub (`deleted`); its repo, service and DNS stay.
+
+A single board becomes the platform repo's tenant by renaming its schema in
+the same database, with the old board stopped:
+`ALTER SCHEMA public RENAME TO t_<slug>; CREATE SCHEMA public;`, then adding
+it at `/new` as an existing repo with that slug. Items, members and runs keep
+their numbers.
 
 ## Per-app resources
 

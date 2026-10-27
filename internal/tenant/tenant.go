@@ -52,6 +52,8 @@ type Tenant struct {
 	CreatedAt                           time.Time
 	ProvisionedAt                       *time.Time
 	Error                               string
+	// Existing is a repo that deploys itself: never provisioned, ready from the start.
+	Existing bool
 }
 
 // Settings are the limits across all tenants.
@@ -138,7 +140,8 @@ func (r *Registry) Store(ctx context.Context, slug string) (*db.Store, error) {
 	return s, nil
 }
 
-// Create registers a tenant as provisioning and migrates its schema.
+// Create registers a tenant as provisioning, or an existing one as ready,
+// and migrates its schema.
 func (r *Registry) Create(ctx context.Context, t Tenant) error {
 	if err := ValidSlug(t.Slug); err != nil {
 		return err
@@ -150,19 +153,20 @@ func (r *Registry) Create(ctx context.Context, t Tenant) error {
 		t.Name = t.Slug
 	}
 	if _, err := r.Control.Exec(ctx,
-		`INSERT INTO tenants (slug, name, repo, created_by) VALUES ($1, $2, $3, $4)`,
-		t.Slug, strings.TrimSpace(t.Name), t.Repo, t.CreatedBy); err != nil {
+		`INSERT INTO tenants (slug, name, repo, created_by, existing, status, provisioned_at)
+		VALUES ($1, $2, $3, $4, $5, CASE WHEN $5 THEN 'ready' ELSE 'provisioning' END, CASE WHEN $5 THEN now() END)`,
+		t.Slug, strings.TrimSpace(t.Name), t.Repo, t.CreatedBy, t.Existing); err != nil {
 		return err
 	}
 	_, err := r.Store(ctx, t.Slug)
 	return err
 }
 
-const tenantCols = `slug, name, repo, status, created_by, created_at, provisioned_at, error`
+const tenantCols = `slug, name, repo, status, created_by, created_at, provisioned_at, error, existing`
 
 func scanTenant(row pgx.Row) (Tenant, error) {
 	var t Tenant
-	err := row.Scan(&t.Slug, &t.Name, &t.Repo, &t.Status, &t.CreatedBy, &t.CreatedAt, &t.ProvisionedAt, &t.Error)
+	err := row.Scan(&t.Slug, &t.Name, &t.Repo, &t.Status, &t.CreatedBy, &t.CreatedAt, &t.ProvisionedAt, &t.Error, &t.Existing)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return t, db.ErrNotFound
 	}

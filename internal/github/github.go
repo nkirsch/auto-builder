@@ -406,6 +406,31 @@ func (c *Client) Comment(ctx context.Context, repo string, n int, body string) (
 	return out.ID, err
 }
 
+// PinIssue pins issue n to the top of the repo's issues (GraphQL only).
+func (c *Client) PinIssue(ctx context.Context, repo string, n int) error {
+	var is struct {
+		NodeID string `json:"node_id"`
+	}
+	if err := c.do(ctx, http.MethodGet, fmt.Sprintf("/repos/%s/issues/%d", repo, n), nil, &is); err != nil {
+		return err
+	}
+	var out struct {
+		Errors []struct {
+			Message string `json:"message"`
+		} `json:"errors"`
+	}
+	if err := c.do(ctx, http.MethodPost, "/graphql", map[string]any{
+		"query":     `mutation($id: ID!) { pinIssue(input: {issueId: $id}) { issue { number } } }`,
+		"variables": map[string]string{"id": is.NodeID},
+	}, &out); err != nil {
+		return err
+	}
+	if len(out.Errors) > 0 {
+		return fmt.Errorf("github: pin issue %d: %s", n, out.Errors[0].Message)
+	}
+	return nil
+}
+
 // Reassign removes and then adds assignees on issue n; GitHub skips logins
 // that can't be assigned on the repo.
 func (c *Client) Reassign(ctx context.Context, repo string, n int, remove, add []string) error {

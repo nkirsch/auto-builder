@@ -2,6 +2,7 @@ package board
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -144,5 +145,48 @@ func TestAdminInviteLink(t *testing.T) {
 	if t.Failed() {
 		i := strings.Index(html, "mailto:")
 		t.Logf("%.600s", html[i:])
+	}
+}
+
+type stubWelcomer struct {
+	names, logins []string
+	err           error
+}
+
+func (s *stubWelcomer) Welcome(_ context.Context, name, login string) (int, error) {
+	s.names, s.logins = append(s.names, name), append(s.logins, login)
+	return 7, s.err
+}
+
+// A new member without an email (who'll sign in with GitHub) is welcomed on
+// GitHub; members with an email, and existing ones, aren't.
+func TestAddMemberWelcomesOnGitHub(t *testing.T) {
+	b, _ := dbBoard(t)
+	wel := &stubWelcomer{}
+	b.Welcomer = wel
+	add := func(login, email string) string {
+		r := httptest.NewRequest(http.MethodPost, "/admin/members", strings.NewReader(url.Values{
+			"login": {login}, "role": {"member"}, "email": {email}}.Encode()))
+		r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		r = r.WithContext(auth.WithMember(r.Context(), db.Member{Login: "nkirsch", Role: "admin"}))
+		w := httptest.NewRecorder()
+		b.addMember(w, r)
+		loc, _ := url.Parse(w.Header().Get("Location"))
+		return loc.Query().Get("m")
+	}
+	if got := add("@newbie", ""); got != "Saved newbie and welcomed them on GitHub issue #7" {
+		t.Errorf("flash %q", got)
+	}
+	add("newbie", "")
+	add("gmail", "g@example.org")
+	if len(wel.logins) != 1 || wel.logins[0] != "newbie" || wel.names[0] != "builder.example" {
+		t.Fatalf("welcomed %v as %v", wel.logins, wel.names)
+	}
+	wel.err = errors.New("boom")
+	if got := add("other", ""); !strings.Contains(got, "couldn't welcome them") {
+		t.Errorf("flash %q", got)
+	}
+	if _, err := b.Store.Member(context.Background(), "other"); err != nil {
+		t.Errorf("member not saved when the welcome failed: %v", err)
 	}
 }

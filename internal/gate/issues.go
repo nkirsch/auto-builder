@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net/http"
 	"regexp"
 	"strings"
 	"sync"
@@ -31,7 +32,8 @@ type IssueSync struct {
 	// Notified creates in-app notifications for an imported comment.
 	Notified func(ctx context.Context, it db.Item, actor, body string)
 
-	mu sync.Mutex // serialises Sync so overlapping syncs don't post a reply twice
+	mu        sync.Mutex // serialises Sync so overlapping syncs don't post a reply twice
+	welcomeMu sync.Mutex // serialises Welcome so it opens one Members issue
 }
 
 func (s *IssueSync) Sync(ctx context.Context) error {
@@ -247,4 +249,40 @@ func (s *IssueSync) closeIssues(ctx context.Context) error {
 		errs = append(errs, s.Store.MarkIssueClosed(ctx, it.ID))
 	}
 	return errors.Join(errs...)
+}
+
+// Welcome tells a member who signs in with GitHub that they're on the board
+// named name, by @-mentioning login on the repo's pinned Members issue
+// (GitHub has no direct messages; it notifies per the member's settings).
+// The App opens and pins that issue the first time, and again if it's gone.
+// It returns the issue's number.
+func (s *IssueSync) Welcome(ctx context.Context, name, login string) (int, error) {
+	s.welcomeMu.Lock()
+	defer s.welcomeMu.Unlock()
+	n, err := s.Store.MembersIssue(ctx)
+	if err != nil {
+		return 0, err
+	}
+	body := fmt.Sprintf("@%s, you're now a member of the %s board, where you can ask for changes and follow them as they're built: %s/\n\nSign in with GitHub as **%s**.",
+		login, name, s.BaseURL, login)
+	if n != 0 {
+		_, err := s.GitHub.Comment(ctx, s.Repo, n, body)
+		var se *github.StatusError
+		if !errors.As(err, &se) || (se.Code != http.StatusNotFound && se.Code != http.StatusGone) {
+			return n, err
+		}
+	}
+	n, err = s.GitHub.CreateIssue(ctx, s.Repo, "Members",
+		fmt.Sprintf("New members of the [%s board](%s/) are welcomed here with an @-mention, which GitHub notifies them of.", name, s.BaseURL))
+	if err != nil {
+		return 0, fmt.Errorf("open members issue: %w", err)
+	}
+	if err := s.GitHub.PinIssue(ctx, s.Repo, n); err != nil {
+		slog.Warn("pin members issue", "issue", n, "err", err)
+	}
+	if err := s.Store.SetMembersIssue(ctx, n); err != nil {
+		return n, err
+	}
+	_, err = s.GitHub.Comment(ctx, s.Repo, n, body)
+	return n, err
 }

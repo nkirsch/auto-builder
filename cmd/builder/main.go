@@ -236,7 +236,7 @@ func run() error {
 	g.Ship = &gate.Shipper{Store: st, GitHub: gh, Repo: cfg.Repo, GitSHA: cfg.GitSHA, Reply: b.BotReply}
 	if app != nil && cfg.IssueSync {
 		g.Issues = &gate.IssueSync{Store: st, GitHub: gh, Repo: cfg.Repo, BaseURL: cfg.BaseURL, Notified: b.Notified}
-		b.Filer = g.Issues
+		b.Filer, b.Welcomer = g.Issues, g.Issues
 	}
 	if app != nil && cfg.Upstream != "" {
 		g.Upstream = &gate.Upstream{State: st, GitHub: gh, Repo: cfg.Repo, Upstream: cfg.Upstream,

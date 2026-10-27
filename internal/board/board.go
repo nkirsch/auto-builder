@@ -49,6 +49,11 @@ type Filer interface {
 	File(ctx context.Context, title, body, author string, bot, private bool) (int, error)
 }
 
+// Welcomer @-mentions a new member on GitHub, returning the issue it used.
+type Welcomer interface {
+	Welcome(ctx context.Context, name, login string) (int, error)
+}
+
 // Board holds the board's dependencies.
 type Board struct {
 	Store    *db.Store
@@ -62,7 +67,9 @@ type Board struct {
 	Releases bool
 	Gate     Gate
 	// Filer, when set (issue sync), files items under their GitHub issue's number.
-	Filer    Filer
+	Filer Filer
+	// Welcomer, when set (issue sync), greets members without an email on GitHub.
+	Welcomer Welcomer
 	BaseURL  string
 	BotLogin string
 	GitSHA   string
@@ -880,6 +887,12 @@ func (b *Board) addMember(w http.ResponseWriter, r *http.Request) {
 		redirect(w, r, "/admin", "That email doesn't look right")
 		return
 	}
+	_, err := b.Store.Member(r.Context(), login)
+	isNew := errors.Is(err, db.ErrNotFound)
+	if err != nil && !isNew {
+		b.fail(w, err)
+		return
+	}
 	if err := b.Store.UpsertMember(r.Context(), login, role, auth.Member(r.Context()).Login); err != nil {
 		b.fail(w, err)
 		return
@@ -893,16 +906,36 @@ func (b *Board) addMember(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	if isNew && email == "" && b.Welcomer != nil {
+		// They'll sign in with GitHub, which has no DMs: an @-mention notifies them.
+		n, err := b.Welcomer.Welcome(r.Context(), b.name(), login)
+		if err != nil {
+			slog.Warn("welcome member", "login", login, "err", err)
+			redirect(w, r, "/admin", "Saved "+login+", but couldn't welcome them on GitHub; send an Invite instead")
+			return
+		}
+		redirect(w, r, "/admin", fmt.Sprintf("Saved %s and welcomed them on GitHub issue #%d", login, n))
+		return
+	}
 	redirect(w, r, "/admin", "Saved "+login)
+}
+
+// name is the board's name for invitations: b.Name, else BaseURL's host.
+func (b *Board) name() string {
+	if b.Name != "" {
+		return b.Name
+	}
+	u, _ := url.Parse(b.BaseURL)
+	if u == nil {
+		return ""
+	}
+	return u.Host
 }
 
 // invite is a mailto: link telling m they're a member and how to sign in,
 // addressed to m.Email when set (else the admin fills in the address).
 func (b *Board) invite(m db.Member) string {
-	name := b.Name
-	if u, err := url.Parse(b.BaseURL); name == "" && err == nil {
-		name = u.Host
-	}
+	name := b.name()
 	how := "Sign in with GitHub as " + m.Login + "."
 	if m.Email != "" {
 		how = "Sign in with Google as " + m.Email + "."

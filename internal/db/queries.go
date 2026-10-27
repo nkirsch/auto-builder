@@ -1017,3 +1017,14 @@ func (s *Store) SetUpstreamPR(ctx context.Context, pr int) error {
 	_, err := s.Pool.Exec(ctx, `UPDATE settings SET upstream_pr = nullif($1, 0)`, pr)
 	return err
 }
+
+// MembersIssue is the GitHub issue new members are welcomed on, 0 before the first.
+func (s *Store) MembersIssue(ctx context.Context) (int, error) {
+	var n int
+	err := s.Pool.QueryRow(ctx, `SELECT coalesce(members_issue, 0) FROM settings`).Scan(&n)
+	return n, err
+}
+
+func (s *Store) SetMembersIssue(ctx context.Context, n int) error {
+	return s.execOne(ctx, `UPDATE settings SET members_issue = nullif($1, 0)`, n)
+}

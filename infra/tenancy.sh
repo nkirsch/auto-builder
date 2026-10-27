@@ -18,7 +18,7 @@ ADMIN_LOGIN=${ADMIN_LOGIN:-nkirsch}
 ADMIN_EMAIL=${ADMIN_EMAIL:-nick@kirsch.org}
 # Single-board sites on the hub's /admin/sites page (space-separated name=board URL);
 # each mounts the shared STATS_TOKEN secret, which this project holds.
-SITES=${SITES-builder=https://builder.extreme.org nick.org=https://www.nick.org/iterate momo=https://momo.kirsch.org/iterate katrina=https://katrina.kirsch.org/iterate youkoh.org=https://www.youkoh.org/iterate}
+SITES=${SITES-builder=https://builder.extreme.org momo=https://momo.kirsch.org/iterate katrina=https://katrina.kirsch.org/iterate youkoh.org=https://youkoh.kirsch.org/iterate}
 # Claude auth for the runner: the comma-separated ANTHROPIC_* IDs printed by
 # kirsch/home infrastructure/claude-wif/provision.sh gcp (Workload Identity
 # Federation); the job gets them as env and no API key. Defaults to rule

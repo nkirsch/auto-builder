@@ -408,7 +408,7 @@ func (h *hub) tenantFor(ctx context.Context, slug string) (*tenantRT, error) {
 	ta := h.auth.ForTenant(st, prefix)
 	b := &board.Board{
 		Store: st, Storage: storage, Auth: ta, Gate: g, BaseURL: base,
-		BotLogin: h.cfg.BotLogin, GitSHA: h.cfg.GitSHA, Repo: t.Repo, GitHub: gh,
+		BotLogin: h.cfg.BotLogin, GitSHA: h.cfg.GitSHA, Repo: t.Repo, CodeRepo: h.cfg.Repo, GitHub: gh,
 		Name: t.Name, SiteURL: h.appURL(slug), Releases: h.cfg.Releases,
 		Platform: hubPlatform{h, slug},
 	}
@@ -576,8 +576,9 @@ func (h *hub) index(w http.ResponseWriter, r *http.Request) {
 func (h *hub) newApp(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	h.render(w, r, "new", "New app", map[string]any{
-		"Slug": q.Get("slug"), "Name": q.Get("name"), "Repo": q.Get("repo"), "Existing": q.Get("existing") == "on",
-		"Org": h.cfg.TenantOrg, "Host": h.host})
+		"Slug": q.Get("slug"), "Name": q.Get("name"), "Repo": q.Get("repo"), "Existing": q.Get("existing") == "on" || h.cfg.ProvisionJob == "",
+		"Provisions": h.cfg.ProvisionJob != "",
+		"Org":        h.cfg.TenantOrg, "Host": h.host})
 }
 
 // create registers the app, makes its creator the board's admin and starts
@@ -587,7 +588,8 @@ func (h *hub) create(w http.ResponseWriter, r *http.Request) {
 	slug := strings.TrimSpace(r.FormValue("slug"))
 	name := strings.TrimSpace(r.FormValue("name"))
 	repo := strings.TrimSpace(r.FormValue("repo"))
-	existing := r.FormValue("existing") == "on"
+	// Without a provision job, every app is an existing repo.
+	existing := r.FormValue("existing") == "on" || h.cfg.ProvisionJob == ""
 	if repo == "" && h.cfg.TenantOrg != "" && !existing {
 		repo = h.cfg.TenantOrg + "/" + slug
 	}

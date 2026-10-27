@@ -41,6 +41,7 @@ func testHub(t *testing.T) *hub {
 		ClientID: "gh", GoogleClientID: "g", BotLogin: "builder-bot", TenantOrg: "extreme-dot-org",
 		Version: "v26.10.25-9", Repo: "kirsch/extreme",
 		AdminLogin: "nkirsch", AdminEmail: "nick@example.org", TickToken: "tick", IdleHours: 6,
+		ProvisionJob: "extreme-provision",
 	}
 	h, err := newHub(ctx, cfg, reg, store.Dir(t.TempDir()))
 	if err != nil {
@@ -399,6 +400,12 @@ func TestHubExisting(t *testing.T) {
 		}
 	}
 
+	// The footer's version and commit link the hub's repo, not the app's.
+	w = do(h, srv, "nick@example.org", "GET", "/beta/", nil)
+	if !strings.Contains(w.Body.String(), "github.com/kirsch/extreme/commit/abc1234") || strings.Contains(w.Body.String(), "someone/beta/commit") {
+		t.Errorf("tenant footer: %s", w.Body.String())
+	}
+
 	// Deleting one only drops it from the hub.
 	if w := do(h, srv, "nkirsch", "POST", "/admin/tenants/beta/delete", url.Values{"confirm": {"beta"}}); w.Code != 303 {
 		t.Fatalf("delete: %d", w.Code)
@@ -408,5 +415,27 @@ func TestHubExisting(t *testing.T) {
 	}
 	if len(prov.launches) != 0 {
 		t.Errorf("provisioner ran for existing apps: %v", prov.launches)
+	}
+}
+
+func TestHubWithoutProvisioner(t *testing.T) {
+	ctx := context.Background()
+	h := testHub(t)
+	h.cfg.ProvisionJob = ""
+	prov := &fakeJob{}
+	h.provisioner = prov
+	srv := h.routes()
+	if w := do(h, srv, "nkirsch", "GET", "/new", nil); strings.Contains(w.Body.String(), `name="existing"`) ||
+		!strings.Contains(w.Body.String(), "doesn't provision") {
+		t.Errorf("new page offers provisioning: %s", w.Body.String())
+	}
+	if w := do(h, srv, "nkirsch", "POST", "/new", url.Values{"slug": {"alpha"}, "repo": {"someone/alpha"}}); w.Code != 303 {
+		t.Fatalf("create: %d %q", w.Code, w.Header().Get("Location"))
+	}
+	if tn, err := h.reg.Tenant(ctx, "alpha"); err != nil || !tn.Existing || tn.Status != "ready" {
+		t.Errorf("alpha %+v %v", tn, err)
+	}
+	if len(prov.launches) != 0 {
+		t.Errorf("provisioner ran: %v", prov.launches)
 	}
 }

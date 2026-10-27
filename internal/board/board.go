@@ -3,6 +3,7 @@
 package board
 
 import (
+	"cmp"
 	"context"
 	"crypto/rand"
 	"encoding/hex"
@@ -74,6 +75,9 @@ type Board struct {
 	BotLogin string
 	GitSHA   string
 	Repo     string
+	// CodeRepo, when set (a hub's tenant board), is the repo GitSHA and the
+	// version belong to, for the footer; Repo is the one the board builds.
+	CodeRepo string
 	// Name and SiteURL, when set (a multi-tenant app's board), replace the
 	// brand's name and add a Site link.
 	Name    string
@@ -233,7 +237,7 @@ func (b *Board) render(w http.ResponseWriter, r *http.Request, name, title strin
 		return
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	p := page{Me: me, Unread: unread, Title: title, GitSHA: b.GitSHA, Repo: b.Repo, Flash: r.URL.Query().Get("m"),
+	p := page{Me: me, Unread: unread, Title: title, GitSHA: b.GitSHA, Repo: cmp.Or(b.CodeRepo, b.Repo), Flash: r.URL.Query().Get("m"),
 		BotName: b.BotLogin, Theme: theme(r), Path: r.URL.RequestURI(), BaseURL: strings.TrimSuffix(b.BaseURL, "/"),
 		AppName: b.Name, SiteURL: b.SiteURL, Data: data}
 	p.Version = b.Version()

@@ -47,6 +47,9 @@ func TestEscalate(t *testing.T) {
 	b.Store.UpsertMember(ctx, "kat", "admin", "nkirsch")
 	b.Store.SetMemberEmail(ctx, "kat", "kat@example.org")
 	b.Store.UpsertMember(ctx, "alice", "member", "nkirsch")
+	// nkirsch has an email but is GitHub too, so he's still assigned by login.
+	b.Store.SetMemberEmail(ctx, "nkirsch", "nick@example.org")
+	b.Store.SetMemberGitHub(ctx, "nkirsch", true)
 	nick, _ := b.Store.Member(ctx, "nkirsch")
 	alice, _ := b.Store.Member(ctx, "alice")
 	id, _ := b.Store.CreateItem(ctx, "Site down", "", "alice")

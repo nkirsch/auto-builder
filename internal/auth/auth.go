@@ -156,7 +156,7 @@ func (a *Auth) member(ctx context.Context, identity string) (db.Member, error) {
 	}
 	m, err := a.store.Member(ctx, identity)
 	// A member with an email may be a made-up handle that a stranger owns on GitHub.
-	if err == nil && a.cfg.Multi && m.Email != "" {
+	if err == nil && a.cfg.Multi && !m.GitHubSignIn() {
 		return m, errGoogleOnly
 	}
 	return m, err
@@ -411,7 +411,7 @@ func (a *Auth) handleCallback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// A member with an email may be a made-up handle that a stranger owns on GitHub.
-	if m, err := a.store.Member(r.Context(), user.Login); err == nil && m.Email != "" {
+	if m, err := a.store.Member(r.Context(), user.Login); err == nil && !m.GitHubSignIn() {
 		w.WriteHeader(http.StatusForbidden)
 		fmt.Fprintf(w, "%s signs in with Google.\n", user.Login)
 		return

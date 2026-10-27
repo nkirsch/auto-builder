@@ -24,9 +24,9 @@ type Platform interface {
 
 // assignee is how an item records a member it's assigned to: the GitHub
 // login, so the item's issue can be assigned to them, or for a member who
-// signs in with Google (whose login may be made up) their address.
+// signs in with Google only (whose login may be made up) their address.
 func assignee(m db.Member) string {
-	if m.Email != "" {
+	if !m.GitHubSignIn() {
 		return m.Email
 	}
 	return m.Login

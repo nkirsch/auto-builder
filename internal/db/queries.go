@@ -36,15 +36,23 @@ type Member struct {
 	Name      string
 	AvatarURL string
 	Email     string // Google sign-in address; "" for GitHub-only members
-	AddedBy   string
-	AddedAt   time.Time
-	LastSeen  *time.Time
+	// GitHub: a member with an email whose login is also their GitHub
+	// account, so they may sign in with either.
+	GitHub   bool
+	AddedBy  string
+	AddedAt  time.Time
+	LastSeen *time.Time
 	// AutoApprove (admins only): their new asks, and items the agent files
 	// from their comments, start approved.
 	AutoApprove bool
 }
 
 func (m Member) IsAdmin() bool { return m.Role == "admin" }
+
+// GitHubSignIn reports whether m may sign in with GitHub as their login: a
+// member with an email only when the admin said the login is theirs there (it
+// may be a made-up handle someone else owns).
+func (m Member) GitHubSignIn() bool { return m.Email == "" || m.GitHub }
 
 // Avatar returns AvatarURL sized for a 24px image: GitHub takes s=, Google =sN.
 func (m Member) Avatar() string {
@@ -221,11 +229,11 @@ func notFound(err error) error {
 
 // Members
 
-const memberCols = `login, role, name, avatar_url, email, added_by, added_at, last_seen, auto_approve`
+const memberCols = `login, role, name, avatar_url, email, github, added_by, added_at, last_seen, auto_approve`
 
 func scanMember(row pgx.Row) (Member, error) {
 	var m Member
-	err := row.Scan(&m.Login, &m.Role, &m.Name, &m.AvatarURL, &m.Email, &m.AddedBy, &m.AddedAt, &m.LastSeen, &m.AutoApprove)
+	err := row.Scan(&m.Login, &m.Role, &m.Name, &m.AvatarURL, &m.Email, &m.GitHub, &m.AddedBy, &m.AddedAt, &m.LastSeen, &m.AutoApprove)
 	return m, notFound(err)
 }
 
@@ -268,6 +276,12 @@ func (s *Store) SetMemberEmail(ctx context.Context, login, email string) error {
 		return ErrEmailTaken
 	}
 	return err
+}
+
+// SetMemberGitHub says whether a member with an email may also sign in with
+// GitHub as their login.
+func (s *Store) SetMemberGitHub(ctx context.Context, login string, on bool) error {
+	return s.execOne(ctx, `UPDATE members SET github = $2 WHERE lower(login) = lower($1)`, login, on)
 }
 
 // SetAutoApprove turns auto-approve on or off for a member.

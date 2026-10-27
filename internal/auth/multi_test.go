@@ -74,13 +74,16 @@ func TestMultiSignIn(t *testing.T) {
 }
 
 // A board resolves the session's identity: an address by member email, a
-// login by member login unless that member signs in with Google.
+// login by member login unless that member signs in with Google only.
 func TestMultiRequire(t *testing.T) {
 	ctx := context.Background()
 	_, st := dbAuth(t)
 	st.UpsertMember(ctx, "katrina", "member", "test")
 	st.SetMemberEmail(ctx, "katrina", "katrina@example.com")
 	st.UpsertMember(ctx, "octocat", "member", "test")
+	st.UpsertMember(ctx, "nkirsch", "admin", "test")
+	st.SetMemberEmail(ctx, "nkirsch", "nick@example.com")
+	st.SetMemberGitHub(ctx, "nkirsch", true)
 	a, err := New(Config{BaseURL: "https://hub.example", SessionKey: []byte("0123456789abcdef"),
 		Multi: true, Users: fakeUsers{"octocat": "Octo"}}, nil)
 	if err != nil {
@@ -92,7 +95,8 @@ func TestMultiRequire(t *testing.T) {
 	}))
 	for identity, want := range map[string]string{
 		"katrina@example.com": "200 katrina", "KATRINA@example.com": "200 katrina",
-		"octocat": "200 octocat", "katrina": "403", "stranger": "403", "": "302",
+		"octocat": "200 octocat", "katrina": "403",
+		"nkirsch": "200 nkirsch", "nick@example.com": "200 nkirsch", "stranger": "403", "": "302",
 	} {
 		r := httptest.NewRequest(http.MethodGet, "/", nil)
 		if identity != "" {

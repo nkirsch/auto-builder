@@ -110,13 +110,18 @@ func TestGoogleSignInByEmail(t *testing.T) {
 	}
 }
 
+// A member with an email signs in with GitHub only when marked GitHub too.
 func TestGitHubSignInRefusedForEmailMember(t *testing.T) {
 	ctx := context.Background()
 	a, st := dbAuth(t)
 	st.UpsertMember(ctx, "katrina", "member", "test")
 	st.SetMemberEmail(ctx, "katrina", "katrina@example.com")
 	st.UpsertMember(ctx, "octocat", "member", "test")
-	for login, want := range map[string]int{"katrina": http.StatusForbidden, "octocat": http.StatusFound} {
+	// nkirsch's login is his GitHub account too, so either works.
+	st.UpsertMember(ctx, "nkirsch", "admin", "test")
+	st.SetMemberEmail(ctx, "nkirsch", "nick@example.com")
+	st.SetMemberGitHub(ctx, "nkirsch", true)
+	for login, want := range map[string]int{"katrina": http.StatusForbidden, "octocat": http.StatusFound, "nkirsch": http.StatusFound} {
 		srv := fakeProvider(t, map[string]string{"login": login})
 		a.oauth.Endpoint.TokenURL = srv.URL + "/token"
 		a.api = srv.URL

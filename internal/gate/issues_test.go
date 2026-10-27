@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"strings"
 	"sync"
 	"testing"
 
@@ -234,5 +235,64 @@ func TestFileTakesIssueNumber(t *testing.T) {
 	}
 	if it, _ := st.Item(ctx, 45); it.IssueNumber != nil {
 		t.Errorf("fallback item has an issue: %+v", it)
+	}
+}
+
+// Welcome opens and pins the Members issue once, mentions each member there,
+// and opens a new one if it was deleted.
+func TestWelcome(t *testing.T) {
+	ctx := context.Background()
+	st := testStore(t)
+	st.SetMembersIssue(ctx, 0)
+	next, gone := 50, 0
+	var calls, comments []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls = append(calls, r.Method+" "+r.URL.Path)
+		switch p := r.Method + " " + r.URL.Path; {
+		case p == "POST /repos/o/r/issues":
+			next++
+			fmt.Fprintf(w, `{"number":%d}`, next)
+		case p == fmt.Sprintf("GET /repos/o/r/issues/%d", next):
+			fmt.Fprintf(w, `{"node_id":"I_%d"}`, next)
+		case p == "POST /graphql":
+			b, _ := io.ReadAll(r.Body)
+			if !strings.Contains(string(b), `"id":"I_`) {
+				t.Errorf("graphql %s", b)
+			}
+			w.Write([]byte(`{"data":{}}`))
+		case p == fmt.Sprintf("POST /repos/o/r/issues/%d/comments", gone):
+			http.Error(w, "deleted", http.StatusGone)
+		case strings.HasSuffix(p, "/comments"):
+			var in map[string]string
+			json.NewDecoder(r.Body).Decode(&in)
+			comments = append(comments, r.URL.Path+" "+in["body"])
+			w.Write([]byte(`{"id":1}`))
+		default:
+			http.Error(w, "unexpected", http.StatusTeapot)
+		}
+	}))
+	defer srv.Close()
+	s := &IssueSync{Store: st, GitHub: github.New(srv.URL, "t"), Repo: "o/r", BaseURL: "https://b.example"}
+
+	if n, err := s.Welcome(ctx, "Example", "alice"); err != nil || n != 51 {
+		t.Fatalf("welcome alice: %d %v", n, err)
+	}
+	if n, err := s.Welcome(ctx, "Example", "bob"); err != nil || n != 51 {
+		t.Fatalf("welcome bob: %d %v", n, err)
+	}
+	if got := strings.Join(calls, ", "); got != "POST /repos/o/r/issues, GET /repos/o/r/issues/51, POST /graphql, "+
+		"POST /repos/o/r/issues/51/comments, POST /repos/o/r/issues/51/comments" {
+		t.Errorf("calls %s", got)
+	}
+	if len(comments) != 2 || !strings.HasPrefix(comments[0], "/repos/o/r/issues/51/comments @alice, you're now a member of the Example board") ||
+		!strings.Contains(comments[1], "https://b.example/") || !strings.Contains(comments[1], "Sign in with GitHub as **bob**.") {
+		t.Errorf("comments %q", comments)
+	}
+	gone = 51
+	if n, err := s.Welcome(ctx, "Example", "carol"); err != nil || n != 52 {
+		t.Fatalf("welcome after delete: %d %v", n, err)
+	}
+	if n, _ := st.MembersIssue(ctx); n != 52 {
+		t.Errorf("members issue %d, want 52", n)
 	}
 }

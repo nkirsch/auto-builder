@@ -226,6 +226,13 @@ syncs issues (the App needs Issues read & write):
 - Besides the tick, the sync runs in the background on startup, when a run
   finishes (so its replies reach the issue) and after human activity on the
   board. Syncs are serialised so a reply is never posted twice.
+- Welcomes: GitHub has no direct messages, so when an admin adds a new
+  member without an email (they'll sign in with GitHub), the App comments
+  `@login` with the board's link on a "Members" issue it opens and pins
+  (best effort) the first time (`settings.members_issue`; reopened if
+  deleted), and GitHub notifies them per their settings. On a private repo
+  mentions don't notify non-collaborators; the admin page's Invite link
+  remains for those.
 
 ## Runner (Cloud Run Job, Go)
 

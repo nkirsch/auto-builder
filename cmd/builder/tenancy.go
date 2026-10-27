@@ -418,7 +418,7 @@ func (h *hub) tenantFor(ctx context.Context, slug string) (*tenantRT, error) {
 	tools := &mcp.Board{Store: st, BotLogin: h.cfg.BotLogin, BaseURL: base, GitSHA: h.cfg.GitSHA, Reply: b.BotReply}
 	if h.app != nil && h.cfg.IssueSync {
 		g.Issues = &gate.IssueSync{Store: st, GitHub: gh, Repo: t.Repo, BaseURL: base, Notified: b.Notified}
-		b.Filer, tools.Filer = g.Issues, g.Issues
+		b.Filer, b.Welcomer, tools.Filer = g.Issues, g.Issues, g.Issues
 		ship, err := h.shipper(ctx, t, st, gh, b.BotReply)
 		if err != nil {
 			return nil, err

@@ -124,8 +124,14 @@ func TestRegistry(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if tn.Name != "alpha" || tn.Status != "provisioning" || tn.ProvisionedAt != nil {
+	if tn.Name != "alpha" || tn.Status != "provisioning" || tn.ProvisionedAt != nil || tn.Existing {
 		t.Errorf("new tenant %+v", tn)
+	}
+	if err := r.Create(ctx, Tenant{Slug: "www", Repo: "o/www", CreatedBy: "nkirsch", Existing: true}); err != nil {
+		t.Fatal(err)
+	}
+	if tn, err := r.Tenant(ctx, "www"); err != nil || tn.Status != "ready" || tn.ProvisionedAt == nil || !tn.Existing {
+		t.Errorf("existing tenant %+v, %v", tn, err)
 	}
 	if err := r.SetStatus(ctx, "alpha", "ready", ""); err != nil {
 		t.Fatal(err)
@@ -136,7 +142,7 @@ func TestRegistry(t *testing.T) {
 	if err := r.SetStatus(ctx, "nobody", "ready", ""); !errors.Is(err, db.ErrNotFound) {
 		t.Errorf("status of missing tenant: %v", err)
 	}
-	if all, err := r.Tenants(ctx); err != nil || len(all) != 1 {
+	if all, err := r.Tenants(ctx); err != nil || len(all) != 2 {
 		t.Errorf("tenants %+v %v", all, err)
 	}
 

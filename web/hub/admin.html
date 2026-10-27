@@ -4,14 +4,14 @@
   {{range .Data.Tenants}}
   <li class="row">
     <a href="/{{.Slug}}/"><b>{{.Name}}</b></a> <span class="muted">{{.Slug}}</span>
-    <span class="badge">{{.Status}}</span>{{with .Error}} <span class="muted">{{.}}</span>{{end}}
+    <span class="badge">{{.Status}}</span>{{if .Existing}} <span class="badge">existing</span>{{end}}{{with .Error}} <span class="muted">{{.}}</span>{{end}}
     <span class="spacer"></span>
     <a class="muted" href="https://github.com/{{.Repo}}">{{.Repo}}</a>
     <span class="muted">by {{.CreatedBy}} {{ago .CreatedAt}}</span>
-    {{if ne .Status "deleted"}}<form method="post" action="/admin/tenants/{{.Slug}}/provision"><button class="secondary" title="Checks every resource and creates any that are missing; safe to run any time.">{{if eq .Status "ready"}}Re-provision{{else}}Provision{{end}}</button></form>
+    {{if ne .Status "deleted"}}{{if not .Existing}}<form method="post" action="/admin/tenants/{{.Slug}}/provision"><button class="secondary" title="Checks every resource and creates any that are missing; safe to run any time.">{{if eq .Status "ready"}}Re-provision{{else}}Provision{{end}}</button></form>{{end}}
     <form method="post" action="/admin/tenants/{{.Slug}}/delete" class="row">
       <input name="confirm" placeholder="type {{.Slug}}" size="10" aria-label="Type {{.Slug}} to delete">
-      <button class="secondary">Delete</button>
+      <button class="secondary"{{if .Existing}} title="Removes it from the hub; the repo and app stay."{{end}}>Delete</button>
     </form>{{end}}
   </li>
   {{else}}<li class="muted">No apps yet.</li>{{end}}

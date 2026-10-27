@@ -9,6 +9,8 @@
   <label for="repo">Repo</label>
   <input id="repo" name="repo" value="{{.Data.Repo}}" placeholder="{{.Data.Org}}/&lt;slug&gt;">
   <p class="hint">Defaults to {{.Data.Org}}/&lt;slug&gt;. You become the app's admin.</p>
+  <label><input type="checkbox" name="existing"{{if .Data.Existing}} checked{{end}}> Existing repo</label>
+  <p class="hint">An app already served at &lt;slug&gt;.{{.Data.Host}} that deploys itself: nothing is provisioned, and items ship once its <code>/health</code> reports the merge in <code>sha</code>. The hub's GitHub App must be installed on the repo.</p>
   <button>Create</button>
 </form>
 {{end}}

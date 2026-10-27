@@ -409,7 +409,7 @@ func (h *hub) tenantFor(ctx context.Context, slug string) (*tenantRT, error) {
 	b := &board.Board{
 		Store: st, Storage: storage, Auth: ta, Gate: g, BaseURL: base,
 		BotLogin: h.cfg.BotLogin, GitSHA: h.cfg.GitSHA, Repo: t.Repo, GitHub: gh,
-		Name: t.Name, SiteURL: "https://" + slug + "." + h.host,
+		Name: t.Name, SiteURL: h.appURL(slug), Releases: h.cfg.Releases,
 		Platform: hubPlatform{h, slug},
 	}
 	if h.cfg.Version != "" {
@@ -419,14 +419,11 @@ func (h *hub) tenantFor(ctx context.Context, slug string) (*tenantRT, error) {
 	if h.app != nil && h.cfg.IssueSync {
 		g.Issues = &gate.IssueSync{Store: st, GitHub: gh, Repo: t.Repo, BaseURL: base, Notified: b.Notified}
 		b.Filer, tools.Filer = g.Issues, g.Issues
-		// Merged items ship once the app's own service serves them.
-		if h.cfg.Project != "" {
-			live, err := gate.NewServiceSHA(ctx, h.cfg.Project, h.cfg.Region, "x-"+slug)
-			if err != nil {
-				return nil, err
-			}
-			g.Ship = &gate.Shipper{Store: st, GitHub: gh, Repo: t.Repo, Deployed: live.SHA, Reply: b.BotReply}
+		ship, err := h.shipper(ctx, t, st, gh, b.BotReply)
+		if err != nil {
+			return nil, err
 		}
+		g.Ship = ship
 	}
 	mux := http.NewServeMux()
 	ta.TenantRoutes(mux)
@@ -446,6 +443,29 @@ func (h *hub) tenantFor(ctx context.Context, slug string) (*tenantRT, error) {
 	}
 	h.tenants[slug] = rt
 	return rt, nil
+}
+
+// shipper marks a tenant's merged items shipped once its app serves them:
+// the hub's own SHA for the platform repo, an existing app's /health, else
+// the x-<slug> service's revision. nil when there's nothing to read.
+func (h *hub) shipper(ctx context.Context, t tenant.Tenant, st *db.Store, gh *github.Client,
+	reply func(context.Context, db.Item, string) error) (*gate.Shipper, error) {
+	s := &gate.Shipper{Store: st, GitHub: gh, Repo: t.Repo, Reply: reply}
+	switch {
+	case t.Repo == h.cfg.Repo:
+		s.GitSHA = h.cfg.GitSHA
+	case t.Existing:
+		s.Deployed = gate.HealthSHA{URL: h.appURL(t.Slug)}.SHA
+	case h.cfg.Project != "":
+		live, err := gate.NewServiceSHA(ctx, h.cfg.Project, h.cfg.Region, "x-"+t.Slug)
+		if err != nil {
+			return nil, err
+		}
+		s.Deployed = live.SHA
+	default:
+		return nil, nil
+	}
+	return s, nil
 }
 
 type hubPage struct {
@@ -532,8 +552,8 @@ func (h *hub) index(w http.ResponseWriter, r *http.Request) {
 			slog.Error("tenant store", "tenant", t.Slug, "err", err)
 			continue
 		}
-		a := app{Tenant: t, AppHost: t.Slug + "." + h.host}
-		a.AppURL = "https://" + a.AppHost
+		a := app{Tenant: t, AppURL: h.appURL(t.Slug)}
+		a.AppHost = strings.TrimPrefix(a.AppURL, "https://")
 		var m db.Member
 		if strings.Contains(me, "@") {
 			m, err = st.MemberByEmail(ctx, me)
@@ -556,25 +576,30 @@ func (h *hub) index(w http.ResponseWriter, r *http.Request) {
 func (h *hub) newApp(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	h.render(w, r, "new", "New app", map[string]any{
-		"Slug": q.Get("slug"), "Name": q.Get("name"), "Repo": q.Get("repo"), "Org": h.cfg.TenantOrg, "Host": h.host})
+		"Slug": q.Get("slug"), "Name": q.Get("name"), "Repo": q.Get("repo"), "Existing": q.Get("existing") == "on",
+		"Org": h.cfg.TenantOrg, "Host": h.host})
 }
 
-// create registers the app and makes its creator the board's admin.
-// Provisioning (TENANCY.md step 4) leaves it at "provisioning" for now.
+// create registers the app, makes its creator the board's admin and starts
+// provisioning; an existing repo is ready at once and never provisioned.
 func (h *hub) create(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	slug := strings.TrimSpace(r.FormValue("slug"))
 	name := strings.TrimSpace(r.FormValue("name"))
 	repo := strings.TrimSpace(r.FormValue("repo"))
-	if repo == "" && h.cfg.TenantOrg != "" {
+	existing := r.FormValue("existing") == "on"
+	if repo == "" && h.cfg.TenantOrg != "" && !existing {
 		repo = h.cfg.TenantOrg + "/" + slug
 	}
 	me, _ := h.reg.PlatformAdmin(ctx, h.auth.SignedIn(r))
 	back := func(msg string) {
 		v := url.Values{"slug": {slug}, "name": {name}, "repo": {r.FormValue("repo")}, "flash": {msg}}
+		if existing {
+			v.Set("existing", "on")
+		}
 		http.Redirect(w, r, "/new?"+v.Encode(), http.StatusSeeOther)
 	}
-	if err := h.reg.Create(ctx, tenant.Tenant{Slug: slug, Name: name, Repo: repo, CreatedBy: me.Login}); err != nil {
+	if err := h.reg.Create(ctx, tenant.Tenant{Slug: slug, Name: name, Repo: repo, CreatedBy: me.Login, Existing: existing}); err != nil {
 		back(err.Error())
 		return
 	}
@@ -588,6 +613,10 @@ func (h *hub) create(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		slog.Error("seed tenant admin", "tenant", slug, "err", err)
 		back("created, but adding you as its admin failed: " + err.Error())
+		return
+	}
+	if existing {
+		http.Redirect(w, r, "/"+slug+"/", http.StatusSeeOther)
 		return
 	}
 	if err := h.provision(ctx, slug, "create"); err != nil {
@@ -609,12 +638,23 @@ func (h *hub) provision(ctx context.Context, slug, action string) error {
 }
 
 // deleteApp tears an app down once its slug is typed to confirm: the
-// provisioner removes its cloud resources and archives its repo.
+// provisioner removes its cloud resources and archives its repo. An existing
+// repo's app only leaves the hub; its repo and deployment are untouched.
 func (h *hub) deleteApp(w http.ResponseWriter, r *http.Request) {
 	slug := r.PathValue("slug")
 	msg := "Deleting " + slug
+	t, err := h.reg.Tenant(r.Context(), slug)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
 	if r.FormValue("confirm") != slug {
 		msg = "Type the slug to delete " + slug
+	} else if t.Existing {
+		msg = "Removed " + slug + " from the hub"
+		if err := h.reg.SetStatus(r.Context(), slug, "deleted", ""); err != nil {
+			msg = err.Error()
+		}
 	} else if err := h.reg.SetStatus(r.Context(), slug, "deleting", ""); err != nil {
 		msg = err.Error()
 	} else if err := h.provision(r.Context(), slug, "delete"); err != nil {
@@ -626,8 +666,13 @@ func (h *hub) deleteApp(w http.ResponseWriter, r *http.Request) {
 // reprovision re-runs the provisioner, filling in whatever is missing.
 func (h *hub) reprovision(w http.ResponseWriter, r *http.Request) {
 	slug := r.PathValue("slug")
-	if _, err := h.reg.Tenant(r.Context(), slug); err != nil {
+	t, err := h.reg.Tenant(r.Context(), slug)
+	if err != nil {
 		http.NotFound(w, r)
+		return
+	}
+	if t.Existing {
+		http.Redirect(w, r, "/admin?flash="+url.QueryEscape(slug+" is an existing repo; nothing to provision"), http.StatusSeeOther)
 		return
 	}
 	msg := "Provisioning " + slug

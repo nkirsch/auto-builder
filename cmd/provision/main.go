@@ -54,6 +54,9 @@ func run() error {
 	if err != nil {
 		return fmt.Errorf("tenant %s: %w", slug, err)
 	}
+	if t.Existing {
+		return fmt.Errorf("%w: %s is an existing repo, never provisioned", errUsage, slug)
+	}
 	app, err := github.NewApp(env("GH_APP_ID", ""), env("GH_APP_INSTALLATION_ID", ""), env("GH_APP_PRIVATE_KEY", ""))
 	if err != nil || app == nil {
 		return fmt.Errorf("GitHub App: %v", err)

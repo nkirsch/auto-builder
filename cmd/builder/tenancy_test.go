@@ -359,3 +359,54 @@ func TestHubFeedbackLink(t *testing.T) {
 		t.Errorf("no Feedback link: %.600q", w.Body.String())
 	}
 }
+
+func TestHubExisting(t *testing.T) {
+	ctx := context.Background()
+	h := testHub(t)
+	prov := &fakeJob{}
+	h.provisioner = prov
+	srv := h.routes()
+
+	// An existing repo is ready at once and never provisioned.
+	for slug, repo := range map[string]string{"alpha": "kirsch/extreme", "beta": "someone/beta"} {
+		w := do(h, srv, "nkirsch", "POST", "/new", url.Values{"slug": {slug}, "repo": {repo}, "existing": {"on"}})
+		if w.Code != 303 || w.Header().Get("Location") != "/"+slug+"/" {
+			t.Fatalf("create %s: %d %q", slug, w.Code, w.Header().Get("Location"))
+		}
+		if tn, err := h.reg.Tenant(ctx, slug); err != nil || tn.Status != "ready" || !tn.Existing {
+			t.Fatalf("%s %+v %v", slug, tn, err)
+		}
+	}
+	if w := do(h, srv, "nkirsch", "POST", "/new", url.Values{"slug": {"gamma"}, "existing": {"on"}}); !strings.Contains(w.Header().Get("Location"), "existing=on") {
+		t.Errorf("existing without a repo: %q", w.Header().Get("Location"))
+	}
+	w := do(h, srv, "nkirsch", "GET", "/admin", nil)
+	if strings.Contains(w.Body.String(), "provision</button>") || strings.Contains(w.Body.String(), "Provision</button>") ||
+		!strings.Contains(w.Body.String(), `<span class="badge">existing</span>`) {
+		t.Errorf("admin page for existing apps: %s", w.Body.String())
+	}
+	if w := do(h, srv, "nkirsch", "POST", "/admin/tenants/beta/provision", url.Values{}); !strings.Contains(w.Header().Get("Location"), "nothing+to+provision") {
+		t.Errorf("reprovision existing: %q", w.Header().Get("Location"))
+	}
+
+	// The platform repo ships on the hub's own SHA, another existing app on its /health.
+	for slug, platform := range map[string]bool{"alpha": true, "beta": false} {
+		tn, _ := h.reg.Tenant(ctx, slug)
+		st, _ := h.reg.Store(ctx, slug)
+		s, err := h.shipper(ctx, tn, st, nil, nil)
+		if err != nil || s == nil || (s.GitSHA == "abc1234") != platform || (s.Deployed != nil) == platform {
+			t.Errorf("%s shipper %+v %v", slug, s, err)
+		}
+	}
+
+	// Deleting one only drops it from the hub.
+	if w := do(h, srv, "nkirsch", "POST", "/admin/tenants/beta/delete", url.Values{"confirm": {"beta"}}); w.Code != 303 {
+		t.Fatalf("delete: %d", w.Code)
+	}
+	if tn, _ := h.reg.Tenant(ctx, "beta"); tn.Status != "deleted" {
+		t.Errorf("beta after delete %+v", tn)
+	}
+	if len(prov.launches) != 0 {
+		t.Errorf("provisioner ran for existing apps: %v", prov.launches)
+	}
+}

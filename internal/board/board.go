@@ -136,6 +136,7 @@ func (b *Board) Routes(mux *http.ServeMux) error {
 	mux.Handle("GET /admin", admin(b.admin))
 	mux.Handle("POST /admin/members", admin(b.addMember))
 	mux.Handle("POST /admin/members/{login}/delete", admin(b.deleteMember))
+	mux.Handle("POST /admin/members/{login}/github", admin(b.setMemberGitHub))
 	mux.Handle("POST /admin/run", admin(b.runNow))
 	mux.Handle("POST /runs/{id}/cancel", admin(b.cancelRun))
 	mux.Handle("POST /admin/release", admin(b.release))
@@ -901,6 +902,7 @@ func (b *Board) addMember(w http.ResponseWriter, r *http.Request) {
 		b.fail(w, err)
 		return
 	}
+	github := email == "" || r.FormValue("github") == "on"
 	if email != "" {
 		if err := b.Store.SetMemberEmail(r.Context(), login, email); errors.Is(err, db.ErrEmailTaken) {
 			redirect(w, r, "/admin", "Saved "+login+", but "+email+" belongs to another member")
@@ -909,8 +911,12 @@ func (b *Board) addMember(w http.ResponseWriter, r *http.Request) {
 			b.fail(w, err)
 			return
 		}
+		if err := b.Store.SetMemberGitHub(r.Context(), login, github); err != nil {
+			b.fail(w, err)
+			return
+		}
 	}
-	if isNew && email == "" && b.Welcomer != nil {
+	if isNew && github && b.Welcomer != nil {
 		// They'll sign in with GitHub, which has no DMs: an @-mention notifies them.
 		n, err := b.Welcomer.Welcome(r.Context(), b.name(), login)
 		if err != nil {
@@ -922,6 +928,25 @@ func (b *Board) addMember(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	redirect(w, r, "/admin", "Saved "+login)
+}
+
+// setMemberGitHub says whether a member with an email may also sign in with
+// GitHub as their login.
+func (b *Board) setMemberGitHub(w http.ResponseWriter, r *http.Request) {
+	login := r.PathValue("login")
+	on := r.FormValue("on") == "true"
+	if err := b.Store.SetMemberGitHub(r.Context(), login, on); errors.Is(err, db.ErrNotFound) {
+		http.NotFound(w, r)
+		return
+	} else if err != nil {
+		b.fail(w, err)
+		return
+	}
+	msg := login + " signs in with Google only"
+	if on {
+		msg = login + " signs in with GitHub or Google"
+	}
+	redirect(w, r, "/admin", msg)
 }
 
 // name is the board's name for invitations: b.Name, else BaseURL's host.
@@ -941,7 +966,10 @@ func (b *Board) name() string {
 func (b *Board) invite(m db.Member) string {
 	name := b.name()
 	how := "Sign in with GitHub as " + m.Login + "."
-	if m.Email != "" {
+	switch {
+	case m.Email != "" && m.GitHub:
+		how = "Sign in with GitHub as " + m.Login + " or with Google as " + m.Email + "."
+	case m.Email != "":
 		how = "Sign in with Google as " + m.Email + "."
 	}
 	q := url.Values{

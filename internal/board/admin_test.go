@@ -159,14 +159,14 @@ func (s *stubWelcomer) Welcome(_ context.Context, name, login string) (int, erro
 }
 
 // A new member without an email (who'll sign in with GitHub) is welcomed on
-// GitHub; members with an email, and existing ones, aren't.
+// GitHub; members with an email (unless GitHub too), and existing ones, aren't.
 func TestAddMemberWelcomesOnGitHub(t *testing.T) {
 	b, _ := dbBoard(t)
 	wel := &stubWelcomer{}
 	b.Welcomer = wel
-	add := func(login, email string) string {
+	add := func(login, email string, github ...string) string {
 		r := httptest.NewRequest(http.MethodPost, "/admin/members", strings.NewReader(url.Values{
-			"login": {login}, "role": {"member"}, "email": {email}}.Encode()))
+			"login": {login}, "role": {"member"}, "email": {email}, "github": github}.Encode()))
 		r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 		r = r.WithContext(auth.WithMember(r.Context(), db.Member{Login: "nkirsch", Role: "admin"}))
 		w := httptest.NewRecorder()
@@ -182,11 +182,49 @@ func TestAddMemberWelcomesOnGitHub(t *testing.T) {
 	if len(wel.logins) != 1 || wel.logins[0] != "newbie" || wel.names[0] != "builder.example" {
 		t.Fatalf("welcomed %v as %v", wel.logins, wel.names)
 	}
+	// An email plus "GitHub too": they may sign in with GitHub, so they're welcomed there.
+	add("setheck", "setheck@example.org", "on")
+	if m, _ := b.Store.Member(context.Background(), "setheck"); !m.GitHub || m.Email != "setheck@example.org" {
+		t.Errorf("setheck = %+v", m)
+	}
+	if len(wel.logins) != 2 || wel.logins[1] != "setheck" {
+		t.Fatalf("welcomed %v", wel.logins)
+	}
 	wel.err = errors.New("boom")
 	if got := add("other", ""); !strings.Contains(got, "couldn't welcome them") {
 		t.Errorf("flash %q", got)
 	}
 	if _, err := b.Store.Member(context.Background(), "other"); err != nil {
 		t.Errorf("member not saved when the welcome failed: %v", err)
+	}
+}
+
+// Admins mark a member with an email as GitHub too, or back to Google only.
+func TestSetMemberGitHub(t *testing.T) {
+	ctx := context.Background()
+	b, _ := dbBoard(t)
+	b.Store.UpsertMember(ctx, "setheck", "member", "nkirsch")
+	b.Store.SetMemberEmail(ctx, "setheck", "setheck@example.org")
+	set := func(login, on string) *httptest.ResponseRecorder {
+		r := httptest.NewRequest(http.MethodPost, "/admin/members/"+login+"/github", strings.NewReader(url.Values{"on": {on}}.Encode()))
+		r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		r.SetPathValue("login", login)
+		r = r.WithContext(auth.WithMember(r.Context(), db.Member{Login: "nkirsch", Role: "admin"}))
+		w := httptest.NewRecorder()
+		b.setMemberGitHub(w, r)
+		return w
+	}
+	if w := set("setheck", "true"); w.Code != http.StatusSeeOther {
+		t.Fatalf("status %d", w.Code)
+	}
+	if m, _ := b.Store.Member(ctx, "setheck"); !m.GitHub || !m.GitHubSignIn() {
+		t.Fatalf("not GitHub too: %+v", m)
+	}
+	set("setheck", "false")
+	if m, _ := b.Store.Member(ctx, "setheck"); m.GitHub || m.GitHubSignIn() {
+		t.Fatalf("still GitHub too: %+v", m)
+	}
+	if w := set("nobody", "true"); w.Code != http.StatusNotFound {
+		t.Errorf("unknown member: %d", w.Code)
 	}
 }

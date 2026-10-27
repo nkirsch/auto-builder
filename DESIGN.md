@@ -18,7 +18,7 @@ steps are the manual ones below.
 | Language | Go (server, runner, MCP server). Server-rendered `html/template`, plain forms (POST-redirect-GET), no Node build. Mobile-friendly CSS. |
 | Scope | Builds only itself. |
 | Users | Admin (`nkirsch`) + allowlisted GitHub logins. Members file asks and reply; only admins approve, manage members, and press Run now. |
-| Auth | GitHub sign-in via the GitHub App's OAuth credentials and/or Google sign-in (OpenID, `GOOGLE_CLIENT_ID`), implemented in the app (no proxy sidecar). Members are keyed by login; Google finds the member whose `email` matches the verified address and signs them in as that login. A member with an email signs in with Google only (their login may be a made-up handle someone else owns on GitHub). GitHub is offered when configured or when Google isn't. `ADMIN_LOGIN` may list several admins (comma-separated); `ADMIN_EMAIL` seeds their emails, paired by position. Session = HMAC-signed cookie (`login|expiry`), `SameSite=Lax` + Origin check on POST. Non-members get a 403 naming their login or email. `DEV_LOGIN` bypass only when `BASE_URL` is localhost. |
+| Auth | GitHub sign-in via a GitHub OAuth App (`GITHUB_CLIENT_ID`; a private GitHub App's credentials 404 for outsiders) and/or Google sign-in (OpenID, `GOOGLE_CLIENT_ID`), implemented in the app (no proxy sidecar). Members are keyed by login; Google finds the member whose `email` matches the verified address and signs them in as that login. A member with an email signs in with Google only (their login may be a made-up handle someone else owns on GitHub). GitHub is offered when configured or when Google isn't. `ADMIN_LOGIN` may list several admins (comma-separated); `ADMIN_EMAIL` seeds their emails, paired by position. Session = HMAC-signed cookie (`login|expiry`), `SameSite=Lax` + Origin check on POST. Non-members get a 403 naming their login or email. `DEV_LOGIN` bypass only when `BASE_URL` is localhost. |
 | Hosting | GCP, new personal project, region `us-central1` (domain mappings supported). |
 | Host | `builder.extreme.org` — CNAME to `ghs.googlehosted.com` in Cloud DNS zone `extreme-org`, Cloud Run domain mapping. `builder.nick.org`, the old host, stays mapped and 308s here via `REDIRECT_HOSTS`. |
 | Sub-path | A `BASE_URL` with a path (e.g. `https://site.example/iterate`) mounts the board there: templates prefix links with `{{base}}`, root-relative redirects get the prefix, cookies are scoped to it. With `SITE_DIR` the server also serves that static site at every other path (`SITE_VERSION` in its `.html` replaced by the release name) and redirects other hosts to `BASE_URL`'s; without it, no host redirect (the board sits behind a proxy). `REDIRECT_HOSTS` (comma-separated) 308s those hosts to `BASE_URL`'s with path and query kept, `/health` excepted, for moving a board to a new domain. Public `GET /version` returns `{"version": …}` for a site footer. |
@@ -330,13 +330,15 @@ broader grants.
    the first time (it links the project).
 2. Verify the domain for the GCP account; CNAME the host to
    `ghs.googlehosted.com`.
-3. One GitHub App serves both sign-in and the bot: redirect URI
-   `https://builder.extreme.org/auth/callback`, no webhook; repository
-   permissions contents, pull requests, issues, workflows (write), actions,
-   checks (read). Install it on this repo only. Its Client ID/secret are
-   `GITHUB_CLIENT_ID`/`GITHUB_CLIENT_SECRET`, so no separate OAuth App.
-   Make it public (Advanced → Make public): GitHub answers sign-in to a
-   private App with a 404 for anyone outside its owner account or org.
+3. A private GitHub App for the bot: no webhook; repository permissions
+   contents, pull requests, issues, workflows (write), actions, checks
+   (read). Install it on this repo only (`GH_APP_*`). Sign-in uses a
+   separate GitHub OAuth App (Developer settings → OAuth Apps, callback
+   `https://builder.extreme.org/auth/callback`) whose Client ID/secret are
+   `GITHUB_CLIENT_ID`/`GITHUB_CLIENT_SECRET`: any GitHub user can authorize
+   an OAuth App, while GitHub answers sign-in to a private GitHub App with a
+   404 for anyone outside its owner, and making the App public would let
+   anyone install it. Sign-in asks for no scopes and only calls `GET /user`.
    Optional Google sign-in: a Web OAuth client (Google Auth Platform,
    External, published; scopes openid/email/profile) with redirect URI
    `<BASE_URL>/auth/google/callback`, loaded as

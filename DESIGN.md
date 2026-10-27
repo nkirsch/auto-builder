@@ -335,6 +335,8 @@ broader grants.
    permissions contents, pull requests, issues, workflows (write), actions,
    checks (read). Install it on this repo only. Its Client ID/secret are
    `GITHUB_CLIENT_ID`/`GITHUB_CLIENT_SECRET`, so no separate OAuth App.
+   Make it public (Advanced → Make public): GitHub answers sign-in to a
+   private App with a 404 for anyone outside its owner account or org.
    Optional Google sign-in: a Web OAuth client (Google Auth Platform,
    External, published; scopes openid/email/profile) with redirect URI
    `<BASE_URL>/auth/google/callback`, loaded as

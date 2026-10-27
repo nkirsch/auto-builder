@@ -135,11 +135,12 @@ control.tenant_secrets (tenant, name, PK(tenant,name))
 
 All done for extreme.org (2026-10-25):
 
-1. GitHub org `extreme-dot-org` and its App (callback
-   `https://extreme.org/auth/callback`; repo permissions contents, pull
-   requests, issues, workflows, administration (write), actions, checks
-   (read); installed on all org repos; public, or GitHub sign-in 404s for
-   anyone outside the org). Template repo
+1. GitHub org `extreme-dot-org`, its private App (repo permissions
+   contents, pull requests, issues, workflows, administration (write),
+   actions, checks (read); installed on all org repos; `GH_APP_*`) and an
+   OAuth App for sign-in (callback `https://extreme.org/auth/callback`;
+   `GITHUB_CLIENT_*`), since a private App's sign-in 404s for anyone
+   outside the org (2026-10-27). Template repo
    `extreme-dot-org/extreme-template` (Hugo site + Go server).
 2. Cloud DNS zone `extreme-org`; Joker's nameservers point at its four
    `ns-cloud-a*` servers.

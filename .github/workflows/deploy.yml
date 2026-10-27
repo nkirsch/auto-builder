@@ -81,10 +81,10 @@ jobs:
             SERVE_SITE=${{ needs.config.outputs.SERVE_SITE }}
           cache-from: type=gha,scope=${{ matrix.name }}
           cache-to: type=gha,scope=${{ matrix.name }},mode=max
-  # Multi-tenant mode's provision job (TENANCY.md); skipped otherwise.
+  # Multi-tenant mode's provision job (TENANCY.md); skipped otherwise and without PROVISION_JOB.
   provision-image:
     needs: config
-    if: needs.config.outputs.deploy == 'true' && needs.config.outputs.TENANCY == 'on'
+    if: needs.config.outputs.deploy == 'true' && needs.config.outputs.TENANCY == 'on' && vars.PROVISION_JOB != ''
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -159,7 +159,7 @@ jobs:
           gcloud run jobs update ${{ vars.JOB }} --project ${{ vars.GCP_PROJECT }} --region ${{ vars.GCP_REGION }}
           --image ${{ vars.IMAGE }}/runner:${{ github.sha }} --quiet
       - name: update provision job
-        if: needs.config.outputs.TENANCY == 'on'
+        if: needs.config.outputs.TENANCY == 'on' && vars.PROVISION_JOB != ''
         run: >
           gcloud run jobs update ${{ vars.PROVISION_JOB }} --project ${{ vars.GCP_PROJECT }} --region ${{ vars.GCP_REGION }}
           --image ${{ vars.IMAGE }}/provision:${{ github.sha }} --quiet

@@ -369,6 +369,9 @@ func (s *server) claim(w http.ResponseWriter, r *http.Request) {
 	}
 	slog.Info("run claimed", "run", id)
 	resp := map[string]any{"run_id": id, "repo": s.cfg.Repo, "bot_login": s.cfg.BotLogin}
+	if on, err := s.store.AgentWorkflows(r.Context()); err == nil {
+		resp["workflows"] = on
+	}
 	// An upstream run merges upstream instead of running the agent.
 	if run, err := s.store.Run(r.Context(), id); err == nil && run.Trigger == "upstream" && s.cfg.Upstream != "" {
 		resp["upstream"] = s.cfg.Upstream
@@ -396,8 +399,14 @@ func (s *server) token(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
-	// Only this board's repo, and no workflows for the agent.
-	perms := github.AgentPermissions
+	// Only this board's repo; workflows only when an admin allows them.
+	workflows, err := s.store.AgentWorkflows(r.Context())
+	if err != nil {
+		slog.Error("token", "run", id, "err", err)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	perms := github.AgentPermissions(workflows)
 	if run, err := s.store.Run(r.Context(), id); err == nil && run.Trigger == "upstream" && s.cfg.Upstream != "" {
 		perms = github.UpstreamPermissions
 	}

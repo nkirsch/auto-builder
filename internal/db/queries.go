@@ -1057,6 +1057,18 @@ func (s *Store) UpstreamSync(ctx context.Context) (on bool, pr int, err error) {
 	return on, pr, err
 }
 
+// AgentWorkflows reports whether a run's agent may change workflows.
+func (s *Store) AgentWorkflows(ctx context.Context) (on bool, err error) {
+	err = s.Pool.QueryRow(ctx, `SELECT agent_workflows FROM settings`).Scan(&on)
+	return on, err
+}
+
+// SetAgentWorkflows lets the agent change workflows, or not.
+func (s *Store) SetAgentWorkflows(ctx context.Context, on bool) error {
+	_, err := s.Pool.Exec(ctx, `UPDATE settings SET agent_workflows = $1`, on)
+	return err
+}
+
 // SetUpstreamSync turns keeping up with upstream on or off.
 func (s *Store) SetUpstreamSync(ctx context.Context, on bool) error {
 	_, err := s.Pool.Exec(ctx, `UPDATE settings SET upstream_sync = $1`, on)

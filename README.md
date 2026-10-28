@@ -9,6 +9,20 @@ and the change deploys itself.
 **Live: [builder.extreme.org](https://builder.extreme.org)**, the board this
 repo is built from.
 
+## Get started
+
+- **Ask for a change to auto-builder.** Members sign in at
+  [builder.extreme.org](https://builder.extreme.org) and file an ask; an
+  admin approves it and the agent builds it. Not a member? Open an issue
+  here asking to join, or ask an admin for an invite.
+- **Get your own app built this way.** Ask an admin of
+  [extreme.org](https://extreme.org) for one: you get a repo, a site at
+  `<app>.extreme.org` and its own board, with nothing to set up.
+- **Run your own board.** Fork this repo, set your overrides in `app.env`,
+  run [`infra/bootstrap.sh`](infra/bootstrap.sh) against your Google Cloud
+  project, create the GitHub App (DESIGN.md, Manual steps), and push to
+  `master`. `make merge-upstream` keeps the fork current.
+
 ## What it does
 
 - **App**: Go server, Postgres on Cloud SQL (schema migrations), Cloud
@@ -23,8 +37,9 @@ repo is built from.
 - **Shipping**: items move from building to merged to shipped once the live
   deploy contains the merge.
 - **GitHub issues**: two-way sync. Item numbers follow issue numbers.
-- **Guardrails**: spend limit, one run at a time, failure backoff, and an
-  agent token limited to the repo.
+- **Guardrails**: spend limit, one run at a time, failure backoff, a runner
+  token that dies with its run, and an agent GitHub token limited to the
+  repo (workflow changes only while an admin allows them).
 - **Sites**: a fork adds its own Hugo site and branding and keeps merging
   upstream. momo.kirsch.org, youkoh.org and nick.org run this way.
 

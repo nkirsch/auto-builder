@@ -32,9 +32,9 @@ through the `board` MCP server. Work through it, then stop.
   the surrounding code.
 - Checks that must pass before you open the PR (CI runs the same):
   `hugo --minify && go vet ./... && go test -p 1 ./...`. Add tests for new
-  behaviour. If the item replaces Hugo, update the `site` stage of
-  `Dockerfile` to build the new thing instead, and block for the
-  `.github/workflows/ci.yml` change (see Trust boundary). Tests that need Postgres read `TEST_DATABASE_URL`; start a local one with `initdb -D /tmp/pg && pg_ctl -D /tmp/pg -o "-k /tmp -h ''" -l /tmp/pg.log start`
+  behaviour. If the item replaces Hugo, update `.github/workflows/ci.yml`
+  (see Trust boundary) and the `site` stage of `Dockerfile` to build the new
+  thing instead, in the same PR. Tests that need Postgres read `TEST_DATABASE_URL`; start a local one with `initdb -D /tmp/pg && pg_ctl -D /tmp/pg -o "-k /tmp -h ''" -l /tmp/pg.log start`
   and use `TEST_DATABASE_URL="postgres:///postgres?host=/tmp"`.
 - Commit messages: short title ≤72 chars, optional body of at most 8 bullets.
 - `gh pr create` with a body that starts `Closes board item #<id>.`, then
@@ -90,10 +90,11 @@ Besides the site-specific ones in `.claude/site.md`:
   Change `infra/`, `Dockerfile*`, `app*.env`, `.claude/`, `internal/auth/` or
   the member allowlist only when the approved item (or an admin reply) asks
   for a change that needs it, and say so in your reply.
-- Your GitHub token can't create or change files under `.github/workflows/`
-  (GitHub rejects the push). When an item needs a workflow change, do the
-  rest, put the workflow diff in your reply, and `set_blocked` asking the
-  admin to push it.
+- `.github/workflows/` decides what CI and deploys run. Change it only when
+  the approved item (or an admin reply) needs it, and say so in your reply.
+  If `$AGENT_WORKFLOWS` is `off`, your token can't push it at all (GitHub
+  rejects the push): do the rest, put the workflow diff in your reply, and
+  `set_blocked` asking the admin to push it.
 - Never create tags or releases, and never call the cloud metadata server.
 - Never push to the default branch directly, never force-push, never merge
   without green CI, never disable or weaken tests or checks.

@@ -83,9 +83,15 @@ func (a *App) Mint(ctx context.Context) (token string, expires time.Time, err er
 }
 
 // AgentPermissions is what a run's agent gets: push branches, open and merge
-// PRs, read CI. No workflows, so it can't change what CI and deploys run.
-var AgentPermissions = map[string]string{
-	"contents": "write", "pull_requests": "write", "checks": "read", "actions": "read", "metadata": "read",
+// PRs, read CI, and with workflows, change what CI and deploys run.
+func AgentPermissions(workflows bool) map[string]string {
+	p := map[string]string{
+		"contents": "write", "pull_requests": "write", "checks": "read", "actions": "read", "metadata": "read",
+	}
+	if workflows {
+		p["workflows"] = "write"
+	}
+	return p
 }
 
 // UpstreamPermissions is what an upstream merge run gets: it pushes

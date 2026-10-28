@@ -128,7 +128,7 @@ func build(ctx context.Context, cfg config, api *api, claim claimResp, log io.Wr
 	api.stage(ctx, cfg.RunID, "agent")
 	actx, cancel := context.WithTimeout(ctx, agentTimeout)
 	defer cancel()
-	agentEnv := append(gitEnv, "BOARD_URL="+cfg.BaseURL, "RUN_ID="+cfg.RunID)
+	agentEnv := append(gitEnv, "BOARD_URL="+cfg.BaseURL, "RUN_ID="+cfg.RunID, "AGENT_WORKFLOWS="+onOff(claim.Workflows))
 	if fed, err := claudeIdentity(actx, cfg.WorkDir, http.DefaultClient); err != nil {
 		return fmt.Errorf("claude identity token: %w", err)
 	} else if fed != nil {
@@ -196,6 +196,13 @@ func installCommand(repoDir, home string) (bool, error) {
 		return false, err
 	}
 	return true, os.WriteFile(filepath.Join(dir, "build-board.md"), []byte(autobuilder.BuildBoard), 0o644)
+}
+
+func onOff(b bool) string {
+	if b {
+		return "on"
+	}
+	return "off"
 }
 
 // childEnv drops GH_APP_* and RUNNER_TOKEN (a job still mounting the old
@@ -340,10 +347,11 @@ type api struct {
 }
 
 type claimResp struct {
-	RunID    int    `json:"run_id"`
-	Repo     string `json:"repo"`
-	BotLogin string `json:"bot_login"`
-	Upstream string `json:"upstream"` // set for an upstream run: merge it, no agent
+	RunID     int    `json:"run_id"`
+	Repo      string `json:"repo"`
+	BotLogin  string `json:"bot_login"`
+	Upstream  string `json:"upstream"`  // set for an upstream run: merge it, no agent
+	Workflows bool   `json:"workflows"` // the agent's token may change workflows
 }
 
 func (a *api) claim(ctx context.Context, id string) (claimResp, error) {

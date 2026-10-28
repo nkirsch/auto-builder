@@ -188,8 +188,11 @@ isn't itself) can turn on "Keep up with upstream" on its Admin page
   time). The App's push deploys as usual. A merged or closed PR is forgotten.
 
 In multi-tenant mode the hub does the same for the platform repo
-(`control.settings`), with the provision job (`ACTION=upstream`) as the
-worker.
+(`control.settings`), with the provision image (`ACTION=upstream`) as the
+worker: the job `UPSTREAM_JOB` names, default `PROVISION_JOB`, so a hub that
+doesn't provision apps runs one only for this (it needs the App's secrets,
+`PLATFORM_REPO` and `UPSTREAM`; deploys update it via the `UPSTREAM_JOB`
+repo variable).
 
 ## GitHub issues (deterministic, no agent)
 

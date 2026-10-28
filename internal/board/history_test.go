@@ -69,3 +69,25 @@ func TestHistoryPage(t *testing.T) {
 		t.Errorf("live badges = %d, want 1", n)
 	}
 }
+
+func TestMarkLive(t *testing.T) {
+	rs := []release{{}, {Tags: []string{"v2"}, SHA: "b"}, {Tags: []string{"v1"}, SHA: "a"}}
+	live := func(rs []release) (out []bool) {
+		for _, r := range rs {
+			out = append(out, r.Live)
+		}
+		return out
+	}
+	for _, c := range []struct {
+		version, sha string
+		want         []bool
+	}{
+		{"v2", "", []bool{false, true, false}},
+		{"", "a", []bool{false, false, true}}, // a tenant's app, by its /health sha
+		{"", "", []bool{false, false, false}},
+	} {
+		if got := live(markLive(rs, c.version, c.sha)); !slices.Equal(got, c.want) {
+			t.Errorf("markLive(%q, %q) = %v, want %v", c.version, c.sha, got, c.want)
+		}
+	}
+}

@@ -2,6 +2,7 @@ package mcp
 
 import (
 	"context"
+	"errors"
 	"os"
 	"testing"
 
@@ -42,5 +43,22 @@ func TestItemOutBlockedAt(t *testing.T) {
 	out, err := b.itemOut(ctx, it, nil, false)
 	if err != nil || out.Blocked != "Re-run infra/bootstrap.sh." || out.BlockedAt == nil || !out.BlockedAt.Equal(*it.BlockedAt) {
 		t.Fatalf("blocked out = %+v, %v", out, err)
+	}
+}
+
+func TestDeployStatusDeployed(t *testing.T) {
+	ctx := context.Background()
+	b := testBoard(t)
+	b.GitSHA = "hub"
+	if _, out, err := b.deployStatus(ctx, nil, struct{}{}); err != nil || out.GitSHA != "hub" {
+		t.Fatalf("own sha: %+v %v", out, err)
+	}
+	b.Deployed = func(context.Context) (string, error) { return "app", nil }
+	if _, out, err := b.deployStatus(ctx, nil, struct{}{}); err != nil || out.GitSHA != "app" {
+		t.Fatalf("app sha: %+v %v", out, err)
+	}
+	b.Deployed = func(context.Context) (string, error) { return "", errors.New("down") }
+	if _, out, err := b.deployStatus(ctx, nil, struct{}{}); err != nil || out.GitSHA != "" || out.CheckedAtNote != "can't read the deployed SHA: down" {
+		t.Fatalf("unreadable: %+v %v", out, err)
 	}
 }

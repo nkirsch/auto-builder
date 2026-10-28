@@ -115,13 +115,24 @@ func (b *Board) historyPage(w http.ResponseWriter, r *http.Request) {
 		slog.Warn("history", "err", err)
 		data["Err"] = err.Error()
 	} else {
-		live := b.Version()
-		out := make([]release, len(rs))
-		for i, rel := range rs {
-			rel.Live = rel.SHA != "" && (live != "" && slices.Contains(rel.Tags, live) || rel.SHA == b.GitSHA)
-			out[i] = rel
+		live, sha := b.Version(), b.GitSHA
+		if b.Deployed != nil {
+			live = ""
+			if sha, err = b.Deployed(r.Context()); err != nil {
+				slog.Warn("history deployed sha", "err", err)
+			}
 		}
-		data["Releases"] = out
+		data["Releases"] = markLive(rs, live, sha)
 	}
 	b.render(w, r, "history", "History", data)
+}
+
+// markLive copies rs with Live set on the release tagged live or at sha.
+func markLive(rs []release, live, sha string) []release {
+	out := make([]release, len(rs))
+	for i, rel := range rs {
+		rel.Live = rel.SHA != "" && (live != "" && slices.Contains(rel.Tags, live) || sha != "" && rel.SHA == sha)
+		out[i] = rel
+	}
+	return out
 }

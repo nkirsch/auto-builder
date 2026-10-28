@@ -426,11 +426,15 @@ func (h *hub) tenantFor(ctx context.Context, slug string) (*tenantRT, error) {
 			return h.hold(ctx)
 		}}
 	ta := h.auth.ForTenant(st, prefix)
+	deployed, err := h.deployed(ctx, t)
+	if err != nil {
+		return nil, err
+	}
 	b := &board.Board{
 		Store: st, Storage: storage, Auth: ta, Gate: g, BaseURL: base,
 		BotLogin: h.cfg.BotLogin, GitSHA: h.cfg.GitSHA, Repo: t.Repo, CodeRepo: h.cfg.Repo, GitHub: gh,
 		Name: t.Name, SiteURL: h.appURL(slug), Releases: h.cfg.Releases, Traffic: h.cfg.LogProject != "",
-		Platform: hubPlatform{h, slug},
+		Platform: hubPlatform{h, slug}, Deployed: deployed,
 	}
 	if ta.CanMail() {
 		b.Mailer = ta
@@ -438,15 +442,13 @@ func (h *hub) tenantFor(ctx context.Context, slug string) (*tenantRT, error) {
 	if h.cfg.Version != "" {
 		b.SetVersion(h.cfg.Version)
 	}
-	tools := &mcp.Board{Store: st, BotLogin: h.cfg.BotLogin, BaseURL: base, GitSHA: h.cfg.GitSHA, Reply: b.BotReply}
+	tools := &mcp.Board{Store: st, BotLogin: h.cfg.BotLogin, BaseURL: base, GitSHA: h.cfg.GitSHA, Deployed: deployed, Reply: b.BotReply}
 	if h.app != nil && h.cfg.IssueSync {
 		g.Issues = &gate.IssueSync{Store: st, GitHub: gh, Repo: t.Repo, BaseURL: base, Notified: b.Notified}
 		b.Filer, b.Welcomer, tools.Filer = g.Issues, g.Issues, g.Issues
-		ship, err := h.shipper(ctx, t, st, gh, b.BotReply)
-		if err != nil {
-			return nil, err
+		if ship := h.shipper(t, st, gh, b.BotReply, deployed); ship != nil {
+			g.Ship = ship
 		}
-		g.Ship = ship
 	}
 	mux := http.NewServeMux()
 	ta.TenantRoutes(mux)
@@ -469,27 +471,40 @@ func (h *hub) tenantFor(ctx context.Context, slug string) (*tenantRT, error) {
 	return rt, nil
 }
 
-// shipper marks a tenant's merged items shipped once its app serves them:
-// the hub's own SHA for the platform repo, an existing app's /health, else
-// the x-<slug> service's revision. nil when there's nothing to read.
-func (h *hub) shipper(ctx context.Context, t tenant.Tenant, st *db.Store, gh *github.Client,
-	reply func(context.Context, db.Item, string) error) (*gate.Shipper, error) {
-	s := &gate.Shipper{Store: st, GitHub: gh, Repo: t.Repo, Reply: reply}
+// deployed reads what a tenant's app serves, apart from the hub: an existing
+// app's /health, else the x-<slug> service's revision. nil for the platform
+// repo (the hub's own SHA) or when there's nothing to read.
+func (h *hub) deployed(ctx context.Context, t tenant.Tenant) (func(context.Context) (string, error), error) {
 	switch {
 	case t.Repo == h.cfg.Repo:
-		s.GitSHA = h.cfg.GitSHA
+		return nil, nil
 	case t.Existing:
-		s.Deployed = gate.HealthSHA{URL: h.appURL(t.Slug)}.SHA
+		return gate.HealthSHA{URL: h.appURL(t.Slug)}.SHA, nil
 	case h.cfg.Project != "":
 		live, err := gate.NewServiceSHA(ctx, h.cfg.Project, h.cfg.Region, "x-"+t.Slug)
 		if err != nil {
 			return nil, err
 		}
-		s.Deployed = live.SHA
-	default:
-		return nil, nil
+		return live.SHA, nil
 	}
-	return s, nil
+	return nil, nil
+}
+
+// shipper marks a tenant's merged items shipped once its app serves them:
+// the hub's own SHA for the platform repo, else deployed. nil when there's
+// nothing to read.
+func (h *hub) shipper(t tenant.Tenant, st *db.Store, gh *github.Client,
+	reply func(context.Context, db.Item, string) error, deployed func(context.Context) (string, error)) *gate.Shipper {
+	s := &gate.Shipper{Store: st, GitHub: gh, Repo: t.Repo, Reply: reply}
+	switch {
+	case t.Repo == h.cfg.Repo:
+		s.GitSHA = h.cfg.GitSHA
+	case deployed != nil:
+		s.Deployed = deployed
+	default:
+		return nil
+	}
+	return s
 }
 
 type hubPage struct {

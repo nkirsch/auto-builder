@@ -1091,3 +1091,34 @@ func (s *Store) MembersIssue(ctx context.Context) (int, error) {
 func (s *Store) SetMembersIssue(ctx context.Context, n int) error {
 	return s.execOne(ctx, `UPDATE settings SET members_issue = nullif($1, 0)`, n)
 }
+
+// PRItem is the item a PR was opened for.
+type PRItem struct {
+	ID     int
+	Title  string
+	Author string
+}
+
+// ItemsForPRs maps each of prs to the item it was opened for, from the item
+// itself or the run that recorded it; PRs with no item are absent.
+func (s *Store) ItemsForPRs(ctx context.Context, prs []int) (map[int]PRItem, error) {
+	rows, err := s.Pool.Query(ctx, `SELECT DISTINCT ON (p.pr) p.pr, i.id, i.title, i.author
+		FROM (SELECT pr_number AS pr, id AS item FROM items WHERE pr_number = ANY($1)
+			UNION SELECT pr_number, item_id FROM run_prs WHERE pr_number = ANY($1)) p
+		JOIN items i ON i.id = p.item
+		ORDER BY p.pr, i.id DESC`, prs)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[int]PRItem{}
+	for rows.Next() {
+		var pr int
+		var it PRItem
+		if err := rows.Scan(&pr, &it.ID, &it.Title, &it.Author); err != nil {
+			return nil, err
+		}
+		out[pr] = it
+	}
+	return out, rows.Err()
+}

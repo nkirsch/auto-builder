@@ -646,3 +646,21 @@ func TestRunTokenHash(t *testing.T) {
 		t.Fatalf("after finish: %v", err)
 	}
 }
+
+func TestItemsForPRs(t *testing.T) {
+	ctx := context.Background()
+	s := testStore(t)
+	a, _ := s.CreateItem(ctx, "Dark mode", "", "alice")
+	b, _ := s.CreateItem(ctx, "Search", "", "bob")
+	s.SetPR(ctx, a, 7)
+	run, _ := s.CreateRun(ctx, "manual", "")
+	s.ClaimRun(ctx, run, "", "")
+	s.NoteRunPR(ctx, b, 8)
+	got, err := s.ItemsForPRs(ctx, []int{7, 8, 9})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 2 || got[7] != (PRItem{a, "Dark mode", "alice"}) || got[8] != (PRItem{b, "Search", "bob"}) {
+		t.Errorf("ItemsForPRs = %+v", got)
+	}
+}

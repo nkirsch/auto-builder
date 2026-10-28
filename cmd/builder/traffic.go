@@ -54,6 +54,7 @@ type count struct {
 }
 
 type trafficReport struct {
+	Host             string // the site, for the heading
 	From, To         time.Time
 	Views, Visitors  int
 	Dropped          int // requests from bots, scrapers and Nick
@@ -78,7 +79,7 @@ func buildReport(hits []hit, host string, from, to time.Time, exclude map[string
 			browser[h.IP+"|"+h.UA] = true
 		}
 	}
-	r := trafficReport{From: from, To: to}
+	r := trafficReport{Host: host, From: from, To: to}
 	visitors := map[string]bool{}
 	days, pages, refs := map[string]*tally{}, map[string]*tally{}, map[string]*tally{}
 	for d := from.In(pacific); !d.After(to); d = d.AddDate(0, 0, 1) {
@@ -312,7 +313,7 @@ var trafficTmpl = template.Must(template.New("traffic").Funcs(template.FuncMap{
 	},
 }).Parse(`<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="robots" content="noindex, nofollow"><title>Traffic</title>
+<meta name="robots" content="noindex, nofollow"><title>{{with .Host}}{{.}} · {{end}}Traffic</title>
 <style>
 body{font:15px/1.4 system-ui,sans-serif;max-width:52rem;margin:2rem auto;padding:0 1rem;color:#222;background:#fff}
 @media (prefers-color-scheme:dark){body{color:#ddd;background:#161616}td,th{border-color:#333!important}.bar{background:#c56b8a!important}}
@@ -322,7 +323,7 @@ table{border-collapse:collapse;width:100%}td,th{padding:.3rem .5rem;border-botto
 td.n,th.n{text-align:right;font-variant-numeric:tabular-nums;width:5rem}td.k{word-break:break-all}
 .bar{height:.7rem;background:#e89ab4;border-radius:2px;min-width:1px}
 </style></head><body>
-<h1>Traffic</h1>
+<h1>{{with .Host}}{{.}} · {{end}}Traffic</h1>
 <p class="sub">{{.From.Format "Jan 2"}} – {{.To.Format "Jan 2, 3:04 PM MST"}} · browsers only; bots, scrapers and Nick's home are left out ({{.Dropped}} requests) · cached for an hour, <a href="?refresh">refresh</a></p>
 <div class="tot"><div><b>{{.Visitors}}</b>visitors</div><div><b>{{.Views}}</b>page views</div></div>
 <h2>By day</h2>

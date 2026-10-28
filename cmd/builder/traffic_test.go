@@ -47,7 +47,7 @@ func TestTrafficCaches(t *testing.T) {
 	for _, path := range []string{"/logs", "/logs", "/logs?refresh"} {
 		w := httptest.NewRecorder()
 		tr.ServeHTTP(w, httptest.NewRequest(http.MethodGet, path, nil))
-		if w.Code != http.StatusOK || !strings.Contains(w.Body.String(), "page views") {
+		if w.Code != http.StatusOK || !strings.Contains(w.Body.String(), "page views") || !strings.Contains(w.Body.String(), "<h1>site.example · Traffic</h1>") {
 			t.Fatalf("%s: %d %s", path, w.Code, w.Body)
 		}
 	}

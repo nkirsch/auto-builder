@@ -9,12 +9,12 @@
     <span class="spacer"></span>
     {{if .Email}}
     <form method="post" action="{{base}}/admin/members/{{.Login}}/github" title="Whether {{.Login}} is also their GitHub login">
-      {{if .GitHub}}<input type="hidden" name="on" value="false"><button class="secondary">Google only</button>
-      {{else}}<input type="hidden" name="on" value="true"><button class="secondary">Allow GitHub too</button>{{end}}
+      {{if .GitHub}}<input type="hidden" name="on" value="false"><button class="secondary small">Google only</button>
+      {{else}}<input type="hidden" name="on" value="true"><button class="secondary small">Allow GitHub too</button>{{end}}
     </form>
     {{end}}
     {{if ne .Login $.Me.Login}}
-    <form method="post" action="{{base}}/admin/members/{{.Login}}/delete"><button class="secondary">Remove</button></form>
+    <form method="post" action="{{base}}/admin/members/{{.Login}}/delete"><button class="secondary small">Remove</button></form>
     {{end}}
   </li>
   {{end}}

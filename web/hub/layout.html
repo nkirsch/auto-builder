@@ -20,9 +20,10 @@
     <a href="/admin/traffic">Traffic</a>
     <a href="/admin">Admin</a>{{end}}
     {{with .Feedback}}<a href="{{.}}" title="Ask for a change to the platform">Feedback</a>{{end}}
-    <form method="post" action="/auth/logout" class="logout">
-      <button class="link" title="Sign out">{{.Me}} ⎋</button>
-    </form>{{end}}
+    <details class="logout">
+      <summary title="Sign out…">{{.Me}} ⎋</summary>
+      <form method="post" action="/auth/logout"><button class="small">Sign out</button></form>
+    </details>{{end}}
   </nav>
 </header>
 <main>

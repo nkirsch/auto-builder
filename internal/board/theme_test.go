@@ -235,3 +235,24 @@ func TestLayoutBrandFooterDefault(t *testing.T) {
 		t.Error("layout missing footer")
 	}
 }
+
+// The login in the nav only reveals the sign-out button; it doesn't sign out.
+func TestLayoutSignOutConfirms(t *testing.T) {
+	b := &Board{}
+	if err := b.parse(); err != nil {
+		t.Fatal(err)
+	}
+	var sb strings.Builder
+	if err := b.tmpl["new"].ExecuteTemplate(&sb, "layout", page{Me: db.Member{Login: "alice"}}); err != nil {
+		t.Fatal(err)
+	}
+	out := sb.String()
+	for _, want := range []string{`<summary title="Sign out…">alice ⎋</summary>`, `<button class="small">Sign out</button>`} {
+		if !strings.Contains(out, want) {
+			t.Errorf("layout missing %s", want)
+		}
+	}
+	if strings.Contains(out, `<button class="link" title="Sign out">alice`) {
+		t.Error("the login is still a sign-out button")
+	}
+}

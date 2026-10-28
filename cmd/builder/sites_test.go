@@ -55,8 +55,19 @@ func TestFetchSite(t *testing.T) {
 		t.Fatalf("bad token: %+v", row)
 	}
 	row = fetchSite(context.Background(), srv.Client(), remoteSite{Name: "gone", URL: srv.URL + "/missing"}, "")
-	if row.Health == "ok" || !strings.Contains(row.Health, "404") {
+	if row.Health != "HTTP 404" {
 		t.Fatalf("missing site health = %q", row.Health)
+	}
+	// A site whose certificate doesn't verify reads "TLS error", the detail kept for a tooltip.
+	tlsSrv := httptest.NewTLSServer(http.NotFoundHandler())
+	defer tlsSrv.Close()
+	row = fetchSite(context.Background(), &http.Client{}, remoteSite{Name: "nocert", URL: tlsSrv.URL}, "")
+	if row.Health != "TLS error" || !strings.Contains(row.HealthErr, "certificate") {
+		t.Fatalf("bad cert: health=%q err=%q", row.Health, row.HealthErr)
+	}
+	row = fetchSite(context.Background(), &http.Client{}, remoteSite{Name: "gone", URL: "http://127.0.0.1:1"}, "")
+	if row.Health != "unreachable" {
+		t.Fatalf("refused: health=%q err=%q", row.Health, row.HealthErr)
 	}
 }
 

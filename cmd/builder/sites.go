@@ -2,9 +2,12 @@ package main
 
 import (
 	"context"
+	"crypto/tls"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
+	"net"
 	"net/http"
 	"net/url"
 	"sort"
@@ -134,7 +137,8 @@ type siteRow struct {
 	Name, Board string
 	Slug, Site  string // hub apps: the slug and the app's own URL
 	App         bool   // a hub app, read from its store; else a remote single board
-	Health      string // "ok", or why not
+	Health      string // "ok", or why not in a word or two
+	HealthErr   string // the full error behind Health, for its tooltip
 	Stats       siteStats
 	Detail      bool   // Stats beyond the version came back (hub app, or STATS_TOKEN accepted)
 	Role        string // the viewer's role on a hub app, "" if none
@@ -167,7 +171,7 @@ func fetchSite(ctx context.Context, c *http.Client, s remoteSite, token string) 
 	}
 	var health struct{ Status, SHA string }
 	if err := get("/health", "", &health); err != nil && health.Status == "" {
-		row.Health = err.Error()
+		row.Health, row.HealthErr = shortErr(err), err.Error()
 	} else {
 		row.Health, row.Stats.GitSHA = health.Status, health.SHA
 	}
@@ -182,6 +186,29 @@ func fetchSite(ctx context.Context, c *http.Client, s remoteSite, token string) 
 		}
 	}
 	return row
+}
+
+// shortErr names a failed fetch in a word or two; the page has no room for
+// Go's full "Get ...: tls: ..." text.
+func shortErr(err error) string {
+	var cert *tls.CertificateVerificationError
+	var rec tls.RecordHeaderError
+	var dns *net.DNSError
+	var ne net.Error
+	m := err.Error()
+	switch {
+	case errors.As(err, &cert), errors.As(err, &rec), strings.Contains(m, "tls:"), strings.Contains(m, "x509:"):
+		return "TLS error"
+	case errors.As(err, &dns):
+		return "no DNS"
+	case errors.As(err, &ne) && ne.Timeout():
+		return "timeout"
+	case strings.HasPrefix(m, "HTTP "):
+		return m
+	case strings.Contains(m, "connection refused"), strings.Contains(m, "connection reset"), strings.Contains(m, "EOF"):
+		return "unreachable"
+	}
+	return "down"
 }
 
 // appURL is where an app is served.
@@ -227,7 +254,7 @@ func (h *hub) siteRows(ctx context.Context) ([]siteRow, error) {
 		go func() {
 			defer wg.Done()
 			live := fetchSite(ctx, client, remoteSite{URL: rows[i].Site}, "")
-			rows[i].Health, rows[i].Stats.GitSHA = live.Health, live.Stats.GitSHA
+			rows[i].Health, rows[i].HealthErr, rows[i].Stats.GitSHA = live.Health, live.HealthErr, live.Stats.GitSHA
 		}()
 	}
 	wg.Wait()

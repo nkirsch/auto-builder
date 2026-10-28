@@ -37,9 +37,10 @@
       <button class="link to-dark" name="theme" value="dark" title="Dark mode" aria-label="Switch to dark mode">☾</button>
       <button class="link to-light" name="theme" value="light" title="Light mode" aria-label="Switch to light mode">☀</button>
     </form>
-    <form method="post" action="{{base}}/auth/logout" class="logout">
-      <button class="link" title="Sign out">{{.Me.Login}} ⎋</button>
-    </form>
+    <details class="logout">
+      <summary title="Sign out…">{{.Me.Login}} ⎋</summary>
+      <form method="post" action="{{base}}/auth/logout"><button class="small">Sign out</button></form>
+    </details>
   </nav>{{else}}<nav>{{if .AppName}}<a href="{{base}}/" class="brand">{{.AppName}}</a>{{else}}{{template "brand-signed-out" .}}{{end}}</nav>{{end}}
 </header>
 <main>

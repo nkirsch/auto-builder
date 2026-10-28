@@ -84,6 +84,9 @@ type Board struct {
 	BaseURL  string
 	BotLogin string
 	GitSHA   string
+	// Deployed, when set (a hub's tenant board), reports the app's live SHA;
+	// GitSHA and the version are then the hub's.
+	Deployed func(ctx context.Context) (string, error)
 	Repo     string
 	// CodeRepo, when set (a hub's tenant board), is the repo GitSHA and the
 	// version belong to, for the footer; Repo is the one the board builds.

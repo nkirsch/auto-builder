@@ -400,8 +400,9 @@ func TestHubExisting(t *testing.T) {
 	for slug, platform := range map[string]bool{"alpha": true, "beta": false} {
 		tn, _ := h.reg.Tenant(ctx, slug)
 		st, _ := h.reg.Store(ctx, slug)
-		s, err := h.shipper(ctx, tn, st, nil, nil)
-		if err != nil || s == nil || (s.GitSHA == "abc1234") != platform || (s.Deployed != nil) == platform {
+		d, err := h.deployed(ctx, tn)
+		s := h.shipper(tn, st, nil, nil, d)
+		if err != nil || s == nil || (s.GitSHA == "abc1234") != platform || (s.Deployed != nil) == platform || (d != nil) == platform {
 			t.Errorf("%s shipper %+v %v", slug, s, err)
 		}
 	}
@@ -410,6 +411,10 @@ func TestHubExisting(t *testing.T) {
 	w = do(h, srv, "nick@example.org", "GET", "/beta/", nil)
 	if !strings.Contains(w.Body.String(), "github.com/kirsch/extreme/commit/abc1234") || strings.Contains(w.Body.String(), "someone/beta/commit") {
 		t.Errorf("tenant footer: %s", w.Body.String())
+	}
+	// The nav's version beside the app's name would be the hub's, not the app's.
+	if strings.Contains(w.Body.String(), `<span class="version"`) {
+		t.Errorf("tenant nav shows the hub's version: %s", w.Body.String())
 	}
 
 	// Deleting one only drops it from the hub.

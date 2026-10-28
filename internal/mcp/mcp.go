@@ -23,6 +23,9 @@ type Board struct {
 	BotLogin string
 	BaseURL  string
 	GitSHA   string
+	// Deployed, when set, reports the live SHA instead of GitSHA: a tenant's
+	// app deploys apart from this server.
+	Deployed func(ctx context.Context) (string, error)
 	// Reply posts as the bot and notifies.
 	Reply func(ctx context.Context, it db.Item, body string) error
 	// Filer, when set (issue sync), files items under their GitHub issue's number.
@@ -384,6 +387,11 @@ func (b *Board) deployStatus(ctx context.Context, _ *mcp.CallToolRequest, _ stru
 	}
 	out := DeployOut{GitSHA: b.GitSHA, AwaitingShip: []ItemOut{},
 		CheckedAtNote: "items move to shipped automatically once the deployed SHA contains their merge"}
+	if b.Deployed != nil {
+		if out.GitSHA, err = b.Deployed(ctx); err != nil {
+			out.GitSHA, out.CheckedAtNote = "", "can't read the deployed SHA: "+err.Error()
+		}
+	}
 	for _, it := range items {
 		o, err := b.itemOut(ctx, it, roles, false)
 		if err != nil {

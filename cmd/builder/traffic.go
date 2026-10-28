@@ -19,6 +19,7 @@ import (
 
 // The admin-only /logs page: who reads the static site, from Cloud Run's request
 // log (read through a log view scoped to this service; see infra/bootstrap.sh).
+// On a hub, each board's /logs reads its app's view, <slug>-requests.
 
 const (
 	trafficDays  = 30
@@ -227,6 +228,7 @@ func metadataToken(ctx context.Context, c *http.Client) (string, error) {
 // traffic serves the report, rebuilt at most once per trafficCache.
 type traffic struct {
 	host  string
+	view  string // the log view read, "" for none
 	hits  func(ctx context.Context, since time.Time) ([]hit, error)
 	home  func(ctx context.Context) map[string]bool
 	now   func() time.Time
@@ -237,15 +239,35 @@ type traffic struct {
 
 func newTraffic(baseURL, project, service string) *traffic {
 	u, _ := url.Parse(baseURL)
-	t := &traffic{host: u.Host, now: time.Now, home: lookupHome}
-	view := fmt.Sprintf("projects/%s/locations/global/buckets/_Default/views/%s-requests", project, service)
-	t.hits = logView{name: view, client: &http.Client{Timeout: 30 * time.Second}}.hits
 	if project == "" || service == "" {
+		return trafficFrom(u.Host, "")
+	}
+	return trafficFrom(u.Host, logViewName(project, service+"-requests"))
+}
+
+// trafficFrom reads hits through the named log view; "" when there's none.
+func trafficFrom(host, view string) *traffic {
+	t := &traffic{host: host, view: view, now: time.Now, home: lookupHome}
+	t.hits = logView{name: view, client: &http.Client{Timeout: 30 * time.Second}}.hits
+	if view == "" {
 		t.hits = func(context.Context, time.Time) ([]hit, error) {
-			return nil, fmt.Errorf("needs Cloud Run (GCP_PROJECT and K_SERVICE)")
+			return nil, fmt.Errorf("no request log view (needs GCP_PROJECT, and K_SERVICE or LOG_PROJECT)")
 		}
 	}
 	return t
+}
+
+// traffic is a hub board's /logs: its app's view <slug>-requests in LOG_PROJECT.
+func (h *hub) traffic(slug string) *traffic {
+	u, _ := url.Parse(h.appURL(slug))
+	if h.cfg.LogProject == "" {
+		return trafficFrom(u.Host, "")
+	}
+	return trafficFrom(u.Host, logViewName(h.cfg.LogProject, slug+"-requests"))
+}
+
+func logViewName(project, view string) string {
+	return fmt.Sprintf("projects/%s/locations/global/buckets/_Default/views/%s", project, view)
 }
 
 func lookupHome(ctx context.Context) map[string]bool {

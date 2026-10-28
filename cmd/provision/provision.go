@@ -84,6 +84,10 @@ func (p *Provisioner) Create(ctx context.Context, t tenant.Tenant) error {
 				"--service-account", runtime, "--allow-unauthenticated"}},
 		{[]string{"beta", "run", "domain-mappings", "describe", "--domain", host, "--region", p.Region},
 			[]string{"beta", "run", "domain-mappings", "create", "--service", svc, "--domain", host, "--region", p.Region}},
+		// The board's /logs reads the app's request log through this view.
+		{[]string{"logging", "views", "describe", t.Slug + "-requests", "--bucket", "_Default", "--location", "global"},
+			[]string{"logging", "views", "create", t.Slug + "-requests", "--bucket", "_Default", "--location", "global",
+				"--log-filter", fmt.Sprintf(`resource.type="cloud_run_revision" AND resource.labels.service_name=%q AND LOG_ID("run.googleapis.com/requests")`, svc)}},
 	}
 	for _, s := range steps {
 		if err := p.ensure(ctx, s.describe, s.create); err != nil {
@@ -142,6 +146,7 @@ func (p *Provisioner) Delete(ctx context.Context, t tenant.Tenant) error {
 		{"dns", "record-sets", "delete", host + ".", "--type", "CNAME", "--zone", p.Zone},
 		{"run", "services", "delete", svc, "--region", p.Region},
 		{"artifacts", "repositories", "delete", svc, "--location", p.Region},
+		{"logging", "views", "delete", t.Slug + "-requests", "--bucket", "_Default", "--location", "global"},
 		{"iam", "service-accounts", "delete", p.sa("deploy-" + t.Slug)},
 		{"iam", "service-accounts", "delete", p.sa("app-" + t.Slug)},
 	}

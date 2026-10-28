@@ -94,6 +94,8 @@ type Board struct {
 	SiteURL string
 	// Upstream, when set, is the repo this one forks; admins can keep up with it.
 	Upstream string
+	// Traffic, when set, links the admin page to the site's traffic at /logs.
+	Traffic bool
 	// Platform, when set (multi-tenant mode), is whom admins escalate to.
 	Platform Platform
 	// Mailer, when set, lets admins email invites instead of opening a mail client.
@@ -853,7 +855,7 @@ func (b *Board) admin(w http.ResponseWriter, r *http.Request) {
 	if b.Mailer != nil {
 		mail = map[string]any{"From": b.Mailer.Mailbox(r)}
 	}
-	b.render(w, r, "admin", "Admin", map[string]any{"Members": members, "Costs": costs,
+	b.render(w, r, "admin", "Admin", map[string]any{"Members": members, "Costs": costs, "Traffic": b.Traffic,
 		"Limit": limit, "MemberCosts": byMember, "Stats": []db.RunStats{recent, all}, "Upstream": upstream, "Mail": mail,
 		"Workflows": workflows})
 }

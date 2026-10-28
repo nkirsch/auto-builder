@@ -81,6 +81,7 @@ func TestCreate(t *testing.T) {
 		"artifacts repositories create x-alpha --location us-central1 --repository-format docker",
 		"run deploy x-alpha --region us-central1 --image us-docker.pkg.dev/cloudrun/container/hello --service-account app-alpha@proj.iam.gserviceaccount.com --allow-unauthenticated",
 		"beta run domain-mappings create --service x-alpha --domain alpha.extreme.org",
+		`logging views create alpha-requests --bucket _Default --location global --log-filter resource.type="cloud_run_revision" AND resource.labels.service_name="x-alpha"`,
 		"dns record-sets create alpha.extreme.org. --type CNAME --ttl 300 --rrdatas ghs.googlehosted.com. --zone extreme-org",
 		"--member principalSet://iam.googleapis.com/projects/123/locations/global/workloadIdentityPools/extreme/attribute.repository/extreme-dot-org/alpha --role roles/iam.workloadIdentityUser",
 		"git clone --quiet --branch master https://github.com/extreme-dot-org/extreme-template.git",
@@ -142,7 +143,7 @@ func TestDelete(t *testing.T) {
 	}
 	all := strings.Join(sh.cmds, "\n")
 	for _, want := range []string{"domain-mappings delete --domain alpha.extreme.org", "run services delete x-alpha",
-		"artifacts repositories delete x-alpha", "service-accounts delete app-alpha@", "service-accounts delete deploy-alpha@"} {
+		"artifacts repositories delete x-alpha", "logging views delete alpha-requests", "service-accounts delete app-alpha@", "service-accounts delete deploy-alpha@"} {
 		if !strings.Contains(all, want) {
 			t.Errorf("missing %q in\n%s", want, all)
 		}

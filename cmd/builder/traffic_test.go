@@ -55,3 +55,14 @@ func TestTrafficCaches(t *testing.T) {
 		t.Errorf("log reads = %d, want 2 (cached, then refresh)", calls)
 	}
 }
+
+func TestHubTraffic(t *testing.T) {
+	h := &hub{cfg: config{LogProject: "kirsch-org"}, host: "kirsch.org"}
+	tr := h.traffic("momo")
+	if tr.host != "momo.kirsch.org" || tr.view != "projects/kirsch-org/locations/global/buckets/_Default/views/momo-requests" {
+		t.Errorf("host=%q view=%q", tr.host, tr.view)
+	}
+	if tr := (&hub{host: "kirsch.org"}).traffic("momo"); tr.view != "" {
+		t.Errorf("no LOG_PROJECT: view=%q", tr.view)
+	}
+}

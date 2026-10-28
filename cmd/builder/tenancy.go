@@ -412,7 +412,7 @@ func (h *hub) tenantFor(ctx context.Context, slug string) (*tenantRT, error) {
 	b := &board.Board{
 		Store: st, Storage: storage, Auth: ta, Gate: g, BaseURL: base,
 		BotLogin: h.cfg.BotLogin, GitSHA: h.cfg.GitSHA, Repo: t.Repo, CodeRepo: h.cfg.Repo, GitHub: gh,
-		Name: t.Name, SiteURL: h.appURL(slug), Releases: h.cfg.Releases,
+		Name: t.Name, SiteURL: h.appURL(slug), Releases: h.cfg.Releases, Traffic: h.cfg.LogProject != "",
 		Platform: hubPlatform{h, slug},
 	}
 	if ta.CanMail() {
@@ -436,6 +436,7 @@ func (h *hub) tenantFor(ctx context.Context, slug string) (*tenantRT, error) {
 	if err := b.Routes(mux); err != nil {
 		return nil, err
 	}
+	mux.Handle("GET /logs", ta.RequireAdmin(h.traffic(slug))) // the app's traffic
 	scfg := h.cfg
 	scfg.Repo, scfg.BaseURL = t.Repo, base
 	rt := &tenantRT{

@@ -103,6 +103,7 @@ type Board struct {
 
 	tmpl    map[string]*template.Template
 	version atomic.Pointer[string]
+	history historyCache
 }
 
 // SetVersion sets the release name shown next to the brand, e.g. "v26.10.25-2".
@@ -146,6 +147,7 @@ func (b *Board) Routes(mux *http.ServeMux) error {
 	})
 	mux.Handle("POST /read", member(b.markAllRead))
 	mux.Handle("GET /runs", member(b.runs))
+	mux.Handle("GET /history", member(b.historyPage))
 	mux.Handle("GET /runs/{id}/log", member(b.runLog))
 	mux.Handle("GET /admin", admin(b.admin))
 	mux.Handle("POST /admin/members", admin(b.addMember))

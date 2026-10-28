@@ -1,0 +1,23 @@
+{{define "content"}}
+<h1>History</h1>
+<p class="hint">PRs merged into the default branch, under the version that first shipped them, from the last {{.Data.Depth}} commits.</p>
+{{with .Data.Err}}<p class="flash">Can't read history: {{.}}</p>{{end}}
+{{$repo := .Data.Repo}}
+{{with .Data.Releases}}
+<ol class="history">
+  {{range $rel := .}}
+  <li class="release{{if .Live}} live{{end}}{{if not .Tags}} pending{{end}}">
+    <div class="row">
+      {{if .Tags}}{{range .Tags}}<a class="tag" href="https://github.com/{{$repo}}/tree/{{.}}">{{.}}</a>{{end}}{{else}}<b>Not released yet</b>{{end}}
+      {{if .Live}}<span class="badge live">live</span>{{end}}
+      {{with .SHA}}<span class="muted"><a href="https://github.com/{{$repo}}/commit/{{.}}" title="{{.}}">{{short .}}</a> · {{ago $rel.At}}</span>{{end}}
+    </div>
+    {{with .PRs}}<ol class="prs">{{range .}}
+      <li><a href="{{.URL}}">#{{.Number}}</a> {{.Title}}
+        <span class="muted">{{with .Item}}· <a href="{{base}}/items/{{.ID}}">item #{{.ID}}</a> asked by {{.Author}}{{else}}· by {{.Author}}{{end}} · {{ago .MergedAt}}</span></li>
+    {{end}}</ol>{{end}}
+  </li>
+  {{end}}
+</ol>
+{{else}}{{if not .Data.Err}}<p class="empty">Nothing merged yet.</p>{{end}}{{end}}
+{{end}}

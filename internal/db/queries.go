@@ -785,6 +785,23 @@ func (s *Store) ClaimRun(ctx context.Context, id int, sha, version string) error
 		WHERE id = $1 AND status = 'requested'`, id, sha, version)
 }
 
+// SetRunTokenHash stores the SHA-256 of a run's runner token.
+func (s *Store) SetRunTokenHash(ctx context.Context, id int, hash []byte) error {
+	return s.execOne(ctx, `UPDATE runs SET token_hash = $2 WHERE id = $1`, id, hash)
+}
+
+// RunByTokenHash resolves a runner token's hash to its run while the run is
+// requested or running; ErrNotFound otherwise, so a token dies with its run.
+func (s *Store) RunByTokenHash(ctx context.Context, hash []byte) (int, error) {
+	var id int
+	err := s.Pool.QueryRow(ctx, `SELECT id FROM runs WHERE token_hash = $1 AND status IN ('requested', 'running')`,
+		hash).Scan(&id)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return 0, ErrNotFound
+	}
+	return id, err
+}
+
 // TakeRunToken marks a running run's one GitHub token as issued; ErrNotFound
 // if the run isn't running or already had it, so the agent (which holds the
 // runner token) can't mint more.
@@ -1038,6 +1055,18 @@ func (s *Store) RunItems(ctx context.Context, runIDs []int) (map[int][]RunItem, 
 func (s *Store) UpstreamSync(ctx context.Context) (on bool, pr int, err error) {
 	err = s.Pool.QueryRow(ctx, `SELECT upstream_sync, coalesce(upstream_pr, 0) FROM settings`).Scan(&on, &pr)
 	return on, pr, err
+}
+
+// AgentWorkflows reports whether a run's agent may change workflows.
+func (s *Store) AgentWorkflows(ctx context.Context) (on bool, err error) {
+	err = s.Pool.QueryRow(ctx, `SELECT agent_workflows FROM settings`).Scan(&on)
+	return on, err
+}
+
+// SetAgentWorkflows lets the agent change workflows, or not.
+func (s *Store) SetAgentWorkflows(ctx context.Context, on bool) error {
+	_, err := s.Pool.Exec(ctx, `UPDATE settings SET agent_workflows = $1`, on)
+	return err
 }
 
 // SetUpstreamSync turns keeping up with upstream on or off.

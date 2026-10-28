@@ -69,8 +69,8 @@ func TestGitHubToken(t *testing.T) {
 }
 
 func TestChildEnvDropsAppSecrets(t *testing.T) {
-	got := childEnv([]string{"PATH=/bin", "GH_APP_PRIVATE_KEY=k", "GH_APP_ID=1", "RUNNER_TOKEN=rt"})
-	if !slices.Equal(got, []string{"PATH=/bin", "RUNNER_TOKEN=rt"}) {
+	got := childEnv([]string{"PATH=/bin", "GH_APP_PRIVATE_KEY=k", "GH_APP_ID=1", "RUNNER_TOKEN=rt", "RUN_TOKEN=run"})
+	if !slices.Equal(got, []string{"PATH=/bin", "RUN_TOKEN=run"}) {
 		t.Fatalf("got %v", got)
 	}
 }

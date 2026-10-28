@@ -20,6 +20,8 @@ JOB=${JOB:-builder-runner}
 # auto-builder-runner-rule. Set it empty (CLAUDE_FEDERATION=) to mount ANTHROPIC_API_KEY instead.
 CLAUDE_FEDERATION=${CLAUDE_FEDERATION-ANTHROPIC_ORGANIZATION_ID=dc5626e0-63a7-45a9-a418-b689f7ae6c40,ANTHROPIC_SERVICE_ACCOUNT_ID=svac_014ixSeHxixYtRESzvJZi7ah,ANTHROPIC_FEDERATION_RULE_ID=fdrl_01AUuCtDtwh5X21ynFaaaNQJ,ANTHROPIC_WORKSPACE_ID=wrkspc_018YcoPCmM7YfmUw7LC2hGzc}
 KEY_SECRET=$([ -n "$CLAUDE_FEDERATION" ] || echo ANTHROPIC_API_KEY)
+# DEPLOY_ON from app.env over app.defaults.env, as the workflows read it.
+DEPLOY_ON=$(cd "$(dirname "$0")/.." && awk -F= '/^DEPLOY_ON=/ {v=$2} END {print v}' app.defaults.env app.env 2>/dev/null)
 
 g() { gcloud --project "$PROJECT" --quiet "$@"; }
 log() { echo "== $*"; }
@@ -64,7 +66,6 @@ if ! g secrets describe DATABASE_URL >/dev/null 2>&1; then
 fi
 log "secrets"
 secret SESSION_KEY "$(openssl rand -hex 32)"
-secret RUNNER_TOKEN "$(openssl rand -hex 32)"
 secret TICK_TOKEN "$(openssl rand -hex 32)"
 secret STATS_TOKEN "$(openssl rand -hex 32)" # the hub's /admin/sites reads GET /api/stats with it
 # Filled in by hand (see DESIGN.md manual steps); created empty-less so Cloud Run can mount them.
@@ -89,10 +90,12 @@ for a in builder-server builder-runner builder-deployer; do
 done
 # Least privilege: each SA gets only the roles and secrets it uses, scoped to
 # the resource where IAM allows it. Older broad grants are removed on re-run.
-SERVER_SECRETS="DATABASE_URL SESSION_KEY RUNNER_TOKEN TICK_TOKEN STATS_TOKEN GITHUB_CLIENT_ID GITHUB_CLIENT_SECRET GOOGLE_CLIENT_ID GOOGLE_CLIENT_SECRET GH_APP_ID GH_APP_INSTALLATION_ID GH_APP_PRIVATE_KEY PUSHOVER_TOKEN PUSHOVER_USER"
-# The runner gets GitHub tokens from the server: no GH_APP_* secrets.
-RUNNER_SECRETS="RUNNER_TOKEN $KEY_SECRET"
+SERVER_SECRETS="DATABASE_URL SESSION_KEY TICK_TOKEN STATS_TOKEN GITHUB_CLIENT_ID GITHUB_CLIENT_SECRET GOOGLE_CLIENT_ID GOOGLE_CLIENT_SECRET GH_APP_ID GH_APP_INSTALLATION_ID GH_APP_PRIVATE_KEY PUSHOVER_TOKEN PUSHOVER_USER"
+# The runner gets GitHub tokens and its RUN_TOKEN from the server: no GH_APP_*
+# secrets, and no RUNNER_TOKEN (a shared bearer older runners used).
+RUNNER_SECRETS="$KEY_SECRET"
 APP_SECRETS="GH_APP_ID GH_APP_INSTALLATION_ID GH_APP_PRIVATE_KEY"
+OLD_RUNNER_SECRETS="$APP_SECRETS RUNNER_TOKEN"
 mounts() { for s in $1; do printf '%s=%s:latest,' "$s" "$s"; done | sed 's/,$//'; }
 proj_role() { retry g projects add-iam-policy-binding "$PROJECT" --member "serviceAccount:$(sa $1)" \
   --role "$2" --condition None >/dev/null; }
@@ -133,7 +136,10 @@ g iam workload-identity-pools describe github --location global >/dev/null 2>&1 
   g iam workload-identity-pools create github --location global --display-name GitHub
 # Only master (the deploy workflow) may impersonate the deployer: the agent
 # pushes branches to this repo, and a workflow on one must not reach GCP.
-WIF_CONDITION="assertion.repository == '$REPO' && assertion.ref == 'refs/heads/master'"
+# DEPLOY_ON=release adds v* tags; deploy.yml refuses a tag not on master.
+WIF_REF="assertion.ref == 'refs/heads/master'"
+[ "$DEPLOY_ON" = release ] && WIF_REF="($WIF_REF || assertion.ref.startsWith('refs/tags/v'))"
+WIF_CONDITION="assertion.repository == '$REPO' && $WIF_REF"
 if g iam workload-identity-pools providers describe github --location global \
   --workload-identity-pool github >/dev/null 2>&1; then
   g iam workload-identity-pools providers update-oidc github --location global \
@@ -176,15 +182,19 @@ if ! g run jobs describe "$JOB" --region "$REGION" >/dev/null 2>&1; then
     --service-account "$(sa builder-runner)" --task-timeout 60m --max-retries 0 \
     --cpu 2 --memory 4Gi \
     --set-env-vars "BASE_URL=https://$DOMAIN${CLAUDE_FEDERATION:+,$CLAUDE_FEDERATION}" \
-    --set-secrets "$(mounts "$RUNNER_SECRETS")"
+    ${RUNNER_SECRETS:+--set-secrets "$(mounts "$RUNNER_SECRETS")"}
 fi
 if [ -n "$CLAUDE_FEDERATION" ]; then
   g run jobs update "$JOB" --region "$REGION" --update-env-vars "$CLAUDE_FEDERATION" \
     --remove-secrets ANTHROPIC_API_KEY >/dev/null
 fi
-# Older jobs mounted the App secrets; unmount them, then revoke the runner's access.
-g run jobs update "$JOB" --region "$REGION" --remove-secrets "${APP_SECRETS// /,}" >/dev/null
-for s in $APP_SECRETS; do
+# Older jobs mounted the App secrets and RUNNER_TOKEN; unmount them, then
+# revoke the runner's access. The server no longer reads RUNNER_TOKEN either.
+g run jobs update "$JOB" --region "$REGION" --remove-secrets "${OLD_RUNNER_SECRETS// /,}" >/dev/null
+if g run services describe "$SERVICE" --region "$REGION" --format json | grep -q '"RUNNER_TOKEN"'; then
+  g run services update "$SERVICE" --region "$REGION" --remove-secrets RUNNER_TOKEN >/dev/null
+fi
+for s in $OLD_RUNNER_SECRETS; do
   g secrets remove-iam-policy-binding "$s" --member "serviceAccount:$(sa builder-runner)" \
     --role roles/secretmanager.secretAccessor >/dev/null 2>&1 || true
 done

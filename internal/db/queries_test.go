@@ -622,3 +622,27 @@ func TestTakeRunToken(t *testing.T) {
 		t.Fatalf("missing run: %v", err)
 	}
 }
+
+func TestRunTokenHash(t *testing.T) {
+	ctx := context.Background()
+	s := testStore(t)
+	run, _ := s.CreateRun(ctx, "now", "nkirsch")
+	hash := []byte("0123456789abcdef0123456789abcdef")
+	if _, err := s.RunByTokenHash(ctx, hash); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("before set: %v", err)
+	}
+	if err := s.SetRunTokenHash(ctx, run, hash); err != nil {
+		t.Fatal(err)
+	}
+	if id, err := s.RunByTokenHash(ctx, hash); err != nil || id != run {
+		t.Fatalf("requested: %d %v", id, err)
+	}
+	s.ClaimRun(ctx, run, "", "")
+	if id, err := s.RunByTokenHash(ctx, hash); err != nil || id != run {
+		t.Fatalf("running: %d %v", id, err)
+	}
+	s.FinishRun(ctx, run, "done", "", "", nil)
+	if _, err := s.RunByTokenHash(ctx, hash); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("after finish: %v", err)
+	}
+}

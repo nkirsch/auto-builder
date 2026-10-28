@@ -76,7 +76,8 @@ type Board struct {
 	Gate     Gate
 	// Filer, when set (issue sync), files items under their GitHub issue's number.
 	Filer Filer
-	// Welcomer, when set (issue sync), greets members without an email on GitHub.
+	// Welcomer, when set (issue sync), greets members without an email on GitHub;
+	// the rest get an email invite instead of a public @-mention.
 	Welcomer Welcomer
 	BaseURL  string
 	BotLogin string
@@ -153,6 +154,7 @@ func (b *Board) Routes(mux *http.ServeMux) error {
 	mux.Handle("POST /admin/spend-limit", admin(b.setSpendLimit))
 	mux.Handle("POST /admin/auto-approve", admin(b.setAutoApprove))
 	mux.Handle("POST /admin/upstream", admin(b.setUpstreamSync))
+	mux.Handle("POST /admin/workflows", admin(b.setAgentWorkflows))
 	mux.Handle("POST /theme", member(b.setTheme))
 	return nil
 }
@@ -839,12 +841,18 @@ func (b *Board) admin(w http.ResponseWriter, r *http.Request) {
 		}
 		upstream = map[string]any{"Repo": b.Upstream, "On": on, "PR": pr}
 	}
+	workflows, err := b.Store.AgentWorkflows(r.Context())
+	if err != nil {
+		b.fail(w, err)
+		return
+	}
 	var mail map[string]any
 	if b.Mailer != nil {
 		mail = map[string]any{"From": b.Mailer.Mailbox(r)}
 	}
 	b.render(w, r, "admin", "Admin", map[string]any{"Members": members, "Costs": costs,
-		"Limit": limit, "MemberCosts": byMember, "Stats": []db.RunStats{recent, all}, "Upstream": upstream, "Mail": mail})
+		"Limit": limit, "MemberCosts": byMember, "Stats": []db.RunStats{recent, all}, "Upstream": upstream, "Mail": mail,
+		"Workflows": workflows})
 }
 
 func (b *Board) setSpendLimit(w http.ResponseWriter, r *http.Request) {
@@ -870,6 +878,19 @@ func (b *Board) setUpstreamSync(w http.ResponseWriter, r *http.Request) {
 	msg := "No longer keeping up with " + b.Upstream
 	if on {
 		msg = "Keeping up with " + b.Upstream + ": new commits merge within a tick or two once CI passes"
+	}
+	redirect(w, r, "/admin", msg)
+}
+
+func (b *Board) setAgentWorkflows(w http.ResponseWriter, r *http.Request) {
+	on := r.FormValue("on") == "true"
+	if err := b.Store.SetAgentWorkflows(r.Context(), on); err != nil {
+		b.fail(w, err)
+		return
+	}
+	msg := "The agent can no longer change workflows; it blocks and hands you the diff"
+	if on {
+		msg = "The agent may change workflows from the next run"
 	}
 	redirect(w, r, "/admin", msg)
 }
@@ -930,8 +951,8 @@ func (b *Board) addMember(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	if isNew && github && b.Welcomer != nil {
-		// They'll sign in with GitHub, which has no DMs: an @-mention notifies them.
+	if isNew && email == "" && b.Welcomer != nil {
+		// No email to invite them by, and GitHub has no DMs: an @-mention notifies them.
 		n, err := b.Welcomer.Welcome(r.Context(), b.name(), login)
 		if err != nil {
 			slog.Warn("welcome member", "login", login, "err", err)

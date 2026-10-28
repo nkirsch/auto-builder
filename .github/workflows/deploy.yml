@@ -25,7 +25,7 @@ jobs:
       SITE_NAME: ${{ steps.app.outputs.SITE_NAME }}
       SITE_URL: ${{ steps.app.outputs.SITE_URL }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - id: app
         run: |
           # app.env overrides app.defaults.env, key by key.
@@ -38,6 +38,17 @@ jobs:
             *) deploy=$([ "$DEPLOY_ON" = push ] && echo true || echo false) ;;
           esac
           echo "deploy=$deploy" >> "$GITHUB_OUTPUT"
+      # A release or dispatch deploys only a commit already on master, so a
+      # tag on an unmerged branch (the agent can push both) can't ship.
+      - if: github.event_name != 'push' && steps.app.outputs.deploy == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          status=$(gh api "repos/$GITHUB_REPOSITORY/compare/master...$GITHUB_SHA" --jq .status)
+          case "$status" in
+            identical|behind) ;;
+            *) echo "::error::$GITHUB_REF_NAME ($GITHUB_SHA) is not on master ($status)"; exit 1 ;;
+          esac
   test:
     needs: config
     if: needs.config.outputs.deploy == 'true'
@@ -54,21 +65,21 @@ jobs:
           - name: runner
             file: Dockerfile.runner
     steps:
-      - uses: actions/checkout@v4
-      - uses: google-github-actions/auth@v3
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3
         with:
           workload_identity_provider: ${{ vars.GCP_WIF_PROVIDER }}
           service_account: ${{ vars.GCP_DEPLOYER }}
       # gcloud is preinstalled on ubuntu-latest; installing latest costs ~25s per job.
-      - uses: google-github-actions/setup-gcloud@v3
+      - uses: google-github-actions/setup-gcloud@aa5489c8933f4cc7a4f7d45035b3b1440c9c10db # v3
         with:
           skip_install: true
       - run: gcloud auth configure-docker ${{ vars.GCP_REGION }}-docker.pkg.dev --quiet
-      - uses: docker/setup-buildx-action@v3
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
       # Weekly value: refreshes the runner's Claude Code install despite layer caching.
       - id: week
         run: echo "week=$(date -u +%G-W%V)" >> "$GITHUB_OUTPUT"
-      - uses: docker/build-push-action@v6
+      - uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
         with:
           context: .
           file: ${{ matrix.file }}
@@ -87,17 +98,17 @@ jobs:
     if: needs.config.outputs.deploy == 'true' && needs.config.outputs.TENANCY == 'on' && vars.PROVISION_JOB != ''
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: google-github-actions/auth@v3
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3
         with:
           workload_identity_provider: ${{ vars.GCP_WIF_PROVIDER }}
           service_account: ${{ vars.GCP_DEPLOYER }}
-      - uses: google-github-actions/setup-gcloud@v3
+      - uses: google-github-actions/setup-gcloud@aa5489c8933f4cc7a4f7d45035b3b1440c9c10db # v3
         with:
           skip_install: true
       - run: gcloud auth configure-docker ${{ vars.GCP_REGION }}-docker.pkg.dev --quiet
-      - uses: docker/setup-buildx-action@v3
-      - uses: docker/build-push-action@v6
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+      - uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
         with:
           context: .
           file: Dockerfile.provision
@@ -117,7 +128,7 @@ jobs:
     outputs:
       version: ${{ steps.version.outputs.version }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       # Name the commit vYY.M.D-N (a v* tag already on it, else a new tag) and hand
       # it to the server as VERSION, so board, site footer, tag and Pushover agree.
       - id: version
@@ -141,12 +152,12 @@ jobs:
           site=$([ "$SERVE_SITE" = true ] && echo /site || true)
           releases=$([ "$DEPLOY_ON" = release ] && echo true || echo false)
           echo "vars=SITE_DIR=$site,RELEASES=$releases,ISSUE_SYNC=$ISSUE_SYNC,UPSTREAM=$UPSTREAM" >> "$GITHUB_OUTPUT"
-      - uses: google-github-actions/auth@v3
+      - uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3
         with:
           workload_identity_provider: ${{ vars.GCP_WIF_PROVIDER }}
           service_account: ${{ vars.GCP_DEPLOYER }}
       # gcloud is preinstalled on ubuntu-latest; installing latest costs ~25s per job.
-      - uses: google-github-actions/setup-gcloud@v3
+      - uses: google-github-actions/setup-gcloud@aa5489c8933f4cc7a4f7d45035b3b1440c9c10db # v3
         with:
           skip_install: true
       - name: deploy server

@@ -69,5 +69,10 @@
   {{else}}<input type="hidden" name="on" value="true"><span>Not keeping up with <a href="https://github.com/{{.Repo}}">{{.Repo}}</a> automatically.</span><button class="secondary">Keep up with upstream</button>{{end}}
 </form>
 {{end}}
+<h2>Workflows</h2>
+<form method="post" action="{{base}}/admin/workflows" class="row">
+  {{if .Data.Workflows}}<input type="hidden" name="on" value="false"><span>The agent may change <code>.github/workflows/</code>, which control CI and deploys.</span><button class="secondary">Turn off</button>
+  {{else}}<input type="hidden" name="on" value="true"><span>The agent can't change <code>.github/workflows/</code>: GitHub rejects its push, and it blocks the item with the diff for you.</span><button class="secondary">Allow</button>{{end}}
+</form>
 <form method="post" action="{{base}}/admin/run"><button>Run now</button></form>
 {{end}}

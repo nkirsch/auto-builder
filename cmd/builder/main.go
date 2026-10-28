@@ -32,7 +32,7 @@ type config struct {
 	Port, DatabaseURL, BaseURL, GitSHA, Repo string
 	AdminLogin, BotLogin, DevLogin           string
 	SessionKey, ClientID, ClientSecret       string
-	RunnerToken, TickToken                   string
+	TickToken                                string
 	Bucket, DataDir, SiteDir                 string
 	Launcher, Project, Region, Job           string
 	AppID, AppInstallation, AppKey           string
@@ -75,7 +75,6 @@ func loadConfig() (config, error) {
 		SessionKey:      env("SESSION_KEY", ""),
 		ClientID:        env("GITHUB_CLIENT_ID", ""),
 		ClientSecret:    env("GITHUB_CLIENT_SECRET", ""),
-		RunnerToken:     env("RUNNER_TOKEN", ""),
 		TickToken:       env("TICK_TOKEN", ""),
 		Bucket:          env("GCS_BUCKET", ""),
 		DataDir:         env("DATA_DIR", "./data"),
@@ -143,7 +142,7 @@ type server struct {
 	app     *github.App   // nil when the GitHub App isn't configured
 	version func() string // release name, "" until resolved
 	notify  *notify.Pushover
-	slug    string // multi-tenant mode: the tenant; its run tokens are limited to cfg.Repo
+	slug    string // multi-tenant mode: the tenant
 }
 
 // runID is the run named in the request path, or 0.
@@ -200,12 +199,13 @@ func run() error {
 		}
 	}
 
-	var launcher gate.Launcher = gate.LogLauncher{}
+	var envLauncher gate.EnvLauncher = gate.LogLauncher{}
 	if cfg.Launcher == "cloudrun" {
-		if launcher, err = gate.NewCloudRunJob(ctx, cfg.Project, cfg.Region, cfg.Job); err != nil {
+		if envLauncher, err = gate.NewCloudRunJob(ctx, cfg.Project, cfg.Region, cfg.Job); err != nil {
 			return err
 		}
 	}
+	launcher := gate.TokenLauncher{Store: st, Env: envLauncher}
 
 	gh := github.New("", "")
 	app, err := github.NewApp(cfg.AppID, cfg.AppInstallation, cfg.AppKey)
@@ -270,12 +270,7 @@ func run() error {
 	if cfg.SiteDir != "" {
 		mux.Handle("GET /logs", a.RequireAdmin(newTraffic(cfg.BaseURL, cfg.Project, os.Getenv("K_SERVICE")))) // site traffic
 	}
-	mux.Handle("/mcp", auth.Bearer(cfg.RunnerToken, tools.Handler()))
-	mux.Handle("POST /api/runner/runs/{id}/claim", auth.Bearer(cfg.RunnerToken, http.HandlerFunc(s.claim)))
-	mux.Handle("POST /api/runner/runs/{id}/token", auth.Bearer(cfg.RunnerToken, http.HandlerFunc(s.token)))
-	mux.Handle("POST /api/runner/runs/{id}/stage", auth.Bearer(cfg.RunnerToken, http.HandlerFunc(s.stage)))
-	mux.Handle("POST /api/runner/runs/{id}/finish", auth.Bearer(cfg.RunnerToken, http.HandlerFunc(s.finish)))
-	mux.Handle("GET /api/runner/attachments/{id}", auth.Bearer(cfg.RunnerToken, http.HandlerFunc(s.attachment)))
+	s.runnerRoutes(mux, tools.Handler())
 	mux.Handle("POST /api/gate/tick", auth.Bearer(cfg.TickToken, http.HandlerFunc(s.tick)))
 
 	handler, err := site(cfg.BaseURL, cfg.SiteDir, mux, b.Version)
@@ -374,6 +369,9 @@ func (s *server) claim(w http.ResponseWriter, r *http.Request) {
 	}
 	slog.Info("run claimed", "run", id)
 	resp := map[string]any{"run_id": id, "repo": s.cfg.Repo, "bot_login": s.cfg.BotLogin}
+	if on, err := s.store.AgentWorkflows(r.Context()); err == nil {
+		resp["workflows"] = on
+	}
 	// An upstream run merges upstream instead of running the agent.
 	if run, err := s.store.Run(r.Context(), id); err == nil && run.Trigger == "upstream" && s.cfg.Upstream != "" {
 		resp["upstream"] = s.cfg.Upstream
@@ -401,11 +399,18 @@ func (s *server) token(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
-	repo := ""
-	if s.slug != "" {
-		repo = s.cfg.Repo // a tenant's run reaches only its own repo
+	// Only this board's repo; workflows only when an admin allows them.
+	workflows, err := s.store.AgentWorkflows(r.Context())
+	if err != nil {
+		slog.Error("token", "run", id, "err", err)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
 	}
-	token, expires, err := s.app.MintFor(r.Context(), repo)
+	perms := github.AgentPermissions(workflows)
+	if run, err := s.store.Run(r.Context(), id); err == nil && run.Trigger == "upstream" && s.cfg.Upstream != "" {
+		perms = github.UpstreamPermissions
+	}
+	token, expires, err := s.app.MintFor(r.Context(), s.cfg.Repo, perms)
 	if err != nil {
 		slog.Error("token", "run", id, "err", err)
 		http.Error(w, "minting token failed", http.StatusBadGateway)

@@ -45,12 +45,12 @@ func main() {
 	cfg := config{
 		RunID:   env("RUN_ID", ""),
 		BaseURL: strings.TrimSuffix(env("BASE_URL", ""), "/"),
-		// A multi-tenant run gets its own RUN_TOKEN; a single board shares RUNNER_TOKEN.
-		Token:   env("RUN_TOKEN", env("RUNNER_TOKEN", "")),
+		// The run's own token, valid only while the run is active.
+		Token:   env("RUN_TOKEN", ""),
 		WorkDir: env("WORK_DIR", os.TempDir()),
 	}
 	if cfg.RunID == "" || cfg.BaseURL == "" || cfg.Token == "" {
-		slog.Error("RUN_ID, BASE_URL and RUN_TOKEN or RUNNER_TOKEN are required")
+		slog.Error("RUN_ID, BASE_URL and RUN_TOKEN are required")
 		os.Exit(2)
 	}
 	api := &api{base: cfg.BaseURL, token: cfg.Token, client: &http.Client{Timeout: 2 * time.Minute}}
@@ -128,7 +128,7 @@ func build(ctx context.Context, cfg config, api *api, claim claimResp, log io.Wr
 	api.stage(ctx, cfg.RunID, "agent")
 	actx, cancel := context.WithTimeout(ctx, agentTimeout)
 	defer cancel()
-	agentEnv := append(gitEnv, "BOARD_URL="+cfg.BaseURL, "RUN_ID="+cfg.RunID)
+	agentEnv := append(gitEnv, "BOARD_URL="+cfg.BaseURL, "RUN_ID="+cfg.RunID, "AGENT_WORKFLOWS="+onOff(claim.Workflows))
 	if fed, err := claudeIdentity(actx, cfg.WorkDir, http.DefaultClient); err != nil {
 		return fmt.Errorf("claude identity token: %w", err)
 	} else if fed != nil {
@@ -198,12 +198,19 @@ func installCommand(repoDir, home string) (bool, error) {
 	return true, os.WriteFile(filepath.Join(dir, "build-board.md"), []byte(autobuilder.BuildBoard), 0o644)
 }
 
-// childEnv drops GH_APP_* (a job still mounting the App secrets) so neither
-// git nor the agent ever sees the App's private key.
+func onOff(b bool) string {
+	if b {
+		return "on"
+	}
+	return "off"
+}
+
+// childEnv drops GH_APP_* and RUNNER_TOKEN (a job still mounting the old
+// secrets) so neither git nor the agent sees a long-lived credential.
 func childEnv(environ []string) []string {
 	var out []string
 	for _, kv := range environ {
-		if !strings.HasPrefix(kv, "GH_APP_") {
+		if !strings.HasPrefix(kv, "GH_APP_") && !strings.HasPrefix(kv, "RUNNER_TOKEN=") {
 			out = append(out, kv)
 		}
 	}
@@ -340,10 +347,11 @@ type api struct {
 }
 
 type claimResp struct {
-	RunID    int    `json:"run_id"`
-	Repo     string `json:"repo"`
-	BotLogin string `json:"bot_login"`
-	Upstream string `json:"upstream"` // set for an upstream run: merge it, no agent
+	RunID     int    `json:"run_id"`
+	Repo      string `json:"repo"`
+	BotLogin  string `json:"bot_login"`
+	Upstream  string `json:"upstream"`  // set for an upstream run: merge it, no agent
+	Workflows bool   `json:"workflows"` // the agent's token may change workflows
 }
 
 func (a *api) claim(ctx context.Context, id string) (claimResp, error) {

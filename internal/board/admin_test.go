@@ -112,6 +112,32 @@ func TestUpstreamSync(t *testing.T) {
 	}
 }
 
+func TestAdminAgentWorkflows(t *testing.T) {
+	ctx := context.Background()
+	b, _ := dbBoard(t)
+	b.Store.Pool.Exec(ctx, `UPDATE settings SET agent_workflows = DEFAULT`)
+	if err := b.parse(); err != nil {
+		t.Fatal(err)
+	}
+	as := func(r *http.Request) *http.Request {
+		return r.WithContext(auth.WithMember(r.Context(), db.Member{Login: "nkirsch", Role: "admin"}))
+	}
+	if on, _ := b.Store.AgentWorkflows(ctx); !on {
+		t.Fatal("agent workflows off by default")
+	}
+	r := httptest.NewRequest(http.MethodPost, "/admin/workflows", strings.NewReader("on=false"))
+	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	b.setAgentWorkflows(httptest.NewRecorder(), as(r))
+	if on, _ := b.Store.AgentWorkflows(ctx); on {
+		t.Fatal("still on")
+	}
+	w := httptest.NewRecorder()
+	b.admin(w, as(httptest.NewRequest(http.MethodGet, "/admin", nil)))
+	if !strings.Contains(w.Body.String(), `<button class="secondary">Allow</button>`) {
+		t.Errorf("no Allow switch: %s", w.Body.String())
+	}
+}
+
 func TestAdminInviteLink(t *testing.T) {
 	b := &Board{BaseURL: "https://builder.example/iterate"}
 	if err := b.parse(); err != nil {
@@ -158,8 +184,8 @@ func (s *stubWelcomer) Welcome(_ context.Context, name, login string) (int, erro
 	return 7, s.err
 }
 
-// A new member without an email (who'll sign in with GitHub) is welcomed on
-// GitHub; members with an email (unless GitHub too), and existing ones, aren't.
+// A new member without an email is welcomed on GitHub; members with an
+// email (GitHub too or not) get an email invite instead, and existing ones nothing.
 func TestAddMemberWelcomesOnGitHub(t *testing.T) {
 	b, _ := dbBoard(t)
 	wel := &stubWelcomer{}
@@ -182,12 +208,14 @@ func TestAddMemberWelcomesOnGitHub(t *testing.T) {
 	if len(wel.logins) != 1 || wel.logins[0] != "newbie" || wel.names[0] != "builder.example" {
 		t.Fatalf("welcomed %v as %v", wel.logins, wel.names)
 	}
-	// An email plus "GitHub too": they may sign in with GitHub, so they're welcomed there.
-	add("setheck", "setheck@example.org", "on")
+	// An email plus "GitHub too": the email invite reaches them, so no public mention.
+	if got := add("setheck", "setheck@example.org", "on"); got != "Saved setheck" {
+		t.Errorf("flash %q", got)
+	}
 	if m, _ := b.Store.Member(context.Background(), "setheck"); !m.GitHub || m.Email != "setheck@example.org" {
 		t.Errorf("setheck = %+v", m)
 	}
-	if len(wel.logins) != 2 || wel.logins[1] != "setheck" {
+	if len(wel.logins) != 1 {
 		t.Fatalf("welcomed %v", wel.logins)
 	}
 	wel.err = errors.New("boom")

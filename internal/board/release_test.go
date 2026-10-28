@@ -10,10 +10,11 @@ func TestNextTag(t *testing.T) {
 		existing []string
 		want     string
 	}{
-		{nil, "v26.10.24"},
+		{nil, "v26.10.24-1"},
 		{[]string{"v26.10.24"}, "v26.10.24-1"},
 		{[]string{"v26.10.24", "v26.10.24-1", "v26.10.24-3"}, "v26.10.24-4"},
-		{[]string{"v26.10.240"}, "v26.10.24"}, // another day's prefix match
+		{[]string{"v26.10.24-beta.2"}, "v26.10.24-1"},
+		{[]string{"v26.10.240-1"}, "v26.10.24-1"}, // another day's prefix match
 	} {
 		if got := nextTag("v26.10.24", c.existing); got != c.want {
 			t.Errorf("nextTag(%v) = %s, want %s", c.existing, got, c.want)

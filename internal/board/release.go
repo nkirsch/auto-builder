@@ -85,22 +85,15 @@ func releaseDay(t time.Time) string {
 	return fmt.Sprintf("v%d.%d.%d", t.Year()%100, int(t.Month()), t.Day())
 }
 
-// nextTag is day if unused, else day-N one past the highest N among existing.
+// nextTag is day-N one past the highest N among existing; a bare day tag doesn't count.
 func nextTag(day string, existing []string) string {
-	taken, n := false, 0
+	n := 0
 	for _, t := range existing {
-		if t == day {
-			taken = true
-		}
 		if s, ok := strings.CutPrefix(t, day+"-"); ok {
 			if i, err := strconv.Atoi(s); err == nil && i > n {
 				n = i
 			}
-			taken = true
 		}
-	}
-	if !taken {
-		return day
 	}
 	return fmt.Sprintf("%s-%d", day, n+1)
 }

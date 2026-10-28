@@ -56,8 +56,11 @@ then Pushover if `PUSHOVER_*` secrets are set.
 
 ## Forks
 
-Site forks (`kirsch/momo`, `kirsch/katrina`, `kirsch/youkoh.org`, `nkirsch/nick.org`) and
-`extreme-dot-org/extreme` (the multi-tenant example: settings and docs only) are git-level forks that merge upstream with `make merge-upstream`.
+The hubs are git-level forks that merge upstream with `make merge-upstream`:
+`extreme-dot-org/extreme` (extreme.org, the multi-tenant example: settings and docs only),
+`nkirsch/iterate` (iterate.nick.org) and `kirsch/iterate` (iterate.kirsch.org). Their
+apps are plain repos (no board code) on the hubs' boards; `builder.extreme.org`
+(this repo's board) is the one single board left.
 A fork owns `app.env`, `CLAUDE.md`, `README.md` (once it writes one), `.claude/site.md`, branding, its site, and appended sections of
 `DESIGN.md`; everything else is upstream's, so merges don't conflict. `.gitattributes` marks the
 fork-owned files `merge=ours`, so when upstream changes one too the fork keeps its copy. Upstream adds new settings to

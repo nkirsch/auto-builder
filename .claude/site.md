@@ -1,8 +1,7 @@
 # auto-builder
 
-This repo is `nkirsch/auto-builder`: the board itself, which site forks
-(`kirsch/momo`, `kirsch/katrina`, `kirsch/youkoh.org`, `nkirsch/nick.org`)
-merge from. Its site at `/` is a placeholder that redirects to the board;
+This repo is `nkirsch/auto-builder`: the board itself, which the hub forks
+(`extreme-dot-org/extreme`, `nkirsch/iterate`, `kirsch/iterate`) merge from. Its site at `/` is a placeholder that redirects to the board;
 forks replace it.
 
 Replies go to the admin (`nkirsch`) and members, who read code: be technical.

@@ -1,4 +1,5 @@
 {{define "content"}}
+{{if .Data.Traffic}}<p><a href="{{base}}/logs">Site traffic</a></p>{{end}}
 <h1>Members</h1>
 <ul class="items">
   {{range .Data.Members}}

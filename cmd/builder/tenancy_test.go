@@ -110,6 +110,12 @@ func TestHubTenants(t *testing.T) {
 	check(do(h, srv, "bob", "POST", "/alpha/items", url.Values{"title": {"Dark mode"}, "body": {"please"}}), 303, "/alpha/items/1", "")
 	check(do(h, srv, "bob", "GET", "/alpha/items/1", nil), 200, "", "Dark mode")
 	check(do(h, srv, "bob", "GET", "/beta/", nil), 403, "", "not a member")
+	// The app's traffic is for board admins; the test hub has no log project.
+	check(do(h, srv, "bob", "GET", "/alpha/logs", nil), 403, "", "")
+	check(do(h, srv, "nick@example.org", "GET", "/alpha/logs", nil), 502, "", "no request log view")
+	if strings.Contains(do(h, srv, "nick@example.org", "GET", "/alpha/admin", nil).Body.String(), "Site traffic") {
+		t.Error("admin links traffic without LOG_PROJECT")
+	}
 	beta, _ := h.reg.Store(ctx, "beta")
 	if items, _ := beta.Items(ctx); len(items) != 0 {
 		t.Errorf("beta has alpha's item: %+v", items)

@@ -332,3 +332,22 @@ func TestSendInvite(t *testing.T) {
 		t.Errorf("failure flash %q", f)
 	}
 }
+
+func TestAdminLinksTraffic(t *testing.T) {
+	b := &Board{}
+	if err := b.parse(); err != nil {
+		t.Fatal(err)
+	}
+	for _, on := range []bool{false, true} {
+		var sb strings.Builder
+		p := page{Title: "Admin", Me: db.Member{Login: "x", Role: "admin"}, Data: map[string]any{
+			"Members": []db.Member{{Login: "x", Role: "admin"}}, "Costs": db.RunCosts{}, "Limit": 20.0, "Traffic": on,
+		}}
+		if err := b.tmpl["admin"].ExecuteTemplate(&sb, "layout", p); err != nil {
+			t.Fatal(err)
+		}
+		if got := strings.Contains(sb.String(), `href="/logs">Site traffic</a>`); got != on {
+			t.Errorf("Traffic=%v: link shown=%v", on, got)
+		}
+	}
+}

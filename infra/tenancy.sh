@@ -95,10 +95,12 @@ act_as() { # who whom
   retry g iam service-accounts add-iam-policy-binding "$(sa $2)" \
     --member "serviceAccount:$(sa $1)" --role roles/iam.serviceAccountUser >/dev/null
 }
-# The hub: its database and secrets, its bucket, starting both jobs, and
-# reading the apps' services to mark merges shipped.
+# The hub: its database and secrets, its bucket, starting both jobs,
+# reading the apps' services to mark merges shipped, and their request logs
+# (each app's <slug>-requests view) for boards' /logs.
 proj_role server roles/cloudsql.client
 proj_role server roles/run.viewer
+proj_role server roles/logging.viewAccessor
 secret_access server "$SERVER_MOUNTS"
 retry gcloud storage buckets add-iam-policy-binding "gs://$PROJECT-$NAME" \
   --member "serviceAccount:$(sa server)" --role roles/storage.objectUser >/dev/null
@@ -109,7 +111,7 @@ secret_access runner "$RUNNER_MOUNTS"
 # The provisioner creates each app's resources; the internet-facing hub never
 # holds these roles.
 for r in roles/run.admin roles/iam.serviceAccountAdmin roles/iam.serviceAccountUser \
-  roles/artifactregistry.admin roles/dns.admin roles/cloudsql.client; do
+  roles/artifactregistry.admin roles/dns.admin roles/cloudsql.client roles/logging.configWriter; do
   proj_role provisioner "$r"
 done
 secret_access provisioner "$PROVISION_MOUNTS"

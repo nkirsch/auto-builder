@@ -50,6 +50,7 @@ type config struct {
 	TenantOrg    string // multi mode: GitHub org holding the apps' repos
 	ProvisionJob string // multi mode: Cloud Run Job that provisions an app
 	AppDomain    string // multi mode: APP_DOMAIN, apps on <slug>.<AppDomain>; default BASE_URL's host
+	LogProject   string // multi mode: LOG_PROJECT, holding each app's <slug>-requests log view; default GCP_PROJECT
 	Upstream     string // the repo this one is a fork of; "" or Repo itself for none
 	FeedbackURL  string // multi mode: FEEDBACK_URL, the hub menu's Feedback link; "off" for none
 
@@ -110,6 +111,7 @@ func loadConfig() (config, error) {
 		c.Upstream = ""
 	}
 	c.StatsToken = env("STATS_TOKEN", "")
+	c.LogProject = env("LOG_PROJECT", c.Project)
 	if c.Sites, err = parseSites(env("SITES", "")); err != nil {
 		return c, err
 	}
@@ -237,7 +239,7 @@ func run() error {
 		Store: st, Storage: storage, Auth: a, Gate: g,
 		Pushover: push, Quiet: cfg.Quiet,
 		BaseURL: cfg.BaseURL, BotLogin: cfg.BotLogin, GitSHA: cfg.GitSHA, Repo: cfg.Repo,
-		GitHub: gh, Releases: cfg.Releases, CreateAppURL: cfg.CreateAppURL,
+		GitHub: gh, Releases: cfg.Releases, CreateAppURL: cfg.CreateAppURL, Traffic: cfg.SiteDir != "",
 	}
 	if a.CanMail() {
 		b.Mailer = a

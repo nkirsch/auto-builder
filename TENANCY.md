@@ -45,6 +45,7 @@ provisioner (which refuses one if asked). Such an app:
 - needs the hub's GitHub App installed on its repo, and a `CLAUDE.md` naming its checks;
 - ships when its `GET /health` JSON reports a `sha` (full `GIT_SHA`) containing the merge. The platform repo's own tenant ships on the hub's `GIT_SHA` instead, since the hub deploys with it;
 - gets the board's Release button when the hub sets `RELEASES=true` (items read "merged" until a release ships them);
+- gets a traffic page at `/<slug>/logs` (board admins) when `LOG_PROJECT` (default the hub's `GCP_PROJECT`) has a log view `<slug>-requests` of its Cloud Run request log that the hub's server can read (`logging.viewAccessor`);
 - on Delete, only leaves the hub (`deleted`); its repo, service and DNS stay.
 
 A single board becomes the platform repo's tenant by renaming its schema in
@@ -66,6 +67,7 @@ Created by the provisioner (below). Each step is idempotent, and every name deri
 | Deployer SA | `deploy-<slug>@` | `run.developer` on `x-<slug>`, `serviceAccountUser` on `app-<slug>@`, `artifactregistry.writer` on its own AR repo; `workloadIdentityUser` for `attribute.repository/<org>/<repo>` in pool `extreme` (the provider's condition requires `refs/heads/master`) |
 | Image repo | AR `x-<slug>` (one per app, so no app can overwrite another's images) | — |
 | Domain | mapping `<slug>.extreme.org`, CNAME in zone `extreme-org` | — |
+| Log view | `<slug>-requests` in bucket `_Default`: `x-<slug>`'s request log, for the board's `/logs` | the hub's server reads every view (`logging.viewAccessor`) |
 
 Later, when an app needs them: database `x_<slug>` (user `x_<slug>`, secret
 `x-<slug>-DATABASE_URL`, runtime SA `cloudsql.client`), bucket prefix

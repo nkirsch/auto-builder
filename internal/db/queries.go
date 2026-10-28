@@ -316,6 +316,26 @@ func (s *Store) DeleteMember(ctx context.Context, login string) error {
 	return err
 }
 
+// SetMailbox records login's connected Gmail (auth.Mailboxes).
+func (s *Store) SetMailbox(ctx context.Context, login, address, token string) error {
+	tag, err := s.Pool.Exec(ctx, `UPDATE members SET gmail_address = $2, gmail_token = $3
+		WHERE lower(login) = lower($1)`, login, address, token)
+	if err == nil && tag.RowsAffected() == 0 {
+		return ErrNotFound
+	}
+	return err
+}
+
+// Mailbox returns login's connected Gmail; "" when none.
+func (s *Store) Mailbox(ctx context.Context, login string) (address, token string, err error) {
+	err = s.Pool.QueryRow(ctx, `SELECT gmail_address, gmail_token FROM members WHERE lower(login) = lower($1)`,
+		login).Scan(&address, &token)
+	if errors.Is(err, pgx.ErrNoRows) {
+		err = nil
+	}
+	return address, token, err
+}
+
 // TouchMember records a sign-in with the profile's name and avatar.
 func (s *Store) TouchMember(ctx context.Context, login, name, avatar string) error {
 	_, err := s.Pool.Exec(ctx, `UPDATE members SET name = $2, avatar_url = $3, last_seen = now()

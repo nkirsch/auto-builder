@@ -233,6 +233,13 @@ syncs issues (the App needs Issues read & write):
   deleted), and GitHub notifies them per their settings. On a private repo
   mentions don't notify non-collaborators; the admin page's Invite link
   remains for those.
+- Invites: a member who never signed in gets an Invite on /admin: a
+  `mailto:` with the board's link and how to sign in, or, once the admin
+  has connected Gmail (`/auth/gmail`, scope `gmail.send`, offline), an
+  Email invite button that sends it from their address. The refresh token
+  is stored AES-GCM sealed with a key derived from `SESSION_KEY` (rotating
+  it means reconnecting), on the member (`members.gmail_*`) or, in
+  multi-tenant mode, the identity (`control.users.gmail_*`).
 
 ## Runner (Cloud Run Job, Go)
 
@@ -343,6 +350,10 @@ broader grants.
    External, published; scopes openid/email/profile) with redirect URI
    `<BASE_URL>/auth/google/callback`, loaded as
    `GOOGLE_CLIENT_ID`/`GOOGLE_CLIENT_SECRET`. Add members' emails on /admin.
+   Emailing invites from the board also needs redirect URI
+   `<BASE_URL>/auth/gmail/callback`, the `gmail.send` scope on the consent
+   screen (sensitive: unverified apps show a warning) and the Gmail API
+   (`gmail.googleapis.com`, enabled by `infra/bootstrap.sh`).
 4. Load secrets with `gcloud secrets versions add`; a new Cloud Run revision
    is needed for running instances to read new `:latest` versions.
 5. Repo settings (auto-merge, `master` protection requiring `test`, deploy

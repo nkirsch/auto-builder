@@ -134,7 +134,7 @@ func newHub(ctx context.Context, cfg config, reg *tenant.Registry, storage store
 	a, err := auth.New(auth.Config{
 		BaseURL: cfg.BaseURL, ClientID: cfg.ClientID, ClientSecret: cfg.ClientSecret,
 		GoogleClientID: cfg.GoogleClientID, GoogleClientSecret: cfg.GoogleClientSecret,
-		SessionKey: []byte(cfg.SessionKey), DevLogin: cfg.DevLogin, Multi: true, Users: reg,
+		SessionKey: []byte(cfg.SessionKey), DevLogin: cfg.DevLogin, Multi: true, Users: reg, Mailboxes: reg,
 	}, nil)
 	if err != nil {
 		return nil, err
@@ -411,6 +411,9 @@ func (h *hub) tenantFor(ctx context.Context, slug string) (*tenantRT, error) {
 		BotLogin: h.cfg.BotLogin, GitSHA: h.cfg.GitSHA, Repo: t.Repo, CodeRepo: h.cfg.Repo, GitHub: gh,
 		Name: t.Name, SiteURL: h.appURL(slug), Releases: h.cfg.Releases,
 		Platform: hubPlatform{h, slug},
+	}
+	if ta.CanMail() {
+		b.Mailer = ta
 	}
 	if h.cfg.Version != "" {
 		b.SetVersion(h.cfg.Version)

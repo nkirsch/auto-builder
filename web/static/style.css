@@ -52,6 +52,8 @@ button, .button { padding: 7px 14px; border: 1px solid var(--accent); border-rad
   background: var(--accent); color: #fff; cursor: pointer; display: inline-block; }
 button.secondary, .button.secondary { background: transparent; color: var(--accent); }
 button.link { border: 0; background: none; color: var(--muted); padding: 0; }
+form.inline { display: inline; }
+form.inline button.link { color: var(--accent); font: inherit; }
 .items { list-style: none; padding: 0; margin: 0; }
 .items li { padding: 12px 0; border-bottom: 1px solid var(--line); }
 .items .title { font-weight: 600; }

@@ -228,3 +228,79 @@ func TestSetMemberGitHub(t *testing.T) {
 		t.Errorf("unknown member: %d", w.Code)
 	}
 }
+
+type stubMailer struct {
+	from     string
+	to, body []string
+	err      error
+}
+
+func (s *stubMailer) Mailbox(*http.Request) string { return s.from }
+
+func (s *stubMailer) Mail(_ *http.Request, to, subject, body string) (string, error) {
+	s.to, s.body = append(s.to, to), append(s.body, subject+"\n"+body)
+	return s.from, s.err
+}
+
+// With Gmail connected, members with an email get an Email invite button;
+// those without keep the mailto link.
+func TestAdminEmailInvite(t *testing.T) {
+	b := &Board{BaseURL: "https://builder.example"}
+	if err := b.parse(); err != nil {
+		t.Fatal(err)
+	}
+	render := func(mail map[string]any) string {
+		var sb strings.Builder
+		p := page{Title: "Admin", Me: db.Member{Login: "x", Role: "admin"}, Data: map[string]any{
+			"Members": []db.Member{{Login: "newbie", Role: "member"}, {Login: "g", Role: "member", Email: "g@example.org"}},
+			"Costs":   db.RunCosts{}, "Limit": 20.0, "Mail": mail,
+		}}
+		if err := b.tmpl["admin"].ExecuteTemplate(&sb, "layout", p); err != nil {
+			t.Fatal(err)
+		}
+		return sb.String()
+	}
+	html := render(map[string]any{"From": "nick@example.com"})
+	if !strings.Contains(html, `action="/admin/members/g/invite"`) || strings.Contains(html, `mailto:g@example.org`) {
+		t.Error("g should get an Email invite button, not a mailto link")
+	}
+	if !strings.Contains(html, `href="mailto:?`) || !strings.Contains(html, "Invites go from nick@example.com") {
+		t.Error("newbie keeps the mailto link; sender shown")
+	}
+	html = render(map[string]any{"From": ""})
+	if strings.Contains(html, "/invite\"") || !strings.Contains(html, `href="/auth/gmail?next=/admin">Connect Gmail`) {
+		t.Error("unconnected: mailto links and a Connect Gmail link")
+	}
+}
+
+func TestSendInvite(t *testing.T) {
+	ctx := context.Background()
+	b, _ := dbBoard(t)
+	b.Store.UpsertMember(ctx, "g", "member", "nkirsch")
+	b.Store.SetMemberEmail(ctx, "g", "g@example.org")
+	b.Store.UpsertMember(ctx, "newbie", "member", "nkirsch")
+	mail := &stubMailer{from: "nick@example.com"}
+	b.Mailer = mail
+	post := func(login string) string {
+		r := httptest.NewRequest(http.MethodPost, "/admin/members/"+login+"/invite", nil)
+		r.SetPathValue("login", login)
+		r = r.WithContext(auth.WithMember(r.Context(), db.Member{Login: "nkirsch", Role: "admin"}))
+		w := httptest.NewRecorder()
+		b.sendInvite(w, r)
+		loc, _ := url.Parse(w.Header().Get("Location"))
+		return loc.Query().Get("m")
+	}
+	if f := post("g"); !strings.Contains(f, "Emailed an invite to g@example.org from nick@example.com") {
+		t.Errorf("flash %q", f)
+	}
+	if len(mail.to) != 1 || mail.to[0] != "g@example.org" || !strings.Contains(mail.body[0], "Sign in with Google as g@example.org.") {
+		t.Errorf("sent %v %q", mail.to, mail.body)
+	}
+	if f := post("newbie"); !strings.Contains(f, "no email") || len(mail.to) != 1 {
+		t.Errorf("newbie: flash %q, %d sent", f, len(mail.to))
+	}
+	mail.err = errors.New("invalid_grant")
+	if f := post("g"); !strings.Contains(f, "Couldn't email g@example.org") {
+		t.Errorf("failure flash %q", f)
+	}
+}

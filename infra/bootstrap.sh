@@ -40,7 +40,8 @@ log "apis"
 g services enable run.googleapis.com sqladmin.googleapis.com \
   artifactregistry.googleapis.com secretmanager.googleapis.com \
   cloudscheduler.googleapis.com iamcredentials.googleapis.com \
-  storage.googleapis.com cloudbuild.googleapis.com sts.googleapis.com
+  storage.googleapis.com cloudbuild.googleapis.com sts.googleapis.com \
+  gmail.googleapis.com
 
 log "cloud sql $SQL_INSTANCE"
 g sql instances describe "$SQL_INSTANCE" >/dev/null 2>&1 ||

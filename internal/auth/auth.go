@@ -58,6 +58,8 @@ type Config struct {
 	// membership through ForTenant.
 	Multi bool
 	Users Users // multi mode: profiles shared by all boards; optional
+	// Mailboxes keeps connected Gmail; the store's members when nil.
+	Mailboxes Mailboxes
 }
 
 // Users keeps multi-mode profiles, keyed by identity (login or address).
@@ -72,6 +74,7 @@ type Auth struct {
 	store    *db.Store
 	oauth    *oauth2.Config
 	google   *oauth2.Config
+	gmail    *oauth2.Config // Google with gmail.send, for admins' mail
 	secure   bool
 	dev      bool
 	origin   string // scheme://host of BaseURL
@@ -80,6 +83,7 @@ type Auth struct {
 	tenant   bool   // a board's view of a multi-mode Auth (ForTenant)
 	api      string // GitHub API base, overridable in tests
 	userinfo string // Google OpenID userinfo endpoint, overridable in tests
+	gmailAPI string // Gmail API base, overridable in tests
 }
 
 func New(cfg Config, store *db.Store) (*Auth, error) {
@@ -112,6 +116,13 @@ func New(cfg Config, store *db.Store) (*Auth, error) {
 			RedirectURL:  base + "/auth/google/callback",
 			Scopes:       []string{"openid", "email", "profile"},
 		},
+		gmail: &oauth2.Config{
+			ClientID:     cfg.GoogleClientID,
+			ClientSecret: cfg.GoogleClientSecret,
+			Endpoint:     google,
+			RedirectURL:  base + "/auth/gmail/callback",
+			Scopes:       []string{"openid", "email", "https://www.googleapis.com/auth/gmail.send"},
+		},
 		secure:   u.Scheme == "https",
 		dev:      local && cfg.DevLogin != "",
 		origin:   u.Scheme + "://" + u.Host,
@@ -119,6 +130,7 @@ func New(cfg Config, store *db.Store) (*Auth, error) {
 		authPath: strings.TrimSuffix(u.Path, "/") + "/auth",
 		api:      "https://api.github.com",
 		userinfo: "https://openidconnect.googleapis.com/v1/userinfo",
+		gmailAPI: "https://gmail.googleapis.com",
 	}, nil
 }
 
@@ -136,6 +148,7 @@ func (a *Auth) ForTenant(store *db.Store, prefix string) *Auth {
 func (a *Auth) TenantRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /auth/github", a.handleGitHub)
 	mux.HandleFunc("GET /auth/google", a.handleGoogle)
+	mux.HandleFunc("GET /auth/gmail", a.handleGmail)
 	mux.HandleFunc("POST /auth/logout", a.handleLogout)
 }
 
@@ -315,13 +328,15 @@ func (a *Auth) verify(value string, now time.Time) (string, bool) {
 }
 
 // Routes registers /auth/github, /auth/callback, /auth/google,
-// /auth/google/callback and /auth/logout. The /auth/login page itself is
-// served by the board.
+// /auth/google/callback, /auth/gmail, /auth/gmail/callback and /auth/logout.
+// The /auth/login page itself is served by the board.
 func (a *Auth) Routes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /auth/github", a.handleGitHub)
 	mux.HandleFunc("GET /auth/callback", a.handleCallback)
 	mux.HandleFunc("GET /auth/google", a.handleGoogle)
 	mux.HandleFunc("GET /auth/google/callback", a.handleGoogleCallback)
+	mux.HandleFunc("GET /auth/gmail", a.handleGmail)
+	mux.HandleFunc("GET /auth/gmail/callback", a.handleGmailCallback)
 	mux.HandleFunc("POST /auth/logout", a.handleLogout)
 }
 
@@ -344,7 +359,7 @@ func (a *Auth) handleGoogle(w http.ResponseWriter, r *http.Request) {
 }
 
 // start sets the state cookie and redirects to the provider.
-func (a *Auth) start(w http.ResponseWriter, r *http.Request, oc *oauth2.Config) {
+func (a *Auth) start(w http.ResponseWriter, r *http.Request, oc *oauth2.Config, opts ...oauth2.AuthCodeOption) {
 	next := safeNext(r.URL.Query().Get("next"))
 	if a.dev {
 		http.Redirect(w, r, next, http.StatusFound)
@@ -361,7 +376,7 @@ func (a *Auth) start(w http.ResponseWriter, r *http.Request, oc *oauth2.Config) 
 		Name: stateCookie, Value: state + "|" + next, Path: a.authPath, MaxAge: 600,
 		HttpOnly: true, Secure: a.secure, SameSite: http.SameSiteLaxMode,
 	})
-	http.Redirect(w, r, oc.AuthCodeURL(state), http.StatusFound)
+	http.Redirect(w, r, oc.AuthCodeURL(state, opts...), http.StatusFound)
 }
 
 // checkState validates and clears the state cookie, returning the next path.

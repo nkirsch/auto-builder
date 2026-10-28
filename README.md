@@ -15,9 +15,11 @@ repo is built from.
   [builder.extreme.org](https://builder.extreme.org) and file an ask; an
   admin approves it and the agent builds it. Not a member? Open an issue
   here asking to join, or ask an admin for an invite.
-- **Get your own app built this way.** Ask an admin of
-  [extreme.org](https://extreme.org) for one: you get a repo, a site at
-  `<app>.extreme.org` and its own board, with nothing to set up.
+- **Get your own app built this way.** Members of builder.extreme.org
+  follow "Your app" in its menu: pick a name and you get a repo, a site at
+  `<app>.extreme.org` and its own board where you're the admin, with
+  nothing to set up. One app each; others ask an admin of
+  [extreme.org](https://extreme.org) to add them as a creator.
 - **Run your own board.** Fork this repo, set your overrides in `app.env`,
   run [`infra/bootstrap.sh`](infra/bootstrap.sh) against your Google Cloud
   project, create the GitHub App (DESIGN.md, Manual steps), and push to
@@ -50,7 +52,8 @@ With `TENANCY=on`, one deployment builds many apps. It runs at
 [www.extreme.org](https://www.extreme.org) as its first app.
 
 - **Hub**: one sign-in (GitHub or Google) for every board. You see the apps
-  you belong to. Platform admins create, re-provision and delete apps.
+  you belong to. Platform admins create, re-provision and delete apps;
+  creators make one app of their own.
 - **Apps on demand**: creating an app provisions it from a template. That
   covers a private repo, a Cloud Run service, its own image repo and
   accounts, deploy access through Workload Identity Federation, and

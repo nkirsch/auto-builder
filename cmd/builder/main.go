@@ -55,6 +55,10 @@ type config struct {
 
 	StatsToken string       // STATS_TOKEN: bearer for GET /api/stats; the hub sends it to SITES
 	Sites      []remoteSite // multi mode: SITES, single-board sites on the all-sites page
+	// multi mode: CREATORS_FROM, names in SITES whose members may create an app
+	CreatorsFrom []string
+	// single mode: CREATE_APP_URL, a hub's New app page linked for members
+	CreateAppURL string
 }
 
 func loadConfig() (config, error) {
@@ -109,6 +113,8 @@ func loadConfig() (config, error) {
 	if c.Sites, err = parseSites(env("SITES", "")); err != nil {
 		return c, err
 	}
+	c.CreatorsFrom = strings.FieldsFunc(env("CREATORS_FROM", ""), func(r rune) bool { return r == ',' || r == ' ' })
+	c.CreateAppURL = env("CREATE_APP_URL", "")
 	for _, h := range strings.Split(env("REDIRECT_HOSTS", ""), ",") {
 		if h = strings.TrimSpace(h); h != "" {
 			c.RedirectHosts = append(c.RedirectHosts, h)
@@ -231,7 +237,7 @@ func run() error {
 		Store: st, Storage: storage, Auth: a, Gate: g,
 		Pushover: push, Quiet: cfg.Quiet,
 		BaseURL: cfg.BaseURL, BotLogin: cfg.BotLogin, GitSHA: cfg.GitSHA, Repo: cfg.Repo,
-		GitHub: gh, Releases: cfg.Releases,
+		GitHub: gh, Releases: cfg.Releases, CreateAppURL: cfg.CreateAppURL,
 	}
 	if a.CanMail() {
 		b.Mailer = a
@@ -265,8 +271,9 @@ func run() error {
 	}
 	// Not /healthz: Cloud Run's front end reserves it.
 	mux.HandleFunc("GET /health", s.health)
-	mux.HandleFunc("GET /version", s.versionJSON)                                        // public: a site footer can show it
-	mux.Handle("GET /api/stats", auth.Bearer(cfg.StatsToken, http.HandlerFunc(s.stats))) // the hub's all-sites page
+	mux.HandleFunc("GET /version", s.versionJSON)                                          // public: a site footer can show it
+	mux.Handle("GET /api/stats", auth.Bearer(cfg.StatsToken, http.HandlerFunc(s.stats)))   // the hub's all-sites page
+	mux.Handle("GET /api/member", auth.Bearer(cfg.StatsToken, http.HandlerFunc(s.member))) // the hub's creator check
 	if cfg.SiteDir != "" {
 		mux.Handle("GET /logs", a.RequireAdmin(newTraffic(cfg.BaseURL, cfg.Project, os.Getenv("K_SERVICE")))) // site traffic
 	}

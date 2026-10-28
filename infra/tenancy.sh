@@ -19,6 +19,8 @@ ADMIN_EMAIL=${ADMIN_EMAIL:-nick@kirsch.org}
 # Single-board sites on the hub's /admin/sites page (space-separated name=board URL);
 # each mounts the shared STATS_TOKEN secret, which this project holds.
 SITES=${SITES-builder=https://builder.extreme.org momo=https://momo.kirsch.org/iterate katrina=https://katrina.kirsch.org/iterate youkoh.org=https://youkoh.kirsch.org/iterate}
+# Names in SITES whose members may each create one app (their own SITES board, if they admin one, is their app).
+CREATORS_FROM=${CREATORS_FROM-builder}
 # Claude auth for the runner: the comma-separated ANTHROPIC_* IDs printed by
 # kirsch/home infrastructure/claude-wif/provision.sh gcp (Workload Identity
 # Federation); the job gets them as env and no API key. Defaults to rule
@@ -151,7 +153,7 @@ fi
 # Hubs created before the all-sites page and aliases lack these; ^;^ keeps SITES' spaces and REDIRECT_HOSTS' commas.
 aliases=$(echo $HUB_ALIASES | tr ' ' ,)
 g run services update "$NAME" --region "$REGION" \
-  --update-env-vars "^;^SITES=$SITES;APP_DOMAIN=$DOMAIN;REDIRECT_HOSTS=$aliases" \
+  --update-env-vars "^;^SITES=$SITES;CREATORS_FROM=$CREATORS_FROM;APP_DOMAIN=$DOMAIN;REDIRECT_HOSTS=$aliases" \
   --update-secrets "STATS_TOKEN=STATS_TOKEN:latest" >/dev/null
 retry g run services add-iam-policy-binding "$NAME" --region "$REGION" \
   --member "serviceAccount:$(sa deployer)" --role roles/run.developer >/dev/null

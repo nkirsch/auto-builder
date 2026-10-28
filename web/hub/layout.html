@@ -14,7 +14,8 @@
   <nav>
     <a href="/" class="brand">{{.Site}}</a>
     {{if .Me}}<a href="/">Apps</a>
-    {{if .Admin}}<a href="/new">New app</a>
+    {{if or .Admin .CanCreate}}<a href="/new">New app</a>{{end}}
+    {{if .Admin}}
     <a href="/admin/urgent">Urgent</a>
     <a href="/admin/sites">Sites</a>
     <a href="/admin">Admin</a>{{end}}

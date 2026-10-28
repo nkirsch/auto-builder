@@ -6,11 +6,12 @@
   <p class="hint">2–21 of a–z, 0–9 and -. The board lives at /&lt;slug&gt;/, the app at &lt;slug&gt;.{{.Data.Host}}.</p>
   <label for="name">Name</label>
   <input id="name" name="name" value="{{.Data.Name}}">
-  <label for="repo">Repo</label>
+  {{if .Data.Platform}}<label for="repo">Repo</label>
   <input id="repo" name="repo" value="{{.Data.Repo}}" placeholder="{{.Data.Org}}/&lt;slug&gt;">
   <p class="hint">Defaults to {{.Data.Org}}/&lt;slug&gt;. You become the app's admin.</p>
   {{if .Data.Provisions}}<label><input type="checkbox" name="existing"{{if .Data.Existing}} checked{{end}}> Existing repo</label>{{end}}
   <p class="hint">{{if not .Data.Provisions}}This hub doesn't provision apps; each is an existing repo: {{end}}An app already served at &lt;slug&gt;.{{.Data.Host}} that deploys itself: nothing is provisioned, and items ship once its <code>/health</code> reports the merge in <code>sha</code>. The hub's GitHub App must be installed on the repo.</p>
+  {{else}}<p class="hint">Your app: a new repo, {{.Data.Org}}/&lt;slug&gt;, built from the template, with its own board where you're the admin. You get one; pick the slug with care.</p>{{end}}
   <button>Create</button>
 </form>
 {{end}}

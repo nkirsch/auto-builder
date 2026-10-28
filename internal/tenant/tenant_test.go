@@ -230,3 +230,43 @@ func TestRunTokens(t *testing.T) {
 		t.Errorf("active runs after expiry %d", n)
 	}
 }
+
+func TestCreators(t *testing.T) {
+	ctx := context.Background()
+	r := testRegistry(t)
+	if err := r.AddCreator(ctx, " @jerry ", "nkirsch"); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.AddCreator(ctx, "Momo@Example.org", "nkirsch"); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.AddCreator(ctx, "", "nkirsch"); err == nil {
+		t.Error("empty creator accepted")
+	}
+	if got, _ := r.Creators(ctx); len(got) != 2 || got[0] != "jerry" || got[1] != "momo@example.org" {
+		t.Fatalf("creators %q", got)
+	}
+	if ok, _ := r.Creator(ctx, "momo@EXAMPLE.org"); !ok {
+		t.Error("momo not a creator")
+	}
+	if ok, _ := r.Creator(ctx, "mallory"); ok {
+		t.Error("mallory a creator")
+	}
+	if ok, _ := r.CreatedApp(ctx, "jerry"); ok {
+		t.Error("jerry has an app already")
+	}
+	r.Create(ctx, Tenant{Slug: "jerrys", Repo: "o/jerrys", CreatedBy: "jerry"})
+	if ok, _ := r.CreatedApp(ctx, "jerry"); !ok {
+		t.Error("jerry's app not counted")
+	}
+	r.SetStatus(ctx, "jerrys", "deleted", "")
+	if ok, _ := r.CreatedApp(ctx, "jerry"); ok {
+		t.Error("deleted app counted")
+	}
+	if err := r.RemoveCreator(ctx, "jerry"); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.RemoveCreator(ctx, "jerry"); !errors.Is(err, db.ErrNotFound) {
+		t.Errorf("removed twice: %v", err)
+	}
+}

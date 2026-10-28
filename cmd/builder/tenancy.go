@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/url"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -174,8 +175,10 @@ func (h *hub) routes() http.Handler {
 	})
 	mux.HandleFunc("GET /health", h.health)
 	mux.HandleFunc("GET /{$}", h.signedIn(h.index))
-	mux.HandleFunc("GET /new", h.platformAdmin(h.newApp))
-	mux.HandleFunc("POST /new", h.platformAdmin(h.create))
+	mux.HandleFunc("GET /new", h.creator(h.newApp))
+	mux.HandleFunc("POST /new", h.creator(h.create))
+	mux.HandleFunc("POST /admin/creators", h.platformAdmin(h.addCreator))
+	mux.HandleFunc("POST /admin/creators/{identity}/delete", h.platformAdmin(h.removeCreator))
 	mux.HandleFunc("GET /admin", h.platformAdmin(h.admin))
 	mux.HandleFunc("GET /admin/sites", h.platformAdmin(h.sites))
 	mux.HandleFunc("POST /admin/platform-admins", h.platformAdmin(h.addAdmin))
@@ -473,6 +476,7 @@ func (h *hub) shipper(ctx context.Context, t tenant.Tenant, st *db.Store, gh *gi
 
 type hubPage struct {
 	Title, Site, Me, Flash, GitSHA string
+	CanCreate                      bool   // a creator without an app yet: New app shows
 	Feedback                       string // FEEDBACK_URL: where to ask for changes to the platform
 	Version, Repo                  string // footer: release name and the code's repo
 	MeLogin                        string // the viewer's platform admin login, if any
@@ -483,7 +487,12 @@ type hubPage struct {
 func (h *hub) render(w http.ResponseWriter, r *http.Request, name, title string, data any) {
 	me := h.auth.SignedIn(r)
 	admin, err := h.reg.PlatformAdmin(r.Context(), me)
-	p := hubPage{Title: title, Site: h.host, Me: me, Admin: me != "" && err == nil, MeLogin: admin.Login,
+	// Only the index offers New app to creators: canCreate may ask other sites.
+	canCreate := false
+	if name == "index" && me != "" && err != nil {
+		canCreate, _ = h.canCreate(r.Context(), me)
+	}
+	p := hubPage{Title: title, Site: h.host, Me: me, Admin: me != "" && err == nil, MeLogin: admin.Login, CanCreate: canCreate,
 		Flash: r.URL.Query().Get("flash"), GitSHA: h.cfg.GitSHA, Feedback: h.cfg.FeedbackURL, Version: h.cfg.Version, Repo: h.cfg.Repo, Data: data}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if err := h.tmpl[name].ExecuteTemplate(w, "layout", p); err != nil {
@@ -523,6 +532,90 @@ func (h *hub) platformAdmin(next http.HandlerFunc) http.HandlerFunc {
 		}
 		next(w, r)
 	})
+}
+
+// creator admits platform admins and creators who may still create their one
+// app; POSTs must come from this site.
+func (h *hub) creator(next http.HandlerFunc) http.HandlerFunc {
+	return h.signedIn(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPost && !h.auth.SameOrigin(r) {
+			http.Error(w, "cross-origin request refused", http.StatusForbidden)
+			return
+		}
+		me := h.auth.SignedIn(r)
+		if _, err := h.reg.PlatformAdmin(r.Context(), me); err == nil {
+			next(w, r)
+			return
+		}
+		if ok, err := h.canCreate(r.Context(), me); err != nil {
+			slog.Error("can create", "identity", me, "err", err)
+			http.Error(w, "internal error", http.StatusInternalServerError)
+			return
+		} else if !ok {
+			http.Error(w, "you can't create an app here: ask a platform admin to add you as a creator (one app each)", http.StatusForbidden)
+			return
+		}
+		next(w, r)
+	})
+}
+
+// canCreate reports whether me may create their one app: they're on the
+// creators list or a member of a CREATORS_FROM board, and they have no app
+// yet (none created, and not the admin of one here or of another SITES
+// board: an existing app is their app).
+func (h *hub) canCreate(ctx context.Context, me string) (bool, error) {
+	if me == "" {
+		return false, nil
+	}
+	if made, err := h.reg.CreatedApp(ctx, me); err != nil || made {
+		return false, err
+	}
+	allowed, err := h.reg.Creator(ctx, me)
+	if err != nil {
+		return false, err
+	}
+	tenants, err := h.reg.Tenants(ctx)
+	if err != nil {
+		return false, err
+	}
+	for _, t := range tenants {
+		if t.Status == "deleted" {
+			continue
+		}
+		st, err := h.reg.Store(ctx, t.Slug)
+		if err != nil {
+			return false, err
+		}
+		if roleOf(ctx, st, me) == "admin" {
+			return false, nil
+		}
+	}
+	if h.cfg.StatsToken == "" {
+		return allowed, nil
+	}
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	client := &http.Client{Timeout: 5 * time.Second}
+	roles := make([]string, len(h.cfg.Sites))
+	var wg sync.WaitGroup
+	for i, s := range h.cfg.Sites {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			roles[i] = remoteRole(ctx, client, s, h.cfg.StatsToken, me)
+		}()
+	}
+	wg.Wait()
+	for i, s := range h.cfg.Sites {
+		switch {
+		case roles[i] == "":
+		case slices.Contains(h.cfg.CreatorsFrom, s.Name):
+			allowed = true
+		case roles[i] == "admin":
+			return false, nil // their own site is their app
+		}
+	}
+	return allowed, nil
 }
 
 // app is one row on the hub's index.
@@ -578,8 +671,10 @@ func (h *hub) index(w http.ResponseWriter, r *http.Request) {
 
 func (h *hub) newApp(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
+	_, err := h.reg.PlatformAdmin(r.Context(), h.auth.SignedIn(r))
 	h.render(w, r, "new", "New app", map[string]any{
-		"Slug": q.Get("slug"), "Name": q.Get("name"), "Repo": q.Get("repo"), "Existing": q.Get("existing") == "on" || h.cfg.ProvisionJob == "",
+		"Platform": err == nil,
+		"Slug":     q.Get("slug"), "Name": q.Get("name"), "Repo": q.Get("repo"), "Existing": q.Get("existing") == "on" || h.cfg.ProvisionJob == "",
 		"Provisions": h.cfg.ProvisionJob != "",
 		"Org":        h.cfg.TenantOrg, "Host": h.host})
 }
@@ -593,10 +688,27 @@ func (h *hub) create(w http.ResponseWriter, r *http.Request) {
 	repo := strings.TrimSpace(r.FormValue("repo"))
 	// Without a provision job, every app is an existing repo.
 	existing := r.FormValue("existing") == "on" || h.cfg.ProvisionJob == ""
+	identity := h.auth.SignedIn(r)
+	me, err := h.reg.PlatformAdmin(ctx, identity)
+	createdBy := me.Login
+	if err != nil {
+		// A creator gets a new repo in the org, provisioned; only platform
+		// admins name a repo or bring an existing one.
+		if h.cfg.ProvisionJob == "" || h.cfg.TenantOrg == "" {
+			http.Error(w, "this hub doesn't provision apps", http.StatusForbidden)
+			return
+		}
+		existing, repo = false, ""
+		// created_by is the creator's identity, which CanCreate counts.
+		createdBy, me = identity, tenant.Admin{Login: identity}
+		if at := strings.Index(identity, "@"); at > 0 {
+			createdBy = strings.ToLower(identity)
+			me = tenant.Admin{Login: memberLogin(identity[:at]), Email: createdBy}
+		}
+	}
 	if repo == "" && h.cfg.TenantOrg != "" && !existing {
 		repo = h.cfg.TenantOrg + "/" + slug
 	}
-	me, _ := h.reg.PlatformAdmin(ctx, h.auth.SignedIn(r))
 	back := func(msg string) {
 		v := url.Values{"slug": {slug}, "name": {name}, "repo": {r.FormValue("repo")}, "flash": {msg}}
 		if existing {
@@ -604,7 +716,7 @@ func (h *hub) create(w http.ResponseWriter, r *http.Request) {
 		}
 		http.Redirect(w, r, "/new?"+v.Encode(), http.StatusSeeOther)
 	}
-	if err := h.reg.Create(ctx, tenant.Tenant{Slug: slug, Name: name, Repo: repo, CreatedBy: me.Login, Existing: existing}); err != nil {
+	if err := h.reg.Create(ctx, tenant.Tenant{Slug: slug, Name: name, Repo: repo, CreatedBy: createdBy, Existing: existing}); err != nil {
 		back(err.Error())
 		return
 	}
@@ -709,7 +821,13 @@ func (h *hub) admin(w http.ResponseWriter, r *http.Request) {
 		}
 		up = map[string]any{"Repo": h.cfg.Upstream, "Platform": h.cfg.Repo, "On": on, "PR": pr}
 	}
-	h.render(w, r, "admin", "Admin", map[string]any{"Tenants": tenants, "Admins": admins, "Upstream": up})
+	creators, err := h.reg.Creators(ctx)
+	if err != nil {
+		slog.Error("creators", "err", err)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	h.render(w, r, "admin", "Admin", map[string]any{"Tenants": tenants, "Admins": admins, "Upstream": up, "Creators": creators})
 }
 
 func (h *hub) addAdmin(w http.ResponseWriter, r *http.Request) {
@@ -723,6 +841,40 @@ func (h *hub) addAdmin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	http.Redirect(w, r, "/admin", http.StatusSeeOther)
+}
+
+// addCreator lets a GitHub login or Google address create one app.
+func (h *hub) addCreator(w http.ResponseWriter, r *http.Request) {
+	identity := strings.TrimSpace(r.FormValue("identity"))
+	msg := "Added " + identity + ": they can create one app from New app"
+	if err := h.reg.AddCreator(r.Context(), identity, h.auth.SignedIn(r)); err != nil {
+		msg = err.Error()
+	}
+	http.Redirect(w, r, "/admin?flash="+url.QueryEscape(msg), http.StatusSeeOther)
+}
+
+// removeCreator stops identity creating an app; an app they made stays.
+func (h *hub) removeCreator(w http.ResponseWriter, r *http.Request) {
+	identity := r.PathValue("identity")
+	msg := "Removed " + identity + " from creators"
+	if err := h.reg.RemoveCreator(r.Context(), identity); err != nil {
+		msg = err.Error()
+	}
+	http.Redirect(w, r, "/admin?flash="+url.QueryEscape(msg), http.StatusSeeOther)
+}
+
+// memberLogin turns an address's local part into a board login.
+func memberLogin(local string) string {
+	var b strings.Builder
+	for _, c := range strings.ToLower(local) {
+		if c >= 'a' && c <= 'z' || c >= '0' && c <= '9' || c == '-' {
+			b.WriteRune(c)
+		}
+	}
+	if b.Len() == 0 {
+		return "owner"
+	}
+	return b.String()
 }
 
 // setUpstream turns keeping the platform repo up with upstream on or off.

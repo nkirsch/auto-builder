@@ -256,6 +256,59 @@ func (r *Registry) RemovePlatformAdmin(ctx context.Context, login string) error 
 	return err
 }
 
+// normIdentity lower-cases an address; GitHub logins keep their case.
+func normIdentity(identity string) string {
+	identity = strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(identity), "@"))
+	if strings.Contains(identity, "@") {
+		return strings.ToLower(identity)
+	}
+	return identity
+}
+
+// Creators lists who may create an app of their own.
+func (r *Registry) Creators(ctx context.Context) ([]string, error) {
+	rows, err := r.Control.Query(ctx, `SELECT identity FROM creators ORDER BY identity`)
+	if err != nil {
+		return nil, err
+	}
+	return pgx.CollectRows(rows, pgx.RowTo[string])
+}
+
+// AddCreator lets identity (a GitHub login or Google address) create one app.
+func (r *Registry) AddCreator(ctx context.Context, identity, by string) error {
+	if identity = normIdentity(identity); identity == "" {
+		return errors.New("enter a GitHub login or an email")
+	}
+	_, err := r.Control.Exec(ctx, `INSERT INTO creators (identity, added_by) VALUES ($1, $2)
+		ON CONFLICT (identity) DO NOTHING`, identity, by)
+	return err
+}
+
+// RemoveCreator drops identity from the creators; their app stays.
+func (r *Registry) RemoveCreator(ctx context.Context, identity string) error {
+	tag, err := r.Control.Exec(ctx, `DELETE FROM creators WHERE identity = $1`, normIdentity(identity))
+	if err == nil && tag.RowsAffected() == 0 {
+		return db.ErrNotFound
+	}
+	return err
+}
+
+// Creator reports whether identity is on the creators list.
+func (r *Registry) Creator(ctx context.Context, identity string) (bool, error) {
+	var ok bool
+	err := r.Control.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM creators WHERE identity = $1)`,
+		normIdentity(identity)).Scan(&ok)
+	return ok, err
+}
+
+// CreatedApp reports whether identity created an app that isn't deleted.
+func (r *Registry) CreatedApp(ctx context.Context, identity string) (bool, error) {
+	var ok bool
+	err := r.Control.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM tenants WHERE created_by = $1 AND status <> 'deleted')`,
+		normIdentity(identity)).Scan(&ok)
+	return ok, err
+}
+
 // SetUser records a signed-in identity's profile (auth.Users).
 func (r *Registry) SetUser(ctx context.Context, identity, name, avatar string) error {
 	_, err := r.Control.Exec(ctx, `INSERT INTO users (identity, name, avatar_url) VALUES ($1, $2, $3)

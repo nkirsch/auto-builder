@@ -15,7 +15,7 @@
     <td class="num">{{if .Detail}}{{.Stats.Open}}{{else}}<span class="muted">–</span>{{end}}</td>
     <td>{{with .Stats.LastRun}}{{.Status}} <span class="muted">{{when .At}}</span>{{else}}<span class="muted">–</span>{{end}}</td>
     <td class="num">{{if .Detail}}${{printf "%.2f" .Stats.Spend30d}}{{else}}<span class="muted">–</span>{{end}}</td>
-    <td>{{if or (eq .Health "ok") (eq .Health "ready")}}{{.Health}}{{else}}<span class="bad">{{.Health}}</span>{{end}}</td>
+    <td>{{if or (eq .Health "ok") (eq .Health "ready")}}{{.Health}}{{else}}<span class="bad"{{with .HealthErr}} title="{{.}}"{{end}}>{{.Health}}</span>{{end}}</td>
   </tr>
   {{end}}
   </tbody>

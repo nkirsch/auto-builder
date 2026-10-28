@@ -16,7 +16,7 @@ PLATFORM_REPO=${PLATFORM_REPO:-extreme-dot-org/extreme}
 SQL_INSTANCE=${SQL_INSTANCE:-builder}
 ADMIN_LOGIN=${ADMIN_LOGIN:-nkirsch}
 ADMIN_EMAIL=${ADMIN_EMAIL:-nick@kirsch.org}
-# Single-board sites on the hub's /admin/sites page (space-separated name=board URL);
+# Standalone boards on the hub's Apps page (platform admins) (space-separated name=board URL);
 # each mounts the shared STATS_TOKEN secret, which this project holds.
 SITES=${SITES-builder=https://builder.extreme.org} # momo, katrina and youkoh.org are apps on iterate.kirsch.org now
 # Names in SITES whose members may each create one app.

@@ -1,6 +1,26 @@
 {{define "content"}}
 <h1>Apps</h1>
-{{if .Data.Apps}}
+{{with .Data.Rows}}
+<p class="hint">Every board: this hub's apps, and the standalone boards in <code>SITES</code>.
+{{if not $.Data.Token}}No <code>STATS_TOKEN</code>, so standalone boards show only their public version and health.{{end}}
+30-day agent spend: <b>${{printf "%.2f" $.Data.Spend30d}}</b>.</p>
+<div class="table-wrap"><table class="sites">
+  <thead><tr><th>Board</th><th>Version</th><th>Live since</th><th class="num">Open</th><th>Last run</th><th class="num">30-day spend</th><th>Health</th></tr></thead>
+  <tbody>
+  {{range .}}
+  <tr>
+    <td>{{if .App}}<a href="{{.Board}}"><b>{{.Slug}}</b></a>{{if ne .Name .Slug}} <span class="muted">{{.Name}}</span>{{end}} · <a href="{{.Site}}">site</a>{{with .Role}} <span class="badge">{{.}}</span>{{end}}{{else}}<a href="{{.Board}}"><b>{{.Name}}</b></a> <span class="muted">standalone</span>{{end}}</td>
+    <td>{{if .Stats.Version}}{{.Stats.Version}}{{else if .Stats.GitSHA}}<span class="muted">{{short .Stats.GitSHA}}</span>{{else}}<span class="muted">–</span>{{end}}</td>
+    <td>{{if and .Detail (not .Stats.Started.IsZero)}}{{when .Stats.Started}}{{else}}<span class="muted">–</span>{{end}}</td>
+    <td class="num">{{if .Detail}}{{.Stats.Open}}{{else}}<span class="muted">–</span>{{end}}</td>
+    <td>{{with .Stats.LastRun}}{{.Status}} <span class="muted">{{when .At}}</span>{{else}}<span class="muted">–</span>{{end}}</td>
+    <td class="num">{{if .Detail}}${{printf "%.2f" .Stats.Spend30d}}{{else}}<span class="muted">–</span>{{end}}</td>
+    <td>{{if or (eq .Health "ok") (eq .Health "ready")}}{{.Health}}{{else}}<span class="bad">{{.Health}}</span>{{end}}</td>
+  </tr>
+  {{end}}
+  </tbody>
+</table></div>
+{{else}}{{if .Data.Apps}}
 <ul class="items">
   {{range .Data.Apps}}
   <li class="row">
@@ -16,5 +36,5 @@
 </ul>
 {{else}}
 <p class="muted">You're not a member of any app yet. Ask an app's admin to add {{.Me}}.</p>
-{{end}}
+{{end}}{{end}}
 {{end}}

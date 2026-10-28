@@ -67,7 +67,7 @@ fi
 log "secrets"
 secret SESSION_KEY "$(openssl rand -hex 32)"
 secret TICK_TOKEN "$(openssl rand -hex 32)"
-secret STATS_TOKEN "$(openssl rand -hex 32)" # the hub's /admin/sites reads GET /api/stats with it
+secret STATS_TOKEN "$(openssl rand -hex 32)" # the hub's Apps page reads GET /api/stats with it
 # Filled in by hand (see DESIGN.md manual steps); created empty-less so Cloud Run can mount them.
 for s in GITHUB_CLIENT_ID GITHUB_CLIENT_SECRET GOOGLE_CLIENT_ID GOOGLE_CLIENT_SECRET ANTHROPIC_API_KEY GH_APP_ID \
   GH_APP_INSTALLATION_ID GH_APP_PRIVATE_KEY PUSHOVER_TOKEN PUSHOVER_USER; do

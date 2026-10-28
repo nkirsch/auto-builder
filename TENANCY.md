@@ -157,7 +157,7 @@ All done for extreme.org (2026-10-25):
    `extreme-runner-rule`), sets the IDs on `extreme-runner` and unmounts
    `ANTHROPIC_API_KEY` (`bootstrap.sh` does the same for `builder-runner`).
    `CLAUDE_FEDERATION=` (empty) mounts `extreme-ANTHROPIC_API_KEY` instead.
-6. All-sites page (`/admin/sites`, platform admins): the hub reads its apps from
+6. Apps page (`/`): members see their apps; platform admins see every board, the hub reads its apps from
    their schemas and the boards in `SITES` (space-separated `name=board URL`) over
    HTTP — public `/version` and `/health`, plus `GET /api/stats` (open items,
    last run, 30-day spend, live-since) with the shared `STATS_TOKEN`. The secret

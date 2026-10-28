@@ -95,22 +95,25 @@ func TestHubSites(t *testing.T) {
 		t.Fatalf("item: %d", w.Code)
 	}
 
-	if w := do(h, srv, "mallory", "GET", "/admin/sites", nil); w.Code != 403 {
-		t.Fatalf("non-admin: %d", w.Code)
+	// Sites merged into Apps: the old path redirects, and members see only their list.
+	if w := do(h, srv, "mallory", "GET", "/admin/sites", nil); w.Code != 301 || w.Header().Get("Location") != "/" {
+		t.Fatalf("old sites path: %d %q", w.Code, w.Header().Get("Location"))
 	}
-	w := do(h, srv, "nkirsch", "GET", "/admin/sites", nil)
+	if body := do(h, srv, "mallory", "GET", "/", nil).Body.String(); strings.Contains(body, "momo") || strings.Contains(body, "30-day") {
+		t.Errorf("a non-admin sees every board: %s", body)
+	}
+	w := do(h, srv, "nkirsch", "GET", "/", nil)
 	body := w.Body.String()
 	for _, want := range []string{
-		`<a href="/alpha/"><b>alpha</b></a> <span class="muted">Alpha</span> · <a href="` + app.URL + `/alpha">site</a>`,
+		`<a href="/alpha/"><b>alpha</b></a> <span class="muted">Alpha</span> · <a href="` + app.URL + `/alpha">site</a> <span class="badge">admin</span>`,
 		"aaa1111", `<td class="num">1</td>`,
-		`<a href="` + remote.URL + `/"><b>momo</b></a>`, "v26.10.20-1", `<td class="num">4</td>`, "$2.25", "<b>$2.25</b>",
-		`<a href="/admin/sites">Sites</a>`,
+		`<a href="` + remote.URL + `/"><b>momo</b></a> <span class="muted">standalone</span>`, "v26.10.20-1", `<td class="num">4</td>`, "$2.25", "<b>$2.25</b>",
 	} {
 		if !strings.Contains(body, want) {
-			t.Errorf("sites page missing %q", want)
+			t.Errorf("apps page missing %q", want)
 		}
 	}
-	if w.Code != 200 {
-		t.Fatalf("sites: %d", w.Code)
+	if w.Code != 200 || strings.Contains(body, `href="/admin/sites"`) {
+		t.Fatalf("apps: %d, or still links Sites", w.Code)
 	}
 }

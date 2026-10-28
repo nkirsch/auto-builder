@@ -17,7 +17,6 @@
     {{if or .Admin .CanCreate}}<a href="/new">New app</a>{{end}}
     {{if .Admin}}
     <a href="/admin/urgent">Urgent</a>
-    <a href="/admin/sites">Sites</a>
     <a href="/admin">Admin</a>{{end}}
     {{with .Feedback}}<a href="{{.}}" title="Ask for a change to the platform">Feedback</a>{{end}}
     <form method="post" action="/auth/logout" class="logout">

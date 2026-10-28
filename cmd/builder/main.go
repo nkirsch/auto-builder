@@ -56,7 +56,7 @@ type config struct {
 	FeedbackURL  string // multi mode: FEEDBACK_URL, the hub menu's Feedback link; "off" for none
 
 	StatsToken string       // STATS_TOKEN: bearer for GET /api/stats; the hub sends it to SITES
-	Sites      []remoteSite // multi mode: SITES, single-board sites on the all-sites page
+	Sites      []remoteSite // multi mode: SITES, standalone boards on the hub's Apps page
 	// multi mode: CREATORS_FROM, names in SITES whose members may create an app
 	CreatorsFrom []string
 	// single mode: CREATE_APP_URL, a hub's New app page linked for members
@@ -279,7 +279,7 @@ func run() error {
 	// Not /healthz: Cloud Run's front end reserves it.
 	mux.HandleFunc("GET /health", s.health)
 	mux.HandleFunc("GET /version", s.versionJSON)                                          // public: a site footer can show it
-	mux.Handle("GET /api/stats", auth.Bearer(cfg.StatsToken, http.HandlerFunc(s.stats)))   // the hub's all-sites page
+	mux.Handle("GET /api/stats", auth.Bearer(cfg.StatsToken, http.HandlerFunc(s.stats)))   // the hub's Apps page
 	mux.Handle("GET /api/member", auth.Bearer(cfg.StatsToken, http.HandlerFunc(s.member))) // the hub's creator check
 	if cfg.SiteDir != "" {
 		mux.Handle("GET /logs", a.RequireAdmin(newTraffic(cfg.BaseURL, cfg.Project, os.Getenv("K_SERVICE")))) // site traffic

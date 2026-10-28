@@ -2,11 +2,14 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/nkirsch/auto-builder/internal/tenant"
 )
 
 const chrome = "Mozilla/5.0 (Macintosh) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0 Safari/537.36"
@@ -47,7 +50,7 @@ func TestTrafficCaches(t *testing.T) {
 	for _, path := range []string{"/logs", "/logs", "/logs?refresh"} {
 		w := httptest.NewRecorder()
 		tr.ServeHTTP(w, httptest.NewRequest(http.MethodGet, path, nil))
-		if w.Code != http.StatusOK || !strings.Contains(w.Body.String(), "page views") {
+		if w.Code != http.StatusOK || !strings.Contains(w.Body.String(), "page views") || !strings.Contains(w.Body.String(), "<h1>site.example · Traffic</h1>") {
 			t.Fatalf("%s: %d %s", path, w.Code, w.Body)
 		}
 	}
@@ -64,5 +67,41 @@ func TestHubTraffic(t *testing.T) {
 	}
 	if tr := (&hub{host: "kirsch.org"}).traffic("momo"); tr.view != "" {
 		t.Errorf("no LOG_PROJECT: view=%q", tr.view)
+	}
+}
+
+func TestHubTrafficPage(t *testing.T) {
+	ctx := context.Background()
+	h := testHub(t)
+	h.cfg.LogProject = "proj"
+	for _, slug := range []string{"alpha", "beta"} {
+		if err := h.reg.Create(ctx, tenant.Tenant{Slug: slug, Repo: "o/" + slug, CreatedBy: "nkirsch", Existing: true}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	at := time.Now()
+	hits := []hit{
+		{At: at, IP: "1.1.1.1", UA: chrome, Path: "/", Method: "GET", Status: 200},
+		{At: at, IP: "1.1.1.1", UA: chrome, Path: "/css/a.css", Method: "GET", Status: 200},
+	}
+	alpha := h.traffic("alpha")
+	alpha.home = func(context.Context) map[string]bool { return nil }
+	alpha.hits = func(context.Context, time.Time) ([]hit, error) { return hits, nil }
+	h.traffic("beta").hits = func(context.Context, time.Time) ([]hit, error) { return nil, fmt.Errorf("view missing") }
+
+	srv := h.routes()
+	if w := do(h, srv, "mallory", "GET", "/admin/traffic", nil); w.Code != http.StatusForbidden {
+		t.Fatalf("non-admin: %d", w.Code)
+	}
+	w := do(h, srv, "nkirsch", "GET", "/admin/traffic", nil)
+	body := w.Body.String()
+	for _, want := range []string{`href="/alpha/logs"`, "alpha.hub.example", `<td class="num">1</td>`, `title="view missing"`, `href="/admin/traffic"`} {
+		if w.Code != http.StatusOK || !strings.Contains(body, want) {
+			t.Fatalf("missing %q (%d):\n%s", want, w.Code, body)
+		}
+	}
+	// The board's /logs shares the report built for the hub page.
+	if h.traffic("alpha") != alpha {
+		t.Error("traffic not cached per app")
 	}
 }

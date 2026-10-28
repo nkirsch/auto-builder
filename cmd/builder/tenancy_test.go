@@ -28,7 +28,7 @@ func testHub(t *testing.T) *hub {
 		t.Fatal(err)
 	}
 	defer pool.Close()
-	if _, err := pool.Exec(ctx, `DROP SCHEMA IF EXISTS control, t_alpha, t_beta, t_jerrys, t_anns CASCADE`); err != nil {
+	if _, err := pool.Exec(ctx, `DROP SCHEMA IF EXISTS control, t_alpha, t_beta, t_jerrys, t_anns, t_carols, t_daves, t_erins CASCADE`); err != nil {
 		t.Fatal(err)
 	}
 	reg, err := tenant.Open(ctx, u)
@@ -521,5 +521,57 @@ func TestHubCreators(t *testing.T) {
 	code(do(h, srv, "nkirsch", "POST", "/admin/creators/jerry/delete", url.Values{}), 303)
 	if ok, _ := h.reg.Creator(ctx, "jerry"); ok {
 		t.Error("jerry still a creator")
+	}
+}
+
+func TestHubCreateForOwner(t *testing.T) {
+	ctx := context.Background()
+	h := testHub(t)
+	srv := h.routes()
+
+	if !strings.Contains(do(h, srv, "nkirsch", "GET", "/new", nil).Body.String(), `name="owner"`) {
+		t.Error("New app has no owner field for platform admins")
+	}
+	// A platform admin makes carol's app: she's its admin, it's her one app.
+	w := do(h, srv, "nkirsch", "POST", "/new", url.Values{"slug": {"carols"}, "name": {"Carol's"}, "owner": {"@carol"}})
+	if w.Code != 303 || !strings.HasPrefix(w.Header().Get("Location"), "/carols/?flash=") {
+		t.Fatalf("create: %d %s", w.Code, w.Header().Get("Location"))
+	}
+	tn, err := h.reg.Tenant(ctx, "carols")
+	if err != nil || tn.CreatedBy != "carol" || tn.Repo != "extreme-dot-org/carols" {
+		t.Fatalf("carols %+v %v", tn, err)
+	}
+	st, _ := h.reg.Store(ctx, "carols")
+	for _, login := range []string{"carol", "nkirsch"} {
+		if m, err := st.Member(ctx, login); err != nil || m.Role != "admin" {
+			t.Fatalf("%s on carols: %+v %v", login, m, err)
+		}
+	}
+	if !strings.Contains(do(h, srv, "carol", "GET", "/", nil).Body.String(), `href="/carols/"`) {
+		t.Error("carol's app not on her index")
+	}
+	if w := do(h, srv, "carol", "GET", "/carols/", nil); w.Code != 200 {
+		t.Errorf("carol on her board: %d", w.Code)
+	}
+	h.reg.AddCreator(ctx, "carol", "nkirsch")
+	if ok, err := h.canCreate(ctx, "carol"); ok || err != nil {
+		t.Errorf("carol can create another: %v %v", ok, err)
+	}
+
+	// An address owner signs in with Google.
+	do(h, srv, "nkirsch", "POST", "/new", url.Values{"slug": {"daves"}, "owner": {"Dave@Example.org"}})
+	if tn, err := h.reg.Tenant(ctx, "daves"); err != nil || tn.CreatedBy != "dave@example.org" {
+		t.Fatalf("daves %+v %v", tn, err)
+	}
+	st, _ = h.reg.Store(ctx, "daves")
+	if m, err := st.MemberByEmail(ctx, "dave@example.org"); err != nil || m.Role != "admin" || m.Login != "dave" {
+		t.Fatalf("dave on his board: %+v %v", m, err)
+	}
+
+	// Only platform admins name an owner.
+	h.reg.AddCreator(ctx, "erin", "nkirsch")
+	do(h, srv, "erin", "POST", "/new", url.Values{"slug": {"erins"}, "owner": {"mallory"}})
+	if tn, err := h.reg.Tenant(ctx, "erins"); err != nil || tn.CreatedBy != "erin" {
+		t.Fatalf("erins %+v %v", tn, err)
 	}
 }

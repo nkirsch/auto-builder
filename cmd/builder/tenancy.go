@@ -687,7 +687,7 @@ func (h *hub) newApp(w http.ResponseWriter, r *http.Request) {
 	_, err := h.reg.PlatformAdmin(r.Context(), h.auth.SignedIn(r))
 	h.render(w, r, "new", "New app", map[string]any{
 		"Platform": err == nil,
-		"Slug":     q.Get("slug"), "Name": q.Get("name"), "Repo": q.Get("repo"), "Existing": q.Get("existing") == "on" || h.cfg.ProvisionJob == "",
+		"Slug":     q.Get("slug"), "Name": q.Get("name"), "Repo": q.Get("repo"), "Owner": q.Get("owner"), "Existing": q.Get("existing") == "on" || h.cfg.ProvisionJob == "",
 		"Provisions": h.cfg.ProvisionJob != "",
 		"Org":        h.cfg.TenantOrg, "Host": h.host})
 }
@@ -713,17 +713,23 @@ func (h *hub) create(w http.ResponseWriter, r *http.Request) {
 		}
 		existing, repo = false, ""
 		// created_by is the creator's identity, which CanCreate counts.
-		createdBy, me = identity, tenant.Admin{Login: identity}
-		if at := strings.Index(identity, "@"); at > 0 {
-			createdBy = strings.ToLower(identity)
-			me = tenant.Admin{Login: memberLogin(identity[:at]), Email: createdBy}
-		}
+		createdBy, me = ownerOf(identity)
+	}
+	// A platform admin may make the app for someone else: the owner becomes
+	// its board's admin and it counts as their one app; the platform admin
+	// stays an admin too.
+	var owner tenant.Admin
+	if o := strings.TrimPrefix(strings.TrimSpace(r.FormValue("owner")), "@"); o != "" && err == nil {
+		createdBy, owner = ownerOf(o)
 	}
 	if repo == "" && h.cfg.TenantOrg != "" && !existing {
 		repo = h.cfg.TenantOrg + "/" + slug
 	}
 	back := func(msg string) {
 		v := url.Values{"slug": {slug}, "name": {name}, "repo": {r.FormValue("repo")}, "flash": {msg}}
+		if o := r.FormValue("owner"); o != "" {
+			v.Set("owner", o)
+		}
 		if existing {
 			v.Set("existing", "on")
 		}
@@ -734,26 +740,42 @@ func (h *hub) create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	st, err := h.reg.Store(ctx, slug)
-	if err == nil {
-		err = st.UpsertMember(ctx, me.Login, "admin", me.Login)
-	}
-	if err == nil && me.Email != "" {
-		err = st.SetMemberEmail(ctx, me.Login, me.Email)
+	for _, a := range []tenant.Admin{me, owner} {
+		if err != nil || a.Login == "" {
+			continue
+		}
+		if err = st.UpsertMember(ctx, a.Login, "admin", me.Login); err == nil && a.Email != "" {
+			err = st.SetMemberEmail(ctx, a.Login, a.Email)
+		}
 	}
 	if err != nil {
 		slog.Error("seed tenant admin", "tenant", slug, "err", err)
-		back("created, but adding you as its admin failed: " + err.Error())
+		back("created, but adding its admins failed: " + err.Error())
 		return
 	}
+	done := "/" + slug + "/"
+	if owner.Login != "" {
+		done += "?flash=" + url.QueryEscape(createdBy+" is its admin: they sign in at "+h.cfg.BaseURL+"/ and find it under Apps")
+	}
 	if existing {
-		http.Redirect(w, r, "/"+slug+"/", http.StatusSeeOther)
+		http.Redirect(w, r, done, http.StatusSeeOther)
 		return
 	}
 	if err := h.provision(ctx, slug, "create"); err != nil {
 		back("created, but provisioning didn't start: " + err.Error())
 		return
 	}
-	http.Redirect(w, r, "/"+slug+"/", http.StatusSeeOther)
+	http.Redirect(w, r, done, http.StatusSeeOther)
+}
+
+// ownerOf turns a GitHub login or Google address into an app's created_by
+// and its board admin: an address gets a login made from its local part.
+func ownerOf(identity string) (string, tenant.Admin) {
+	if at := strings.Index(identity, "@"); at > 0 {
+		email := strings.ToLower(identity)
+		return email, tenant.Admin{Login: memberLogin(identity[:at]), Email: email}
+	}
+	return identity, tenant.Admin{Login: identity}
 }
 
 // provision starts the provision job for one tenant.

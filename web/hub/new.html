@@ -9,6 +9,9 @@
   {{if .Data.Platform}}<label for="repo">Repo</label>
   <input id="repo" name="repo" value="{{.Data.Repo}}" placeholder="{{.Data.Org}}/&lt;slug&gt;">
   <p class="hint">Defaults to {{.Data.Org}}/&lt;slug&gt;. You become the app's admin.</p>
+  <label for="owner">Owner</label>
+  <input id="owner" name="owner" value="{{.Data.Owner}}" placeholder="GitHub login or email (optional)">
+  <p class="hint">Makes the app for someone else: they become its admin too, it counts as their one app, and they find it under Apps once they sign in here.</p>
   {{if .Data.Provisions}}<label><input type="checkbox" name="existing"{{if .Data.Existing}} checked{{end}}> Existing repo</label>{{end}}
   <p class="hint">{{if not .Data.Provisions}}This hub doesn't provision apps; each is an existing repo: {{end}}An app already served at &lt;slug&gt;.{{.Data.Host}} that deploys itself: nothing is provisioned, and items ship once its <code>/health</code> reports the merge in <code>sha</code>. The hub's GitHub App must be installed on the repo.</p>
   {{else}}<p class="hint">Your app: a new repo, {{.Data.Org}}/&lt;slug&gt;, built from the template, with its own board where you're the admin. You get one; pick the slug with care.</p>{{end}}

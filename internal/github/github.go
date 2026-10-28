@@ -79,12 +79,22 @@ func (a *App) Token(ctx context.Context) (string, error) {
 
 // Mint returns a new, uncached installation token (GitHub gives it 1 h).
 func (a *App) Mint(ctx context.Context) (token string, expires time.Time, err error) {
-	return a.MintFor(ctx, "")
+	return a.MintFor(ctx, "", nil)
 }
 
-// MintFor is Mint limited to one repo ("owner/name") of the installation;
-// "" means every repo it covers.
-func (a *App) MintFor(ctx context.Context, repo string) (token string, expires time.Time, err error) {
+// AgentPermissions is what a run's agent gets: push branches, open and merge
+// PRs, read CI. No workflows, so it can't change what CI and deploys run.
+var AgentPermissions = map[string]string{
+	"contents": "write", "pull_requests": "write", "checks": "read", "actions": "read", "metadata": "read",
+}
+
+// UpstreamPermissions is what an upstream merge run gets: it pushes
+// upstream's commits, workflows included, to a branch.
+var UpstreamPermissions = map[string]string{"contents": "write", "workflows": "write", "metadata": "read"}
+
+// MintFor is Mint limited to one repo ("owner/name") of the installation and
+// to perms; "" means every repo it covers, nil every permission the App has.
+func (a *App) MintFor(ctx context.Context, repo string, perms map[string]string) (token string, expires time.Time, err error) {
 	j, err := a.JWT()
 	if err != nil {
 		return "", time.Time{}, err
@@ -93,9 +103,16 @@ func (a *App) MintFor(ctx context.Context, repo string) (token string, expires t
 		Token     string    `json:"token"`
 		ExpiresAt time.Time `json:"expires_at"`
 	}
-	var in any
+	scope := map[string]any{}
 	if repo != "" {
-		in = map[string][]string{"repositories": {repo[strings.Index(repo, "/")+1:]}}
+		scope["repositories"] = []string{repo[strings.Index(repo, "/")+1:]}
+	}
+	if perms != nil {
+		scope["permissions"] = perms
+	}
+	var in any
+	if len(scope) > 0 {
+		in = scope
 	}
 	c := &Client{API: a.API, http: a.client, bearer: j}
 	if err := c.do(ctx, http.MethodPost, "/app/installations/"+a.InstallationID+"/access_tokens", in, &out); err != nil {

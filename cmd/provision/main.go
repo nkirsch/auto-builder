@@ -109,7 +109,7 @@ func mergePlatform(ctx context.Context) error {
 	if err != nil || app == nil {
 		return fmt.Errorf("GitHub App: %v", err)
 	}
-	token, _, err := app.MintFor(ctx, repo)
+	token, _, err := app.MintFor(ctx, repo, github.UpstreamPermissions)
 	if err != nil {
 		return err
 	}

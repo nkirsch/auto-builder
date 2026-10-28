@@ -230,13 +230,17 @@ func TestMintForScopesToRepo(t *testing.T) {
 	}))
 	defer srv.Close()
 	a := &App{ID: "1", InstallationID: "9", key: key, API: srv.URL, client: srv.Client()}
-	if _, _, err := a.MintFor(context.Background(), "extreme-dot-org/alpha"); err != nil {
+	if _, _, err := a.MintFor(context.Background(), "extreme-dot-org/alpha", nil); err != nil {
 		t.Fatal(err)
 	}
 	if _, _, err := a.Mint(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	if len(bodies) != 2 || bodies[0] != `{"repositories":["alpha"]}` || bodies[1] != "" {
+	if _, _, err := a.MintFor(context.Background(), "o/r", map[string]string{"contents": "write"}); err != nil {
+		t.Fatal(err)
+	}
+	if len(bodies) != 3 || bodies[0] != `{"repositories":["alpha"]}` || bodies[1] != "" ||
+		bodies[2] != `{"permissions":{"contents":"write"},"repositories":["r"]}` {
 		t.Fatalf("bodies %q", bodies)
 	}
 }

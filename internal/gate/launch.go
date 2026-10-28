@@ -24,7 +24,8 @@ func (LogLauncher) Launch(_ context.Context, runID int) (string, error) {
 }
 
 func (LogLauncher) LaunchEnv(_ context.Context, env map[string]string) (string, error) {
-	slog.Info("launcher=none: would start runner", "run", env["RUN_ID"], "tenant", env["TENANT"])
+	// Local dev only: the token lets you start cmd/runner by hand.
+	slog.Info("launcher=none: would start runner", "run", env["RUN_ID"], "tenant", env["TENANT"], "run_token", env["RUN_TOKEN"])
 	return "none", nil
 }
 

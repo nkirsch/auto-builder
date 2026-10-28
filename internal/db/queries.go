@@ -785,6 +785,23 @@ func (s *Store) ClaimRun(ctx context.Context, id int, sha, version string) error
 		WHERE id = $1 AND status = 'requested'`, id, sha, version)
 }
 
+// SetRunTokenHash stores the SHA-256 of a run's runner token.
+func (s *Store) SetRunTokenHash(ctx context.Context, id int, hash []byte) error {
+	return s.execOne(ctx, `UPDATE runs SET token_hash = $2 WHERE id = $1`, id, hash)
+}
+
+// RunByTokenHash resolves a runner token's hash to its run while the run is
+// requested or running; ErrNotFound otherwise, so a token dies with its run.
+func (s *Store) RunByTokenHash(ctx context.Context, hash []byte) (int, error) {
+	var id int
+	err := s.Pool.QueryRow(ctx, `SELECT id FROM runs WHERE token_hash = $1 AND status IN ('requested', 'running')`,
+		hash).Scan(&id)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return 0, ErrNotFound
+	}
+	return id, err
+}
+
 // TakeRunToken marks a running run's one GitHub token as issued; ErrNotFound
 // if the run isn't running or already had it, so the agent (which holds the
 // runner token) can't mint more.

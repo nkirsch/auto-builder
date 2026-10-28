@@ -22,14 +22,14 @@ jobs:
     env:
       TEST_DATABASE_URL: postgres://builder:builder@localhost:5432/builder_test?sslmode=disable
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
           go-version-file: go.mod
       - id: app
         # app.env overrides app.defaults.env, key by key.
         run: awk -F= '/^[A-Z_]+=/ {v[$1]=$0} END {for (k in v) print v[k]}' app.defaults.env app.env >> "$GITHUB_OUTPUT"
-      - uses: peaceiris/actions-hugo@v3
+      - uses: peaceiris/actions-hugo@2752ce1d29631191ea3f27c23495fa06139a5b78 # v3
         with:
           hugo-version: ${{ steps.app.outputs.HUGO_VERSION }}
           extended: true

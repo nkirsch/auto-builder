@@ -73,7 +73,9 @@ type Board struct {
 	// GitHub and Releases enable the runs page's Release button.
 	GitHub   *github.Client
 	Releases bool
-	Gate     Gate
+	// CreateAppURL, when set, is a hub's New app page, linked in the nav for members.
+	CreateAppURL string
+	Gate         Gate
 	// Filer, when set (issue sync), files items under their GitHub issue's number.
 	Filer Filer
 	// Welcomer, when set (issue sync), greets members without an email on GitHub;
@@ -232,6 +234,7 @@ type page struct {
 	BaseURL string // absolute links for link previews
 	AppName string // a multi-tenant app's name, shown instead of the brand's
 	SiteURL string // the app's site, linked from the nav
+	NewApp  string // a hub's New app page, for members to make their own app
 	Data    any
 }
 
@@ -252,7 +255,7 @@ func (b *Board) render(w http.ResponseWriter, r *http.Request, name, title strin
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	p := page{Me: me, Unread: unread, Title: title, GitSHA: b.GitSHA, Repo: cmp.Or(b.CodeRepo, b.Repo), Flash: r.URL.Query().Get("m"),
 		BotName: b.BotLogin, Theme: theme(r), Path: r.URL.RequestURI(), BaseURL: strings.TrimSuffix(b.BaseURL, "/"),
-		AppName: b.Name, SiteURL: b.SiteURL, Data: data}
+		AppName: b.Name, SiteURL: b.SiteURL, NewApp: b.CreateAppURL, Data: data}
 	p.Version = b.Version()
 	if err := t.ExecuteTemplate(w, "layout", p); err != nil {
 		slog.Error("render", "page", name, "err", err)

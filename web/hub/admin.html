@@ -36,4 +36,16 @@
   <input name="email" type="email" placeholder="Google email (optional)">
   <button>Add</button>
 </form>
+<h2>Creators</h2>
+<p class="hint">Each may create one app of their own from New app and becomes its admin. Someone who already admins an app here has theirs.</p>
+<ul class="items">
+  {{range .Data.Creators}}<li class="row"><b>{{.}}</b>
+    <span class="spacer"></span>
+    <form method="post" action="/admin/creators/{{.}}/delete"><button class="secondary">Remove</button></form>
+  </li>{{end}}
+</ul>
+<form method="post" action="/admin/creators" class="row">
+  <input name="identity" placeholder="GitHub login or email" required>
+  <button>Add</button>
+</form>
 {{end}}

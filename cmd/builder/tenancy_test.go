@@ -28,7 +28,7 @@ func testHub(t *testing.T) *hub {
 		t.Fatal(err)
 	}
 	defer pool.Close()
-	if _, err := pool.Exec(ctx, `DROP SCHEMA IF EXISTS control, t_alpha, t_beta CASCADE`); err != nil {
+	if _, err := pool.Exec(ctx, `DROP SCHEMA IF EXISTS control, t_alpha, t_beta, t_jerrys, t_anns CASCADE`); err != nil {
 		t.Fatal(err)
 	}
 	reg, err := tenant.Open(ctx, u)
@@ -85,7 +85,7 @@ func TestHubTenants(t *testing.T) {
 	check(do(h, srv, "", "GET", "/auth/login?next=/alpha/", nil), 200, "", `href="/auth/google?next=%2falpha%2f"`)
 
 	// Platform admins (seeded from ADMIN_LOGIN/ADMIN_EMAIL) create apps and become their admin.
-	check(do(h, srv, "mallory", "GET", "/new", nil), 403, "", "platform admins only")
+	check(do(h, srv, "mallory", "GET", "/new", nil), 403, "", "add you as a creator")
 	check(do(h, srv, "nick@example.org", "POST", "/new", url.Values{"slug": {"admin"}}), 303,
 		"/new?flash=slug+%22admin%22+is+reserved&name=&repo=&slug=admin", "")
 	check(do(h, srv, "nick@example.org", "POST", "/new", url.Values{"slug": {"alpha"}, "name": {"Alpha"}}), 303, "/alpha/", "")
@@ -437,5 +437,83 @@ func TestHubWithoutProvisioner(t *testing.T) {
 	}
 	if len(prov.launches) != 0 {
 		t.Errorf("provisioner ran: %v", prov.launches)
+	}
+}
+
+// Creators make one app each: from the creators list or as members of a
+// CREATORS_FROM board; whoever admins an app already (here or on a SITES
+// board) has theirs.
+func TestHubCreators(t *testing.T) {
+	ctx := context.Background()
+	h := testHub(t)
+	roles := map[string]map[string]string{
+		"builder": {"bob": "member", "momo": "member"},
+		"momo":    {"momo": "admin"},
+	}
+	remote := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") != "Bearer stats" {
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+		site := strings.Trim(r.URL.Path[:strings.Index(r.URL.Path, "/api/")], "/")
+		writeJSON(w, http.StatusOK, map[string]string{"role": roles[site][r.URL.Query().Get("identity")]})
+	}))
+	defer remote.Close()
+	h.cfg.StatsToken = "stats"
+	h.cfg.Sites = []remoteSite{{Name: "builder", URL: remote.URL + "/builder"}, {Name: "momo", URL: remote.URL + "/momo"}}
+	h.cfg.CreatorsFrom = []string{"builder"}
+	srv := h.routes()
+	code := func(w *httptest.ResponseRecorder, want int) {
+		t.Helper()
+		if w.Code != want {
+			t.Fatalf("%d %.300s; want %d", w.Code, w.Body.String(), want)
+		}
+	}
+
+	code(do(h, srv, "jerry", "GET", "/new", nil), 403)
+	if strings.Contains(do(h, srv, "jerry", "GET", "/", nil).Body.String(), `href="/new"`) {
+		t.Error("New app offered to a non-creator")
+	}
+	code(do(h, srv, "nkirsch", "POST", "/admin/creators", url.Values{"identity": {"jerry"}}), 303)
+	code(do(h, srv, "nkirsch", "GET", "/admin", nil), 200)
+	if !strings.Contains(do(h, srv, "jerry", "GET", "/", nil).Body.String(), `href="/new"`) {
+		t.Error("New app not offered to a creator")
+	}
+	w := do(h, srv, "jerry", "GET", "/new", nil)
+	code(w, 200)
+	if strings.Contains(w.Body.String(), `name="existing"`) {
+		t.Error("a creator may pick an existing repo")
+	}
+	// A creator can't name the repo or bring an existing one.
+	w = do(h, srv, "jerry", "POST", "/new", url.Values{"slug": {"jerrys"}, "name": {"Jerry's"}, "repo": {"evil/x"}, "existing": {"on"}})
+	if w.Code != 303 || w.Header().Get("Location") != "/jerrys/" {
+		t.Fatalf("create: %d %s", w.Code, w.Header().Get("Location"))
+	}
+	tn, err := h.reg.Tenant(ctx, "jerrys")
+	if err != nil || tn.Repo != "extreme-dot-org/jerrys" || tn.Existing || tn.CreatedBy != "jerry" || tn.Name != "Jerry's" {
+		t.Fatalf("jerrys %+v %v", tn, err)
+	}
+	st, _ := h.reg.Store(ctx, "jerrys")
+	if m, err := st.Member(ctx, "jerry"); err != nil || m.Role != "admin" {
+		t.Fatalf("jerry on his board: %+v %v", m, err)
+	}
+	code(do(h, srv, "jerry", "GET", "/jerrys/", nil), 200)
+	code(do(h, srv, "jerry", "POST", "/new", url.Values{"slug": {"jerry2"}}), 403) // one app each
+
+	// Members of builder may create; momo admins her own site, so she has hers.
+	code(do(h, srv, "bob", "GET", "/new", nil), 200)
+	code(do(h, srv, "momo", "GET", "/new", nil), 403)
+	code(do(h, srv, "mallory", "GET", "/new", nil), 403)
+
+	// A Google creator gets a board login from their address.
+	code(do(h, srv, "nkirsch", "POST", "/admin/creators", url.Values{"identity": {"Ann.Lee@Example.org"}}), 303)
+	code(do(h, srv, "ann.lee@example.org", "POST", "/new", url.Values{"slug": {"anns"}}), 303)
+	st, _ = h.reg.Store(ctx, "anns")
+	if m, err := st.MemberByEmail(ctx, "ann.lee@example.org"); err != nil || m.Role != "admin" || m.Login != "annlee" {
+		t.Fatalf("ann on her board: %+v %v", m, err)
+	}
+	code(do(h, srv, "nkirsch", "POST", "/admin/creators/jerry/delete", url.Values{}), 303)
+	if ok, _ := h.reg.Creator(ctx, "jerry"); ok {
+		t.Error("jerry still a creator")
 	}
 }

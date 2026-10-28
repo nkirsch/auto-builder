@@ -29,6 +29,7 @@
     <a href="{{base}}/">Board{{if .Unread}} <span class="count" title="Items with unread updates">{{.Unread}}</span>{{end}}</a>
     <a href="{{base}}/items/new">New</a>
     <a href="{{base}}/runs">Runs</a>
+    {{with .NewApp}}<a href="{{.}}" title="Make an app of your own, built the same way">Your app</a>{{end}}
     {{if .Me.IsAdmin}}<a href="{{base}}/admin">Admin</a>{{end}}
     <form method="post" action="{{base}}/theme" class="theme">
       <input type="hidden" name="back" value="{{.Path}}">

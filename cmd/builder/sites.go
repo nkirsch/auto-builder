@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"sort"
 	"strings"
 	"sync"
@@ -65,6 +66,52 @@ func (s *server) stats(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, st)
+}
+
+// member answers the hub's "what's identity's role here?" (GET
+// /api/member?identity=, behind STATS_TOKEN): "admin", "member" or "".
+func (s *server) member(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, map[string]string{"role": roleOf(r.Context(), s.store, r.URL.Query().Get("identity"))})
+}
+
+// roleOf is identity's (a GitHub login or a Google address) role on a board, or "".
+func roleOf(ctx context.Context, st *db.Store, identity string) string {
+	identity = strings.TrimSpace(identity)
+	if identity == "" {
+		return ""
+	}
+	var m db.Member
+	var err error
+	if strings.Contains(identity, "@") {
+		m, err = st.MemberByEmail(ctx, identity)
+	} else {
+		m, err = st.Member(ctx, identity)
+	}
+	if err != nil {
+		return ""
+	}
+	return m.Role
+}
+
+// remoteRole asks a single board for identity's role; errors count as none.
+func remoteRole(ctx context.Context, c *http.Client, s remoteSite, token, identity string) string {
+	req, err := http.NewRequestWithContext(ctx, "GET", s.URL+"/api/member?identity="+url.QueryEscape(identity), nil)
+	if err != nil {
+		return ""
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+	resp, err := c.Do(req)
+	if err != nil {
+		slog.Warn("remote role", "site", s.Name, "err", err)
+		return ""
+	}
+	defer resp.Body.Close()
+	var v struct{ Role string }
+	if resp.StatusCode != http.StatusOK || json.NewDecoder(resp.Body).Decode(&v) != nil {
+		slog.Warn("remote role", "site", s.Name, "status", resp.Status)
+		return ""
+	}
+	return v.Role
 }
 
 // remoteSite is a single-board site from SITES ("name=board-URL ...", space- or comma-separated).

@@ -136,8 +136,9 @@ provider() { # id condition: only master may deploy; the agent pushes branches
 }
 # App repos (the provisioner binds each app's deployer to its own repo).
 provider github "assertion.repository_owner == '$ORG' && assertion.ref == 'refs/heads/master'"
-# The platform repo deploys the hub and jobs.
-provider platform "assertion.repository == '$PLATFORM_REPO' && assertion.ref == 'refs/heads/master'"
+# The platform repo deploys the hub and jobs: from master, or a v* release
+# (DEPLOY_ON=release; deploy.yml refuses a tag not on master).
+provider platform "assertion.repository == '$PLATFORM_REPO' && (assertion.ref == 'refs/heads/master' || assertion.ref.startsWith('refs/tags/v'))"
 retry g iam service-accounts add-iam-policy-binding "$(sa deployer)" --role roles/iam.workloadIdentityUser \
   --member "principalSet://iam.googleapis.com/projects/$NUMBER/locations/global/workloadIdentityPools/$NAME/attribute.repository/$PLATFORM_REPO" >/dev/null
 

@@ -105,6 +105,7 @@ the provisioner SA is added as an owner in Search Console (manual, once).
 - `/<slug>/…`: the existing board, mounted with a path prefix. Templates use
   a `{{base}}` func; handlers redirect relative to the tenant base.
 - `/admin` (platform admin): tenants, global spend, platform admins.
+- `/admin/traffic` (platform admin): every ready app's last 30 days (visitors, views, a per-day spark, top page) from the same cached reports as each board's `/logs`.
 
 ## Control schema
 

@@ -228,14 +228,31 @@ func metadataToken(ctx context.Context, c *http.Client) (string, error) {
 
 // traffic serves the report, rebuilt at most once per trafficCache.
 type traffic struct {
-	host  string
-	view  string // the log view read, "" for none
-	hits  func(ctx context.Context, since time.Time) ([]hit, error)
-	home  func(ctx context.Context) map[string]bool
-	now   func() time.Time
-	mu    sync.Mutex
-	at    time.Time
-	cache []byte
+	host string
+	view string // the log view read, "" for none
+	hits func(ctx context.Context, since time.Time) ([]hit, error)
+	home func(ctx context.Context) map[string]bool
+	now  func() time.Time
+	mu   sync.Mutex
+	at   time.Time
+	rep  *trafficReport
+}
+
+// report returns the cached report, rebuilding it when stale or on refresh.
+func (t *traffic) report(ctx context.Context, refresh bool) (trafficReport, error) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	now := t.now()
+	if t.rep == nil || now.Sub(t.at) > trafficCache || refresh {
+		from := time.Date(now.In(pacific).Year(), now.In(pacific).Month(), now.In(pacific).Day()-trafficDays+1, 0, 0, 0, 0, pacific)
+		hits, err := t.hits(ctx, from)
+		if err != nil {
+			return trafficReport{}, err
+		}
+		r := buildReport(hits, t.host, from, now, t.home(ctx))
+		t.rep, t.at = &r, now
+	}
+	return *t.rep, nil
 }
 
 func newTraffic(baseURL, project, service string) *traffic {
@@ -258,13 +275,82 @@ func trafficFrom(host, view string) *traffic {
 	return t
 }
 
-// traffic is a hub board's /logs: its app's view <slug>-requests in LOG_PROJECT.
+// traffic is a hub board's /logs: its app's view <slug>-requests in
+// LOG_PROJECT, one per app so the board and /admin/traffic share its cache.
 func (h *hub) traffic(slug string) *traffic {
-	u, _ := url.Parse(h.appURL(slug))
-	if h.cfg.LogProject == "" {
-		return trafficFrom(u.Host, "")
+	h.trafficMu.Lock()
+	defer h.trafficMu.Unlock()
+	if t, ok := h.traffics[slug]; ok {
+		return t
 	}
-	return trafficFrom(u.Host, logViewName(h.cfg.LogProject, slug+"-requests"))
+	u, _ := url.Parse(h.appURL(slug))
+	t := trafficFrom(u.Host, "")
+	if h.cfg.LogProject != "" {
+		t = trafficFrom(u.Host, logViewName(h.cfg.LogProject, slug+"-requests"))
+	}
+	if h.traffics == nil {
+		h.traffics = map[string]*traffic{}
+	}
+	h.traffics[slug] = t
+	return t
+}
+
+// trafficRow is one app on the hub's Traffic page.
+type trafficRow struct {
+	Slug, Name, Host string
+	Report           trafficReport
+	Spark            []int // each day's views as a percent of the busiest, oldest first
+	Top              string
+	Err              string
+}
+
+// trafficAll is the platform admins' /admin/traffic: every ready app's
+// last 30 days in one table, each linking to its board's /logs.
+func (h *hub) trafficAll(w http.ResponseWriter, r *http.Request) {
+	ctx, cancel := context.WithTimeout(r.Context(), 45*time.Second)
+	defer cancel()
+	tenants, err := h.reg.Tenants(ctx)
+	if err != nil {
+		slog.Error("tenants", "err", err)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	var rows []trafficRow
+	for _, t := range tenants {
+		if t.Status == "ready" {
+			rows = append(rows, trafficRow{Slug: t.Slug, Name: t.Name})
+		}
+	}
+	refresh := r.URL.Query().Has("refresh")
+	var wg sync.WaitGroup
+	for i := range rows {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			row := &rows[i]
+			tr := h.traffic(row.Slug)
+			row.Host = tr.host
+			rep, err := tr.report(ctx, refresh)
+			if err != nil {
+				row.Err = err.Error()
+				return
+			}
+			row.Report = rep
+			for j := len(rep.Days) - 1; j >= 0; j-- { // Days is newest first
+				pct := 0
+				if rep.Max > 0 {
+					pct = rep.Days[j].Views * 100 / rep.Max
+				}
+				row.Spark = append(row.Spark, pct)
+			}
+			if len(rep.Pages) > 0 {
+				row.Top = rep.Pages[0].Key
+			}
+		}()
+	}
+	wg.Wait()
+	sort.SliceStable(rows, func(i, j int) bool { return rows[i].Report.Views > rows[j].Report.Views })
+	h.render(w, r, "traffic", "Traffic", map[string]any{"Rows": rows, "LogProject": h.cfg.LogProject})
 }
 
 func logViewName(project, view string) string {
@@ -281,27 +367,20 @@ func lookupHome(ctx context.Context) map[string]bool {
 }
 
 func (t *traffic) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	now := t.now()
-	if t.cache == nil || now.Sub(t.at) > trafficCache || r.URL.Query().Has("refresh") {
-		from := time.Date(now.In(pacific).Year(), now.In(pacific).Month(), now.In(pacific).Day()-trafficDays+1, 0, 0, 0, 0, pacific)
-		hits, err := t.hits(r.Context(), from)
-		if err != nil {
-			slog.Error("traffic", "err", err)
-			http.Error(w, "traffic unavailable: "+err.Error(), http.StatusBadGateway)
-			return
-		}
-		var buf bytes.Buffer
-		if err := trafficTmpl.Execute(&buf, buildReport(hits, t.host, from, now, t.home(r.Context()))); err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
-		t.cache, t.at = buf.Bytes(), now
+	rep, err := t.report(r.Context(), r.URL.Query().Has("refresh"))
+	if err != nil {
+		slog.Error("traffic", "err", err)
+		http.Error(w, "traffic unavailable: "+err.Error(), http.StatusBadGateway)
+		return
+	}
+	var buf bytes.Buffer
+	if err := trafficTmpl.Execute(&buf, rep); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("Cache-Control", "private, no-store")
-	w.Write(t.cache)
+	w.Write(buf.Bytes())
 }
 
 var trafficTmpl = template.Must(template.New("traffic").Funcs(template.FuncMap{

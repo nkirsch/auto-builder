@@ -113,6 +113,9 @@ type hub struct {
 
 	mu      sync.Mutex
 	tenants map[string]*tenantRT
+
+	trafficMu sync.Mutex
+	traffics  map[string]*traffic // each app's traffic report, shared by its /logs and /admin/traffic
 }
 
 // tenantRT is one tenant's board, gate and runner endpoints, built on first use.
@@ -166,7 +169,7 @@ func newHub(ctx context.Context, cfg config, reg *tenant.Registry, storage store
 
 func (h *hub) parse() error {
 	h.tmpl = map[string]*template.Template{}
-	for _, p := range []string{"login", "index", "new", "admin", "urgent"} {
+	for _, p := range []string{"login", "index", "new", "admin", "urgent", "traffic"} {
 		t, err := template.New("").Funcs(template.FuncMap{
 			"short": func(s string) string { return s[:min(7, len(s))] },
 			"ago":   func(t time.Time) string { return t.Format("Jan 2, 2006") },
@@ -204,6 +207,7 @@ func (h *hub) routes() http.Handler {
 	mux.HandleFunc("POST /admin/tenants/{slug}/delete", h.platformAdmin(h.deleteApp))
 	mux.HandleFunc("POST /admin/upstream", h.platformAdmin(h.setUpstream))
 	mux.HandleFunc("GET /admin/urgent", h.platformAdmin(h.urgent))
+	mux.HandleFunc("GET /admin/traffic", h.platformAdmin(h.trafficAll))
 	mux.HandleFunc("POST /admin/tenants/{slug}/items/{id}/reassign", h.platformAdmin(h.reassign))
 	mux.HandleFunc("GET /{slug}", func(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/"+r.PathValue("slug")+"/", http.StatusMovedPermanently)

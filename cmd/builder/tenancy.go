@@ -166,7 +166,7 @@ func newHub(ctx context.Context, cfg config, reg *tenant.Registry, storage store
 
 func (h *hub) parse() error {
 	h.tmpl = map[string]*template.Template{}
-	for _, p := range []string{"login", "index", "new", "admin", "sites", "urgent"} {
+	for _, p := range []string{"login", "index", "new", "admin", "urgent"} {
 		t, err := template.New("").Funcs(template.FuncMap{
 			"short": func(s string) string { return s[:min(7, len(s))] },
 			"ago":   func(t time.Time) string { return t.Format("Jan 2, 2006") },
@@ -195,7 +195,9 @@ func (h *hub) routes() http.Handler {
 	mux.HandleFunc("POST /admin/creators", h.platformAdmin(h.addCreator))
 	mux.HandleFunc("POST /admin/creators/{identity}/delete", h.platformAdmin(h.removeCreator))
 	mux.HandleFunc("GET /admin", h.platformAdmin(h.admin))
-	mux.HandleFunc("GET /admin/sites", h.platformAdmin(h.sites))
+	mux.HandleFunc("GET /admin/sites", func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, "/", http.StatusMovedPermanently) // Sites merged into Apps
+	})
 	mux.HandleFunc("POST /admin/platform-admins", h.platformAdmin(h.addAdmin))
 	mux.HandleFunc("POST /admin/platform-admins/{login}/delete", h.platformAdmin(h.removeAdmin))
 	mux.HandleFunc("POST /admin/tenants/{slug}/provision", h.platformAdmin(h.reprovision))
@@ -642,12 +644,31 @@ type app struct {
 	AppURL, AppHost string
 }
 
-// index lists the apps the viewer belongs to; platform admins see them all.
+// index lists the apps the viewer belongs to. Platform admins see every
+// board instead: the hub's apps and SITES, with health, version, last run
+// and spend.
 func (h *hub) index(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	me := h.auth.SignedIn(r)
-	_, err := h.reg.PlatformAdmin(ctx, me)
-	all := err == nil
+	if _, err := h.reg.PlatformAdmin(ctx, me); err == nil {
+		rows, err := h.siteRows(ctx)
+		if err != nil {
+			slog.Error("site rows", "err", err)
+			http.Error(w, "internal error", http.StatusInternalServerError)
+			return
+		}
+		total := 0.0
+		for i := range rows {
+			total += rows[i].Stats.Spend30d
+			if rows[i].App {
+				if st, err := h.reg.Store(ctx, rows[i].Slug); err == nil {
+					rows[i].Role = roleOf(ctx, st, me)
+				}
+			}
+		}
+		h.render(w, r, "index", "Apps", map[string]any{"Rows": rows, "Spend30d": total, "Token": h.cfg.StatsToken != ""})
+		return
+	}
 	tenants, err := h.reg.Tenants(ctx)
 	if err != nil {
 		slog.Error("tenants", "err", err)
@@ -664,19 +685,12 @@ func (h *hub) index(w http.ResponseWriter, r *http.Request) {
 			slog.Error("tenant store", "tenant", t.Slug, "err", err)
 			continue
 		}
-		a := app{Tenant: t, AppURL: h.appURL(t.Slug)}
-		a.AppHost = strings.TrimPrefix(a.AppURL, "https://")
-		var m db.Member
-		if strings.Contains(me, "@") {
-			m, err = st.MemberByEmail(ctx, me)
-		} else {
-			m, err = st.Member(ctx, me)
-		}
-		if err == nil {
-			a.Role = m.Role
-		} else if !all {
+		role := roleOf(ctx, st, me)
+		if role == "" {
 			continue
 		}
+		a := app{Tenant: t, Role: role, AppURL: h.appURL(t.Slug)}
+		a.AppHost = strings.TrimPrefix(a.AppURL, "https://")
 		if items, err := st.Items(ctx, "open"); err == nil {
 			a.Open = len(items)
 		}

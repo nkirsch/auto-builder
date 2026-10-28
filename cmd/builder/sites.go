@@ -18,7 +18,7 @@ import (
 // started approximates the deploy time: Cloud Run starts a fresh instance per revision.
 var started = time.Now().UTC()
 
-// siteStats is one board's summary for the hub's all-sites page; a single
+// siteStats is one board's summary for the hub's Apps page; a single
 // board serves it at GET /api/stats behind STATS_TOKEN.
 type siteStats struct {
 	Version  string    `json:"version"`
@@ -129,14 +129,15 @@ func parseSites(v string) ([]remoteSite, error) {
 	return out, nil
 }
 
-// siteRow is one line of the all-sites page.
+// siteRow is one line of the hub's Apps page for platform admins.
 type siteRow struct {
 	Name, Board string
 	Slug, Site  string // hub apps: the slug and the app's own URL
 	App         bool   // a hub app, read from its store; else a remote single board
 	Health      string // "ok", or why not
 	Stats       siteStats
-	Detail      bool // Stats beyond the version came back (hub app, or STATS_TOKEN accepted)
+	Detail      bool   // Stats beyond the version came back (hub app, or STATS_TOKEN accepted)
+	Role        string // the viewer's role on a hub app, "" if none
 }
 
 // fetchSite reads a remote board's public /health and /version, then
@@ -191,15 +192,14 @@ func (h *hub) appURL(slug string) string {
 	return "https://" + slug + "." + h.host
 }
 
-// sites is the platform admin's view of every board: the hub's apps and the SITES list.
-func (h *hub) sites(w http.ResponseWriter, r *http.Request) {
-	ctx, cancel := context.WithTimeout(r.Context(), 8*time.Second)
+// siteRows is the platform admin's view of every board: the hub's apps and
+// the SITES list, with each one's health, version, last run and spend.
+func (h *hub) siteRows(ctx context.Context) ([]siteRow, error) {
+	ctx, cancel := context.WithTimeout(ctx, 8*time.Second)
 	defer cancel()
 	tenants, err := h.reg.Tenants(ctx)
 	if err != nil {
-		slog.Error("tenants", "err", err)
-		http.Error(w, "internal error", http.StatusInternalServerError)
-		return
+		return nil, err
 	}
 	var rows []siteRow
 	var wg sync.WaitGroup
@@ -242,9 +242,5 @@ func (h *hub) sites(w http.ResponseWriter, r *http.Request) {
 	wg.Wait()
 	rows = append(rows, remote...)
 	sort.SliceStable(rows, func(i, j int) bool { return rows[i].App && !rows[j].App })
-	total := 0.0
-	for _, r := range rows {
-		total += r.Stats.Spend30d
-	}
-	h.render(w, r, "sites", "Sites", map[string]any{"Sites": rows, "Spend30d": total, "Token": h.cfg.StatsToken != ""})
+	return rows, nil
 }

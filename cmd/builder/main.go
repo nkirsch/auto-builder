@@ -233,6 +233,9 @@ func run() error {
 		BaseURL: cfg.BaseURL, BotLogin: cfg.BotLogin, GitSHA: cfg.GitSHA, Repo: cfg.Repo,
 		GitHub: gh, Releases: cfg.Releases,
 	}
+	if a.CanMail() {
+		b.Mailer = a
+	}
 	g.Ship = &gate.Shipper{Store: st, GitHub: gh, Repo: cfg.Repo, GitSHA: cfg.GitSHA, Reply: b.BotReply}
 	if app != nil && cfg.IssueSync {
 		g.Issues = &gate.IssueSync{Store: st, GitHub: gh, Repo: cfg.Repo, BaseURL: cfg.BaseURL, Notified: b.Notified}

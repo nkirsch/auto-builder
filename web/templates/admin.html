@@ -5,7 +5,7 @@
   <li class="row">
     {{if .AvatarURL}}<img src="{{.Avatar}}" alt="" class="avatar">{{end}}
     <b>{{.Login}}</b> <span class="badge">{{.Role}}</span>{{if .Email}} <span class="muted">{{.Email}}{{if .GitHub}} or GitHub{{end}}</span>{{end}}
-    <span class="muted">{{if .LastSeen}}seen {{ago .LastSeen}}{{else}}never signed in · <a href="{{invite .}}" title="Email them the board's link and how to sign in">Invite</a>{{end}}</span>
+    <span class="muted">{{if .LastSeen}}seen {{ago .LastSeen}}{{else}}never signed in · {{if and .Email $.Data.Mail $.Data.Mail.From}}<form method="post" action="{{base}}/admin/members/{{.Login}}/invite" class="inline"><button class="link" title="Email them the board's link and how to sign in, from {{$.Data.Mail.From}}">Email invite</button></form>{{else}}<a href="{{invite .}}" title="Email them the board's link and how to sign in">Invite</a>{{end}}{{end}}</span>
     <span class="spacer"></span>
     {{if .Email}}
     <form method="post" action="{{base}}/admin/members/{{.Login}}/github" title="Whether {{.Login}} is also their GitHub login">
@@ -19,6 +19,7 @@
   </li>
   {{end}}
 </ul>
+{{with .Data.Mail}}<p class="hint">{{if .From}}Invites go from {{.From}} via Gmail · <a href="{{base}}/auth/gmail?next=/admin">Reconnect</a>{{else}}<a href="{{base}}/auth/gmail?next=/admin">Connect Gmail</a> to email invites from here instead of your mail client.{{end}}</p>{{end}}
 <h2>Add or change a member</h2>
 <form method="post" action="{{base}}/admin/members" class="row">
   <input name="login" placeholder="Login (GitHub, or any handle)" required>

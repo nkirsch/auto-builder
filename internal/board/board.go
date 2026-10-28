@@ -55,6 +55,13 @@ type Welcomer interface {
 	Welcome(ctx context.Context, name, login string) (int, error)
 }
 
+// Mailer sends mail from the signed-in admin's connected Gmail.
+type Mailer interface {
+	// Mailbox is the address the request's admin sends from, "" if unconnected.
+	Mailbox(r *http.Request) string
+	Mail(r *http.Request, to, subject, body string) (from string, err error)
+}
+
 // Board holds the board's dependencies.
 type Board struct {
 	Store    *db.Store
@@ -86,6 +93,8 @@ type Board struct {
 	Upstream string
 	// Platform, when set (multi-tenant mode), is whom admins escalate to.
 	Platform Platform
+	// Mailer, when set, lets admins email invites instead of opening a mail client.
+	Mailer Mailer
 
 	tmpl    map[string]*template.Template
 	version atomic.Pointer[string]
@@ -137,6 +146,7 @@ func (b *Board) Routes(mux *http.ServeMux) error {
 	mux.Handle("POST /admin/members", admin(b.addMember))
 	mux.Handle("POST /admin/members/{login}/delete", admin(b.deleteMember))
 	mux.Handle("POST /admin/members/{login}/github", admin(b.setMemberGitHub))
+	mux.Handle("POST /admin/members/{login}/invite", admin(b.sendInvite))
 	mux.Handle("POST /admin/run", admin(b.runNow))
 	mux.Handle("POST /runs/{id}/cancel", admin(b.cancelRun))
 	mux.Handle("POST /admin/release", admin(b.release))
@@ -829,8 +839,12 @@ func (b *Board) admin(w http.ResponseWriter, r *http.Request) {
 		}
 		upstream = map[string]any{"Repo": b.Upstream, "On": on, "PR": pr}
 	}
+	var mail map[string]any
+	if b.Mailer != nil {
+		mail = map[string]any{"From": b.Mailer.Mailbox(r)}
+	}
 	b.render(w, r, "admin", "Admin", map[string]any{"Members": members, "Costs": costs,
-		"Limit": limit, "MemberCosts": byMember, "Stats": []db.RunStats{recent, all}, "Upstream": upstream})
+		"Limit": limit, "MemberCosts": byMember, "Stats": []db.RunStats{recent, all}, "Upstream": upstream, "Mail": mail})
 }
 
 func (b *Board) setSpendLimit(w http.ResponseWriter, r *http.Request) {
@@ -961,9 +975,8 @@ func (b *Board) name() string {
 	return u.Host
 }
 
-// invite is a mailto: link telling m they're a member and how to sign in,
-// addressed to m.Email when set (else the admin fills in the address).
-func (b *Board) invite(m db.Member) string {
+// inviteMessage tells m they're a member and how to sign in.
+func (b *Board) inviteMessage(m db.Member) (subject, body string) {
 	name := b.name()
 	how := "Sign in with GitHub as " + m.Login + "."
 	switch {
@@ -972,12 +985,42 @@ func (b *Board) invite(m db.Member) string {
 	case m.Email != "":
 		how = "Sign in with Google as " + m.Email + "."
 	}
-	q := url.Values{
-		"subject": {"You're on the " + name + " board"},
-		"body":    {"I added you to the " + name + " board, where you can ask for changes and follow them as they're built:\n\n" + strings.TrimSuffix(b.BaseURL, "/") + "/\n\n" + how + "\n"},
-	}
+	return "You're on the " + name + " board",
+		"I added you to the " + name + " board, where you can ask for changes and follow them as they're built:\n\n" + strings.TrimSuffix(b.BaseURL, "/") + "/\n\n" + how + "\n"
+}
+
+// invite is a mailto: link with m's invitation, addressed to m.Email when
+// set (else the admin fills in the address).
+func (b *Board) invite(m db.Member) string {
+	subject, body := b.inviteMessage(m)
+	q := url.Values{"subject": {subject}, "body": {body}}
 	// mailto wants %20, not +, for spaces.
 	return "mailto:" + url.PathEscape(m.Email) + "?" + strings.ReplaceAll(q.Encode(), "+", "%20")
+}
+
+// sendInvite emails m's invitation from the admin's connected Gmail.
+func (b *Board) sendInvite(w http.ResponseWriter, r *http.Request) {
+	if b.Mailer == nil {
+		http.Error(w, "mail is not configured", http.StatusServiceUnavailable)
+		return
+	}
+	m, err := b.Store.Member(r.Context(), r.PathValue("login"))
+	if err != nil {
+		b.fail(w, err)
+		return
+	}
+	if m.Email == "" {
+		redirect(w, r, "/admin", m.Login+" has no email; use the Invite link")
+		return
+	}
+	subject, body := b.inviteMessage(m)
+	from, err := b.Mailer.Mail(r, m.Email, subject, body)
+	if err != nil {
+		slog.Warn("invite mail", "to", m.Email, "err", err)
+		redirect(w, r, "/admin", "Couldn't email "+m.Email+": "+err.Error()+"; try reconnecting Gmail")
+		return
+	}
+	redirect(w, r, "/admin", "Emailed an invite to "+m.Email+" from "+from)
 }
 
 func (b *Board) deleteMember(w http.ResponseWriter, r *http.Request) {

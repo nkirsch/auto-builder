@@ -273,6 +273,24 @@ func (r *Registry) User(ctx context.Context, identity string) (name, avatar stri
 	return name, avatar, err
 }
 
+// SetMailbox records identity's connected Gmail (auth.Mailboxes).
+func (r *Registry) SetMailbox(ctx context.Context, identity, address, token string) error {
+	_, err := r.Control.Exec(ctx, `INSERT INTO users (identity, gmail_address, gmail_token) VALUES ($1, $2, $3)
+		ON CONFLICT (identity) DO UPDATE SET gmail_address = EXCLUDED.gmail_address, gmail_token = EXCLUDED.gmail_token`,
+		identity, address, token)
+	return err
+}
+
+// Mailbox returns identity's connected Gmail; "" when none.
+func (r *Registry) Mailbox(ctx context.Context, identity string) (address, token string, err error) {
+	err = r.Control.QueryRow(ctx, `SELECT gmail_address, gmail_token FROM users WHERE identity = $1`,
+		identity).Scan(&address, &token)
+	if errors.Is(err, pgx.ErrNoRows) {
+		err = nil
+	}
+	return address, token, err
+}
+
 // Settings returns the limits across all tenants.
 func (r *Registry) Settings(ctx context.Context) (Settings, error) {
 	var s Settings

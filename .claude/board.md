@@ -15,7 +15,7 @@ CI; the server marks items shipped once its own `GIT_SHA` contains the merge.
 - `cmd/runner` — job entrypoint: claim → App token → clone → `claude -p /build-board` → finish (installs `commands.go`'s embedded `/build-board` when the repo has none)
 - `internal/db` — pgx pool, embedded migrations (`migrations/NNN_*.sql`, append-only), all queries
 - `internal/tenant` — multi-tenant mode: control schema (own migrations), tenant registry, a pool per tenant schema `t_<slug>`
-- `internal/auth` — GitHub or Google OAuth (Google matches `members.email`), HMAC session cookie, `Require`/`RequireAdmin`, `Bearer`
+- `internal/auth` — GitHub or Google OAuth (Google matches `members.email`), HMAC session cookie, `Require`/`RequireAdmin`, `Bearer`; admins' connected Gmail for emailing invites (`gmail.go`)
 - `internal/board` — page handlers, markdown (goldmark, raw HTML escaped), mentions; templates link via `{{base}}`
 - `internal/gate` — `Decide` policy, Cloud Run Job launcher, ship-checker
 - `internal/mcp` — agent tools (`list_items`, `get_item`, `reply`, `set_pr`, `set_tags`, `close_item`, `file_item`, `deploy_status`)

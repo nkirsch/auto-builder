@@ -49,6 +49,7 @@ type config struct {
 	Tenancy      bool   // TENANCY=on: multi-tenant mode (TENANCY.md)
 	TenantOrg    string // multi mode: GitHub org holding the apps' repos
 	ProvisionJob string // multi mode: Cloud Run Job that provisions an app
+	UpstreamJob  string // multi mode: UPSTREAM_JOB, the provision image run only for upstream merges; default ProvisionJob
 	AppDomain    string // multi mode: APP_DOMAIN, apps on <slug>.<AppDomain>; default BASE_URL's host
 	LogProject   string // multi mode: LOG_PROJECT, holding each app's <slug>-requests log view; default GCP_PROJECT
 	Upstream     string // the repo this one is a fork of; "" or Repo itself for none
@@ -103,6 +104,7 @@ func loadConfig() (config, error) {
 	c.Tenancy = env("TENANCY", "off") == "on"
 	c.TenantOrg = env("TENANT_ORG", "")
 	c.ProvisionJob = env("PROVISION_JOB", "")
+	c.UpstreamJob = env("UPSTREAM_JOB", c.ProvisionJob)
 	c.AppDomain = env("APP_DOMAIN", "")
 	if c.FeedbackURL = env("FEEDBACK_URL", "https://builder.extreme.org/items/new"); c.FeedbackURL == "off" {
 		c.FeedbackURL = ""

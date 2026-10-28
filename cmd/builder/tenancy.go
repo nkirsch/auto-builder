@@ -39,13 +39,19 @@ func runTenancy(ctx context.Context, cfg config) error {
 			return err
 		}
 	}
-	var launcher, provisioner gate.EnvLauncher = gate.LogLauncher{}, gate.LogLauncher{}
+	var launcher, provisioner, upstreamer gate.EnvLauncher = gate.LogLauncher{}, gate.LogLauncher{}, gate.LogLauncher{}
 	if cfg.Launcher == "cloudrun" {
 		if launcher, err = gate.NewCloudRunJob(ctx, cfg.Project, cfg.Region, cfg.Job); err != nil {
 			return err
 		}
 		if cfg.ProvisionJob != "" {
 			if provisioner, err = gate.NewCloudRunJob(ctx, cfg.Project, cfg.Region, cfg.ProvisionJob); err != nil {
+				return err
+			}
+		}
+		// A hub that doesn't provision apps can still keep up with upstream.
+		if cfg.UpstreamJob != "" {
+			if upstreamer, err = gate.NewCloudRunJob(ctx, cfg.Project, cfg.Region, cfg.UpstreamJob); err != nil {
 				return err
 			}
 		}
@@ -60,9 +66,15 @@ func runTenancy(ctx context.Context, cfg config) error {
 	}
 	h.launcher, h.provisioner, h.app = launcher, provisioner, app
 	if app != nil && cfg.Upstream != "" {
-		// The platform repo keeps up with upstream through the provision job.
+		// The platform repo keeps up with upstream through the provision image (UPSTREAM_JOB).
 		h.upstream = &gate.Upstream{State: reg, GitHub: github.ForApp(app), Repo: cfg.Repo, Upstream: cfg.Upstream,
-			Branch: "master", Start: func(ctx context.Context) error { return h.provision(ctx, "", "upstream") }}
+			Branch: "master", Start: func(ctx context.Context) error {
+				exec, err := upstreamer.LaunchEnv(ctx, map[string]string{"ACTION": "upstream"})
+				if err == nil {
+					slog.Info("upstream merge launched", "execution", exec)
+				}
+				return err
+			}}
 	}
 	h.notify = notify.NewPushover(cfg.PushoverToken, cfg.PushoverUser)
 	srv := &http.Server{Addr: ":" + cfg.Port, Handler: logRequests(h.routes()), ReadHeaderTimeout: 10 * time.Second}

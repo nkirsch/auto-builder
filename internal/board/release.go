@@ -5,16 +5,10 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
-	"strconv"
-	"strings"
 	"time"
-	_ "time/tzdata" // the distroless image has no zoneinfo
 
 	"github.com/nkirsch/auto-builder/internal/auth"
 )
-
-// pacific is the zone release tags are dated in.
-var pacific, _ = time.LoadLocation("America/Los_Angeles")
 
 // releaseInfo is the runs page's release section, shown to admins.
 type releaseInfo struct {
@@ -50,50 +44,15 @@ func (b *Board) release(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	ctx := r.Context()
-	latest, err := b.GitHub.LatestRelease(ctx, b.Repo)
+	tag, ahead, err := b.GitHub.ReleaseHead(ctx, b.Repo, time.Now())
 	if err != nil {
 		redirect(w, r, "/runs", "Release failed: "+err.Error())
 		return
 	}
-	head, ahead, err := b.GitHub.Unreleased(ctx, b.Repo, latest)
-	if err != nil {
-		redirect(w, r, "/runs", "Release failed: "+err.Error())
+	if tag == "" {
+		redirect(w, r, "/runs", "Nothing to release")
 		return
 	}
-	if ahead == 0 {
-		redirect(w, r, "/runs", "Nothing to release since "+latest)
-		return
-	}
-	day := releaseDay(time.Now())
-	existing, err := b.GitHub.TagsWithPrefix(ctx, b.Repo, day)
-	if err != nil {
-		redirect(w, r, "/runs", "Release failed: "+err.Error())
-		return
-	}
-	tag := nextTag(day, existing)
-	if _, err := b.GitHub.CreateRelease(ctx, b.Repo, tag, head); err != nil {
-		redirect(w, r, "/runs", "Release failed: "+err.Error())
-		return
-	}
-	slog.Info("release", "tag", tag, "sha", head, "by", auth.Member(ctx).Login)
+	slog.Info("release", "tag", tag, "by", auth.Member(ctx).Login)
 	redirect(w, r, "/runs", fmt.Sprintf("Released %s (%d commits); deploying", tag, ahead))
-}
-
-// releaseDay is the date part of a release tag, e.g. "v26.10.24" (Pacific, no zero padding).
-func releaseDay(t time.Time) string {
-	t = t.In(pacific)
-	return fmt.Sprintf("v%d.%d.%d", t.Year()%100, int(t.Month()), t.Day())
-}
-
-// nextTag is day-N one past the highest N among existing; a bare day tag doesn't count.
-func nextTag(day string, existing []string) string {
-	n := 0
-	for _, t := range existing {
-		if s, ok := strings.CutPrefix(t, day+"-"); ok {
-			if i, err := strconv.Atoi(s); err == nil && i > n {
-				n = i
-			}
-		}
-	}
-	return fmt.Sprintf("%s-%d", day, n+1)
 }

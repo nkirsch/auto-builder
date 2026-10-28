@@ -254,6 +254,9 @@ func run() error {
 	if app != nil && cfg.Upstream != "" {
 		g.Upstream = &gate.Upstream{State: st, GitHub: gh, Repo: cfg.Repo, Upstream: cfg.Upstream,
 			Branch: "master", Start: g.StartUpstream}
+		if cfg.Releases {
+			g.Upstream.Release = releaser(gh, cfg.Repo)
+		}
 		b.Upstream = cfg.Upstream
 	}
 	g.SyncSoon()
@@ -330,6 +333,17 @@ func resolveVersion(ctx context.Context, gh *github.Client, repo, sha string, ta
 }
 
 // tagRelease tags sha as version v, retrying briefly; failures are only logged.
+// releaser cuts a release of repo's head, for a repo that deploys on release.
+func releaser(gh *github.Client, repo string) func(context.Context) error {
+	return func(ctx context.Context) error {
+		tag, ahead, err := gh.ReleaseHead(ctx, repo, time.Now())
+		if err == nil && tag != "" {
+			slog.Info("released", "repo", repo, "tag", tag, "commits", ahead)
+		}
+		return err
+	}
+}
+
 func tagRelease(ctx context.Context, gh *github.Client, repo, v, sha string) {
 	for attempt := 1; attempt <= 3; attempt++ {
 		c, cancel := context.WithTimeout(ctx, 30*time.Second)

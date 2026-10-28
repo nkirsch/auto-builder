@@ -99,6 +99,8 @@ func TestUpstream(t *testing.T) {
 	starts := 0
 	u := &Upstream{State: state, GitHub: github.New(srv.URL, "t"), Repo: "o/fork", Upstream: "u/up", Branch: "master",
 		Start: func(context.Context) error { starts++; return nil }}
+	releases := 0
+	u.Release = func(context.Context) error { releases++; return nil }
 
 	step := func(want string) {
 		t.Helper()
@@ -126,13 +128,13 @@ func TestUpstream(t *testing.T) {
 		t.Fatalf("pr open=%v state=%d", fake.prOpen, state.pr)
 	}
 	step("checks running: wait")
-	if fake.merged {
+	if fake.merged || releases != 0 {
 		t.Fatal("merged before checks passed")
 	}
 	fake.passed = true
 	step("checks passed: merge")
-	if !fake.merged || state.pr != 0 {
-		t.Fatalf("merged=%v pr=%d", fake.merged, state.pr)
+	if !fake.merged || state.pr != 0 || releases != 1 {
+		t.Fatalf("merged=%v pr=%d releases=%d", fake.merged, state.pr, releases)
 	}
 	fake.contains, fake.prOpen = true, false
 	step("up to date")

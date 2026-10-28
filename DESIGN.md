@@ -185,7 +185,10 @@ isn't itself) can turn on "Keep up with upstream" on its Admin page
   (`settings.upstream_pr`);
 - once that PR's checks all pass, the server merges it with a merge commit,
   never squash (squashing would drop upstream's history and conflict next
-  time). The App's push deploys as usual. A merged or closed PR is forgotten.
+  time). The App's push deploys as usual; on a repo that deploys on release
+  (`RELEASES=true`), the server then cuts a `vYY.M.D-N` release of the head,
+  as Release now does, so the merge deploys too. A merged or closed PR is
+  forgotten.
 
 In multi-tenant mode the hub does the same for the platform repo
 (`control.settings`), with the provision image (`ACTION=upstream`) as the

@@ -31,6 +31,9 @@ type Upstream struct {
 	Upstream string // e.g. nkirsch/auto-builder
 	Branch   string // both repos' default branch
 	Start    func(ctx context.Context) error
+	// Release, when set (a repo that deploys on release), cuts a release
+	// once the upstream PR merges, so the merge deploys.
+	Release func(ctx context.Context) error
 
 	mu      sync.Mutex
 	started time.Time
@@ -100,5 +103,13 @@ func (u *Upstream) land(ctx context.Context, n int) error {
 		return fmt.Errorf("merge upstream PR %d: %w", n, err)
 	}
 	slog.Info("upstream PR merged", "repo", u.Repo, "pr", n)
-	return u.State.SetUpstreamPR(ctx, 0)
+	if err := u.State.SetUpstreamPR(ctx, 0); err != nil {
+		return err
+	}
+	if u.Release != nil {
+		if err := u.Release(ctx); err != nil {
+			return fmt.Errorf("release after upstream PR %d: %w", n, err)
+		}
+	}
+	return nil
 }

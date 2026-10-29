@@ -22,7 +22,7 @@
     <a href="/admin">Admin</a>{{end}}
     {{with .Feedback}}<a href="{{.}}" title="Ask for a change to the platform">Feedback</a>{{end}}
     <details class="logout">
-      <summary title="Sign out…">{{.Me}} ⎋</summary>
+      <summary title="Sign out…">{{who .Names .Me}} ⎋</summary>
       <form method="post" action="/auth/logout"><button class="small">Sign out</button></form>
     </details>{{end}}
   </nav>

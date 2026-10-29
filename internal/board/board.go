@@ -224,7 +224,7 @@ var funcs = template.FuncMap{
 			return fmt.Sprintf("%d B", n)
 		}
 	},
-	"who": who,
+	"who": Who,
 	"pct": pct,
 	"deref": func(p *int) int {
 		if p == nil {
@@ -250,9 +250,9 @@ func (b *Board) parse() error {
 	return nil
 }
 
-// who shows a login as its member's first name, with the full name and login
+// Who shows a login as its member's first name, with the full name and login
 // on hover; a login without a name shows as itself.
-func who(names map[string]string, login string) template.HTML {
+func Who(names map[string]string, login string) template.HTML {
 	name := names[login]
 	first, _, _ := strings.Cut(strings.TrimSpace(name), " ")
 	if first == "" {
@@ -269,7 +269,7 @@ func pct(spent, limit float64) int {
 	return min(100, int(spent/limit*100))
 }
 
-// names maps each member's login to their name, for who.
+// names maps each member's login to their name, for Who.
 func (b *Board) names(ctx context.Context) map[string]string {
 	ms, err := b.Store.Members(ctx)
 	if err != nil {

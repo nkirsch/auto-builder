@@ -378,6 +378,27 @@ func (r *Registry) User(ctx context.Context, identity string) (name, avatar stri
 	return name, avatar, err
 }
 
+// Names maps every signed-in identity with a name to it; a platform admin's
+// login gets the name they signed in with under their address too.
+func (r *Registry) Names(ctx context.Context) (map[string]string, error) {
+	rows, err := r.Control.Query(ctx, `SELECT identity, name FROM users WHERE name <> ''
+		UNION ALL SELECT a.login, u.name FROM platform_admins a JOIN users u ON u.identity = lower(a.email)
+		WHERE u.name <> '' AND NOT EXISTS (SELECT 1 FROM users v WHERE v.identity = a.login AND v.name <> '')`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	names := map[string]string{}
+	for rows.Next() {
+		var identity, name string
+		if err := rows.Scan(&identity, &name); err != nil {
+			return nil, err
+		}
+		names[identity] = name
+	}
+	return names, rows.Err()
+}
+
 // SetMailbox records identity's connected Gmail (auth.Mailboxes).
 func (r *Registry) SetMailbox(ctx context.Context, identity, address, token string) error {
 	_, err := r.Control.Exec(ctx, `INSERT INTO users (identity, gmail_address, gmail_token) VALUES ($1, $2, $3)

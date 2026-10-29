@@ -174,6 +174,37 @@ func TestAdminInviteLink(t *testing.T) {
 	}
 }
 
+// Members are a table, one row each, named with their login beside.
+func TestAdminMembersTable(t *testing.T) {
+	b := &Board{BaseURL: "https://builder.example/iterate"}
+	if err := b.parse(); err != nil {
+		t.Fatal(err)
+	}
+	var sb strings.Builder
+	p := page{Title: "Admin", Me: db.Member{Login: "nk", Role: "admin"}, Names: map[string]string{"nk": "Nick Kirsch"}, Data: map[string]any{
+		"Members": []db.Member{{Login: "nk", Name: "Nick Kirsch", Role: "admin", Email: "nick@example.org"}, {Login: "newbie", Role: "member"}},
+		"Costs":   db.RunCosts{}, "Limit": 20.0,
+	}}
+	if err := b.tmpl["admin"].ExecuteTemplate(&sb, "layout", p); err != nil {
+		t.Fatal(err)
+	}
+	html := sb.String()
+	for _, want := range []string{
+		`<table class="sites members">`,
+		`<td><b><span title="Nick Kirsch (nk)">Nick</span></b> <span class="muted">nk</span></td>`,
+		`<td>nick@example.org</td>`,
+		`<td><b>newbie</b></td>`,
+		`<span class="bad">no email</span>`,
+	} {
+		if !strings.Contains(html, want) {
+			t.Errorf("admin missing %s", want)
+		}
+	}
+	if n := strings.Count(html, "<tr>"); n != 3 {
+		t.Errorf("%d rows, want a header and 2 members", n)
+	}
+}
+
 type stubWelcomer struct {
 	names, logins []string
 	err           error
@@ -387,8 +418,8 @@ func TestWho(t *testing.T) {
 		"stranger": "stranger",
 		"x":        `<span title="&lt;b&gt;&#34;Al&#34;&lt;/b&gt; Smith (x)">&lt;b&gt;&#34;Al&#34;&lt;/b&gt;</span>`,
 	} {
-		if got := string(who(names, login)); got != want {
-			t.Errorf("who(%q) = %s, want %s", login, got, want)
+		if got := string(Who(names, login)); got != want {
+			t.Errorf("Who(%q) = %s, want %s", login, got, want)
 		}
 	}
 }

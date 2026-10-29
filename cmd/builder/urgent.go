@@ -46,6 +46,7 @@ type urgentApp struct {
 	Slug, Name string
 	Items      []db.Item
 	Admins     []db.Member
+	Names      map[string]string // its members' logins to names, for who
 }
 
 // urgent lists every app's items escalated to the platform admins.
@@ -79,7 +80,9 @@ func (h *hub) urgent(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			slog.Error("members", "tenant", t.Slug, "err", err)
 		}
+		a.Names = make(map[string]string, len(members))
 		for _, m := range members {
+			a.Names[m.Login] = m.Name
 			if m.IsAdmin() {
 				a.Admins = append(a.Admins, m)
 			}

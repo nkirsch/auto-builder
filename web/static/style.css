@@ -119,9 +119,12 @@ form.inline button.link { color: var(--accent); font: inherit; }
 .stats .stage { padding-left: 16px; color: var(--muted); }
 .signins tr.failed td { color: var(--bad); }
 .table-wrap { overflow-x: auto; margin: 16px 0; }
+/* Pages with a table use the desktop's width; headers wrap so wide tables fit before they scroll. */
+body:has(.table-wrap) :is(nav, main, footer) { max-width: 1320px; }
 table.sites { width: 100%; border-collapse: collapse; font-size: 14px; white-space: nowrap; }
 table.sites th, table.sites td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--line); }
-table.sites th { font-size: 12px; font-weight: 600; color: var(--muted); }
+table.sites th { font-size: 12px; font-weight: 600; color: var(--muted); white-space: normal; vertical-align: bottom; }
+table.sites td.wrap { white-space: normal; min-width: 9em; }
 table.sites .num { text-align: right; font-variant-numeric: tabular-nums; }
 table.sites .bad { color: var(--bad); }
 .behind { color: var(--warn); }
@@ -150,8 +153,7 @@ table.sites input[type=number] { width: 7em; }
 table.sites details summary { cursor: pointer; color: var(--accent); }
 table.sites details[open] { white-space: normal; }
 table.sites details form { margin-top: 6px; }
-/* Members: the admin page widens and the table wraps instead of scrolling; rows stack on phones. */
-body:has(table.members) :is(nav, main, footer) { max-width: 1040px; }
+/* Members: the table wraps instead of scrolling; rows stack on phones. */
 table.members { white-space: normal; }
 table.members td:is(:first-child, :nth-child(2), :nth-child(4)) { white-space: nowrap; }
 table.members td:last-child .row { gap: 6px; }

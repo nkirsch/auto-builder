@@ -86,12 +86,14 @@ fills gaps) and the App for GitHub. Its only inputs are `TENANT` (slug) and
 `ACTION` (`create`/`sync`/`delete`). Delete removes the app's mapping,
 CNAME, service, image repo and accounts, archives its repo (code and history
 stay), and marks it `deleted`; its board schema stays. Boards don't run until
-their app is `ready`. It reads the repo from the control
+their app is `securing` or `ready`. It reads the repo from the control
 DB. The internet-facing server never holds these roles. It can only start this
 job (`run.jobs.runWithOverrides`): creating an app on the hub starts it, and a
 platform admin can re-run it from `/admin`. The job writes
-`control.tenants.status` (`provisioning`/`ready`/`failed` with the error); its
-log is in Cloud Logging.
+`control.tenants.status` (`provisioning`/`securing`/`failed` with the error); its
+log is in Cloud Logging. `securing` means provisioned but the domain or its
+certificate (15–60 min) isn't working yet: the hub's tick requests
+`https://<slug>.<domain>/` and marks the app `ready` once anything answers.
 
 Domain mappings require the caller to be a verified owner of extreme.org, so
 the provisioner SA is added as an owner in Search Console (manual, once).

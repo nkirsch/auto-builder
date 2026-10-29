@@ -56,6 +56,10 @@ type Tenant struct {
 	Existing bool
 }
 
+// Live reports whether t's repo and service exist, so its board runs:
+// ready, or securing (provisioned, waiting on its domain and certificate).
+func (t Tenant) Live() bool { return t.Status == "ready" || t.Status == "securing" }
+
 // Settings are the limits across all tenants.
 type Settings struct {
 	SpendLimit float64

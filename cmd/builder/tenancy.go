@@ -275,7 +275,8 @@ func (h *hub) runner(f func(rt *tenantRT, runID int, w http.ResponseWriter, r *h
 	}
 }
 
-// tick runs every ready tenant's gate duties.
+// tick runs every live tenant's gate duties, first marking securing ones
+// ready once their app answers.
 func (h *hub) tick(w http.ResponseWriter, r *http.Request) {
 	tenants, err := h.reg.Tenants(r.Context())
 	if err != nil {
@@ -285,7 +286,10 @@ func (h *hub) tick(w http.ResponseWriter, r *http.Request) {
 	}
 	var errs []error
 	for _, t := range tenants {
-		if t.Status != "ready" {
+		if t.Status == "securing" {
+			h.secure(r.Context(), t.Slug)
+		}
+		if !t.Live() {
 			continue
 		}
 		rt, err := h.tenantFor(r.Context(), t.Slug)
@@ -307,6 +311,29 @@ func (h *hub) tick(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+}
+
+// secure marks a securing tenant ready once its app answers on its own
+// domain: the CNAME resolves and the certificate is issued. Any HTTP
+// response counts; the app's code may not be deployed yet.
+func (h *hub) secure(ctx context.Context, slug string) {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, "GET", h.appURL(slug)+"/", nil)
+	if err != nil {
+		return
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		slog.Info("app not reachable yet", "tenant", slug, "err", err)
+		return
+	}
+	resp.Body.Close()
+	if err := h.reg.SetStatus(ctx, slug, "ready", ""); err != nil {
+		slog.Error("mark ready", "tenant", slug, "err", err)
+		return
+	}
+	slog.Info("app reachable; ready", "tenant", slug)
 }
 
 // hold stops launches past the platform's run cap or spend limit.
@@ -424,7 +451,7 @@ func (h *hub) tenantFor(ctx context.Context, slug string) (*tenantRT, error) {
 			// No runs until the provisioner has made the repo, nor after delete.
 			if t, err := h.reg.Tenant(ctx, slug); err != nil {
 				return "", err
-			} else if t.Status != "ready" {
+			} else if !t.Live() {
 				return "the app is " + t.Status + ", not ready", nil
 			}
 			return h.hold(ctx)
@@ -441,7 +468,7 @@ func (h *hub) tenantFor(ctx context.Context, slug string) (*tenantRT, error) {
 		Platform: hubPlatform{h, slug}, Deployed: deployed,
 		Ready: func(ctx context.Context) bool {
 			t, err := h.reg.Tenant(ctx, slug)
-			return err == nil && t.Status == "ready"
+			return err == nil && t.Live()
 		},
 	}
 	if ta.CanMail() {

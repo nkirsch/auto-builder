@@ -185,7 +185,7 @@ func newHub(ctx context.Context, cfg config, reg *tenant.Registry, storage store
 
 func (h *hub) parse() error {
 	h.tmpl = map[string]*template.Template{}
-	for _, p := range []string{"login", "index", "new", "admin", "urgent", "traffic", "signins"} {
+	for _, p := range []string{"login", "index", "new", "admin", "urgent", "traffic", "signins", "hubs"} {
 		t, err := template.New("").Funcs(template.FuncMap{
 			"short": func(s string) string { return s[:min(7, len(s))] },
 			"ago":   func(t time.Time) string { return t.Format("Jan 2, 2006") },
@@ -227,6 +227,8 @@ func (h *hub) routes() http.Handler {
 	mux.HandleFunc("POST /admin/limits", h.platformAdmin(h.setLimits))
 	mux.HandleFunc("POST /admin/tenants/{slug}/spend-limit", h.platformAdmin(h.setTenantLimit))
 	mux.HandleFunc("GET /admin/urgent", h.platformAdmin(h.urgent))
+	mux.HandleFunc("GET /admin/hubs", h.platformAdmin(h.hubs))
+	mux.Handle("GET /api/overview", auth.Bearer(h.cfg.StatsToken, http.HandlerFunc(h.apiOverview))) // other hubs' /admin/hubs
 	mux.HandleFunc("GET /admin/traffic", h.platformAdmin(h.trafficAll))
 	mux.HandleFunc("GET /admin/signins", h.platformAdmin(h.signIns))
 	mux.HandleFunc("POST /admin/tenants/{slug}/items/{id}/reassign", h.platformAdmin(h.reassign))

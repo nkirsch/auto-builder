@@ -59,6 +59,12 @@ type pendingCache struct {
 	ahead int
 }
 
+// PendingRelease is pendingRelease, for the hub's multi-hub view; ok is false
+// when this board doesn't deploy on release.
+func (b *Board) PendingRelease(ctx context.Context) (ahead int, ok bool) {
+	return b.pendingRelease(ctx), b.Releases && b.GitHub != nil
+}
+
 // pendingRelease is the number of default-branch commits since the latest
 // release, for the History badge: 0 when releases are off, the repo isn't
 // ready, or GitHub can't say. Read at most once per pendingTTL.

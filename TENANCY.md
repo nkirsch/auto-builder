@@ -177,6 +177,18 @@ All done for extreme.org (2026-10-25):
    `gcloud secrets versions access latest --secret STATS_TOKEN | gcloud secrets
    create STATS_TOKEN --project kirsch-org --data-file=-`, then mount it on each
    service as `STATS_TOKEN`.
+7. Hubs page (`/admin/hubs`, platform admins): every hub's boards in one place.
+   Each hub serves `GET /api/overview` behind `STATS_TOKEN`: its Apps rows
+   (absolute board, site and `/logs` URLs; health, version, unreleased
+   commits when `RELEASES=true`, last run) with each board's unfinished items
+   that need someone (escalated to the platform admins: urgent; to a board's
+   admins: escalated; blocked) and a count of the rest, plus how far the
+   platform repo is behind upstream. The page shows this hub's and those of
+   `HUBS` (space-separated `name=hub URL`; this hub's own URL is skipped):
+   urgent, escalated and blocked items from every board first, oldest first
+   within each, the count of other unfinished items, then a table per hub
+   linking its Admin, Urgent and Traffic. Each hub in `HUBS` needs the same
+   `STATS_TOKEN` (copied as above); `infra/tenancy.sh` sets `HUBS` when given.
 
 ## Build order
 

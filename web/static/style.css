@@ -125,6 +125,7 @@ table.sites th { font-size: 12px; font-weight: 600; color: var(--muted); }
 table.sites .num { text-align: right; font-variant-numeric: tabular-nums; }
 table.sites .bad { color: var(--bad); }
 .behind { color: var(--warn); }
+.hub-err { color: var(--bad); }
 /* History: a rail of releases, each with the PRs it first shipped. */
 .history, .history .prs { list-style: none; padding: 0; margin: 0; }
 .history { border-left: 2px solid var(--line); margin-left: 7px; padding-left: 20px; }

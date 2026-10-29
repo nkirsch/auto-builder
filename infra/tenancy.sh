@@ -19,6 +19,8 @@ ADMIN_EMAIL=${ADMIN_EMAIL:-nick@kirsch.org}
 # Standalone boards on the hub's Apps page (platform admins) (space-separated name=board URL);
 # each mounts the shared STATS_TOKEN secret, which this project holds.
 SITES=${SITES-builder=https://builder.extreme.org} # momo, katrina and youkoh.org are apps on iterate.kirsch.org now
+# Other hubs on /admin/hubs (space-separated name=hub URL), each holding STATS_TOKEN; left as is when unset.
+HUBS=${HUBS-}
 # Names in SITES whose members may each create one app.
 CREATORS_FROM=${CREATORS_FROM-builder}
 # Claude auth for the runner: the comma-separated ANTHROPIC_* IDs printed by
@@ -156,7 +158,7 @@ fi
 # Hubs created before the all-sites page and aliases lack these; ^;^ keeps SITES' spaces and REDIRECT_HOSTS' commas.
 aliases=$(echo $HUB_ALIASES | tr ' ' ,)
 g run services update "$NAME" --region "$REGION" \
-  --update-env-vars "^;^SITES=$SITES;CREATORS_FROM=$CREATORS_FROM;APP_DOMAIN=$DOMAIN;REDIRECT_HOSTS=$aliases" \
+  --update-env-vars "^;^SITES=$SITES;CREATORS_FROM=$CREATORS_FROM;APP_DOMAIN=$DOMAIN;REDIRECT_HOSTS=$aliases${HUBS:+;HUBS=$HUBS}" \
   --update-secrets "STATS_TOKEN=STATS_TOKEN:latest" >/dev/null
 retry g run services add-iam-policy-binding "$NAME" --region "$REGION" \
   --member "serviceAccount:$(sa deployer)" --role roles/run.developer >/dev/null

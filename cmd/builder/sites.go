@@ -30,6 +30,44 @@ type siteStats struct {
 	Open     int       `json:"open"`
 	LastRun  *runBrief `json:"last_run,omitempty"`
 	Spend30d float64   `json:"spend_30d_usd"`
+	// Attention is the unfinished items someone must act on: escalated to the
+	// platform admins ("urgent") or the board's admins ("escalated"), or
+	// blocked. Other counts the rest of the unfinished items.
+	Attention []attention `json:"attention,omitempty"`
+	Other     int         `json:"other"`
+}
+
+// attention is one item needing action, for the multi-hub view.
+type attention struct {
+	ID     int       `json:"id"`
+	Title  string    `json:"title"`
+	Author string    `json:"author"`
+	Kind   string    `json:"kind"` // urgent, escalated or blocked
+	Note   string    `json:"note,omitempty"`
+	At     time.Time `json:"at"` // escalated or blocked, else last updated
+}
+
+// attentionOf is it as an attention item, or false when nobody must act.
+func attentionOf(it db.Item) (attention, bool) {
+	a := attention{ID: it.ID, Title: it.Title, Author: it.Author, At: it.UpdatedAt}
+	switch {
+	case it.Escalation == "platform":
+		a.Kind = "urgent"
+	case it.Escalation != "":
+		a.Kind = "escalated"
+	case it.Blocked != "":
+		a.Kind, a.Note = "blocked", it.Blocked
+		if it.BlockedAt != nil {
+			a.At = *it.BlockedAt
+		}
+		return a, true
+	default:
+		return a, false
+	}
+	if it.EscalatedAt != nil {
+		a.At = *it.EscalatedAt
+	}
+	return a, true
 }
 
 type runBrief struct {
@@ -39,11 +77,23 @@ type runBrief struct {
 
 func statsFor(ctx context.Context, st *db.Store, version, sha string) (siteStats, error) {
 	s := siteStats{Version: version, GitSHA: sha, Started: started}
-	items, err := st.Items(ctx, "open")
+	items, err := st.Items(ctx)
 	if err != nil {
 		return s, err
 	}
-	s.Open = len(items)
+	for _, it := range items {
+		if it.Status == "open" {
+			s.Open++
+		}
+		if (it.Status == "shipped" || it.Status == "closed") && it.Blocked == "" {
+			continue // done
+		}
+		if a, ok := attentionOf(it); ok {
+			s.Attention = append(s.Attention, a)
+		} else {
+			s.Other++
+		}
+	}
 	runs, err := st.Runs(ctx, 1)
 	if err != nil {
 		return s, err
@@ -117,7 +167,8 @@ func remoteRole(ctx context.Context, c *http.Client, s remoteSite, token, identi
 	return v.Role
 }
 
-// remoteSite is a single-board site from SITES ("name=board-URL ...", space- or comma-separated).
+// remoteSite is a single-board site from SITES ("name=board-URL ...", space-
+// or comma-separated), or a hub from HUBS (same form).
 type remoteSite struct{ Name, URL string }
 
 func parseSites(v string) ([]remoteSite, error) {
@@ -125,7 +176,7 @@ func parseSites(v string) ([]remoteSite, error) {
 	for _, kv := range strings.FieldsFunc(v, func(r rune) bool { return r == ',' || r == ' ' || r == '\n' }) {
 		name, u, ok := strings.Cut(kv, "=")
 		if !ok || name == "" || !strings.HasPrefix(u, "https://") && !strings.HasPrefix(u, "http://") {
-			return nil, fmt.Errorf("SITES entry %q: want name=https://board", kv)
+			return nil, fmt.Errorf("entry %q: want name=https://board", kv)
 		}
 		out = append(out, remoteSite{Name: strings.TrimSpace(name), URL: strings.TrimSuffix(u, "/")})
 	}

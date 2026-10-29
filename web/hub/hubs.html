@@ -1,0 +1,47 @@
+{{define "content"}}
+<h1>Hubs</h1>
+<p class="hint">Every hub's boards: this hub's, and those of the hubs in <code>HUBS</code>{{if not .Data.Configured}} (none set){{end}}, read from each hub's <code>/api/overview</code> with <code>STATS_TOKEN</code>.</p>
+<h2>Needs attention</h2>
+{{with .Data.Attention}}
+<ul class="items">
+  {{range .}}
+  <li class="row">
+    <span class="badge {{if eq .Kind "urgent"}}urgent{{else if eq .Kind "blocked"}}blocked{{end}}">{{.Kind}}</span>
+    <a href="{{.URL}}"><b>{{.Title}}</b></a>
+    <span class="muted">{{.Hub}} · {{.Site}} · #{{.ID}} by {{.Author}} · {{when .At}}</span>
+    {{with .Note}}<span class="muted" title="{{.}}">— {{.}}</span>{{end}}
+  </li>
+  {{end}}
+</ul>
+{{else}}<p class="muted">Nothing urgent, escalated or blocked.</p>{{end}}
+<p class="hint">{{.Data.Other}} other unfinished item{{if ne .Data.Other 1}}s{{end}} across every board.</p>
+{{range .Data.Hubs}}{{$hub := .}}
+<h2><a href="{{.URL}}/">{{.Name}}</a>{{with .Version}} <span class="muted">{{.}}</span>{{end}}</h2>
+{{if .Err}}<p class="hub-err">Couldn't read {{.URL}}/api/overview: {{.Err}}</p>{{else}}
+<p class="row">
+  <a href="{{.URL}}/admin">Admin</a> <a href="{{.URL}}/admin/urgent">Urgent</a> <a href="{{.URL}}/admin/traffic">Traffic</a>
+  {{with .Upstream}}<span class="spacer"></span>{{if $hub.Behind}}<span class="behind">{{$hub.Behind}}{{if $hub.More}}+{{end}} commit{{if ne $hub.Behind 1}}s{{end}} behind {{.}}</span>{{else}}<span class="muted">up to date with {{.}}</span>{{end}}{{end}}
+</p>
+{{with .Sites}}
+<div class="table-wrap"><table class="sites">
+  <thead><tr><th>Board</th><th>Site</th><th>Health</th><th>Version</th><th>Release</th><th class="num">Needs attention</th><th class="num">Other</th><th>Last run</th><th></th></tr></thead>
+  <tbody>
+  {{range .}}
+  <tr>
+    <td><a href="{{.Board}}"><b>{{.Name}}</b></a>{{if not .App}} <span class="badge">standalone</span>{{end}}</td>
+    <td>{{if .Site}}<a href="{{.Site}}">{{.SiteHost}}</a>{{else}}<span class="muted">–</span>{{end}}</td>
+    <td>{{if .Healthy}}{{.Health}}{{else}}<span class="bad"{{with .HealthErr}} title="{{.}}"{{end}}>{{.Health}}</span>{{end}}</td>
+    <td>{{if .Stats.Version}}{{.Stats.Version}}{{else if .Stats.GitSHA}}<span class="muted">{{short .Stats.GitSHA}}</span>{{else}}<span class="muted">–</span>{{end}}</td>
+    <td>{{if .Releases}}{{if .Unreleased}}<span class="behind">{{.Unreleased}} unreleased</span>{{else}}released{{end}}{{else if .App}}<span class="muted">on push</span>{{else}}<span class="muted">–</span>{{end}}</td>
+    <td class="num">{{if .Detail}}{{with .Stats.Attention}}<span class="bad">{{len .}}</span>{{else}}0{{end}}{{else}}<span class="muted">–</span>{{end}}</td>
+    <td class="num">{{if .Detail}}{{.Stats.Other}}{{else}}<span class="muted">–</span>{{end}}</td>
+    <td>{{with .Stats.LastRun}}{{.Status}} <span class="muted">{{when .At}}</span>{{else}}<span class="muted">–</span>{{end}}</td>
+    <td>{{with .Logs}}<a href="{{.}}">Traffic</a>{{end}}</td>
+  </tr>
+  {{end}}
+  </tbody>
+</table></div>
+{{else}}<p class="muted">No boards.</p>{{end}}
+{{end}}
+{{end}}
+{{end}}

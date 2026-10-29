@@ -671,3 +671,56 @@ func TestHubCreateForOwner(t *testing.T) {
 		t.Fatalf("erins %+v %v", tn, err)
 	}
 }
+
+// Platform admins set the all-apps limits and each app's spend limit on the
+// hub; an app's own admins only see theirs.
+func TestHubSpendLimits(t *testing.T) {
+	ctx := context.Background()
+	h := testHub(t)
+	h.launcher, h.provisioner = &fakeJob{}, &fakeJob{}
+	srv := h.routes()
+	if w := do(h, srv, "nkirsch", "POST", "/new", url.Values{"slug": {"alpha"}}); w.Code != 303 {
+		t.Fatalf("create: %d", w.Code)
+	}
+	h.reg.SetStatus(ctx, "alpha", "ready", "")
+
+	if w := do(h, srv, "nkirsch", "POST", "/admin/limits", url.Values{"limit": {"75"}, "max_runs": {"4"}}); w.Code != 303 {
+		t.Fatalf("limits: %d", w.Code)
+	}
+	if set, _ := h.reg.Settings(ctx); set.SpendLimit != 75 || set.MaxRuns != 4 {
+		t.Errorf("settings %+v", set)
+	}
+	if w := do(h, srv, "nkirsch", "POST", "/admin/limits", url.Values{"limit": {"0"}, "max_runs": {"4"}}); !strings.Contains(w.Header().Get("Location"), "Enter") {
+		t.Errorf("bad limit accepted: %q", w.Header().Get("Location"))
+	}
+	if w := do(h, srv, "nkirsch", "POST", "/admin/tenants/alpha/spend-limit", url.Values{"limit": {"12.5"}}); w.Code != 303 {
+		t.Fatalf("tenant limit: %d", w.Code)
+	}
+	st, _ := h.reg.Store(ctx, "alpha")
+	if v, _ := st.SpendLimit(ctx); v != 12.5 {
+		t.Errorf("alpha limit %v", v)
+	}
+	w := do(h, srv, "nkirsch", "GET", "/admin", nil)
+	for _, want := range []string{`value="75.00"`, `value="12.50"`, `action="/admin/tenants/alpha/spend-limit"`, "<summary>Manage</summary>"} {
+		if !strings.Contains(w.Body.String(), want) {
+			t.Errorf("hub admin missing %s", want)
+		}
+	}
+
+	// The app's own admin sees the limit but can't change it.
+	if w := do(h, srv, "nick@example.org", "POST", "/alpha/admin/spend-limit", url.Values{"limit": {"500"}}); !strings.Contains(w.Header().Get("Location"), "hub") {
+		t.Errorf("board set its own limit: %q", w.Header().Get("Location"))
+	}
+	if v, _ := st.SpendLimit(ctx); v != 12.5 {
+		t.Errorf("alpha limit changed to %v", v)
+	}
+	if w := do(h, srv, "nick@example.org", "GET", "/alpha/admin", nil); !strings.Contains(w.Body.String(), "set by the hub") || strings.Contains(w.Body.String(), `action="/alpha/admin/spend-limit"`) {
+		t.Errorf("board admin: %d %.300s", w.Code, w.Body.String())
+	}
+	if pct, lvl := spendLevel(9, 10); pct != 90 || lvl != "near" {
+		t.Errorf("spendLevel(9, 10) = %d %q", pct, lvl)
+	}
+	if pct, lvl := spendLevel(12, 10); pct != 100 || lvl != "over" {
+		t.Errorf("spendLevel(12, 10) = %d %q", pct, lvl)
+	}
+}

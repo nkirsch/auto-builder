@@ -1,21 +1,42 @@
 {{define "content"}}
-<h1>Apps</h1>
-<ul class="items">
-  {{range .Data.Tenants}}
-  <li class="row">
-    <a href="/{{.Slug}}/"><b>{{.Name}}</b></a> <span class="muted">{{.Slug}}</span>
-    <span class="badge">{{.Status}}</span>{{if .Existing}} <span class="badge">existing</span>{{end}}{{with .Error}} <span class="muted">{{.}}</span>{{end}}
-    <span class="spacer"></span>
-    <a class="muted" href="https://github.com/{{.Repo}}">{{.Repo}}</a>
-    <span class="muted">by {{.CreatedBy}} {{ago .CreatedAt}}</span>
-    {{if ne .Status "deleted"}}{{if not .Existing}}<form method="post" action="/admin/tenants/{{.Slug}}/provision"><button class="secondary" title="Checks every resource and creates any that are missing; safe to run any time.">{{if eq .Status "ready"}}Re-provision{{else}}Provision{{end}}</button></form>{{end}}
-    <form method="post" action="/admin/tenants/{{.Slug}}/delete" class="row">
-      <input name="confirm" placeholder="type {{.Slug}}" size="10" aria-label="Type {{.Slug}} to delete">
-      <button class="secondary"{{if .Existing}} title="Removes it from the hub; the repo and app stay."{{end}}>Delete</button>
-    </form>{{end}}
-  </li>
-  {{else}}<li class="muted">No apps yet.</li>{{end}}
-</ul>
+<h1>Admin</h1>
+<h2>Limits</h2>
+<p>All apps spent <b>${{printf "%.2f" .Data.Spent}}</b> of <b>${{printf "%.2f" .Data.Settings.SpendLimit}}</b> in the last 30 days.</p>
+<div class="bar {{.Data.Level}}" style="--p: {{.Data.Pct}}"><span></span></div>
+<form method="post" action="/admin/limits" class="row">
+  <label for="limit">All apps, 30 days ($)</label>
+  <input id="limit" name="limit" type="number" min="0.01" step="0.01" value="{{printf "%.2f" .Data.Settings.SpendLimit}}" required>
+  <label for="max_runs">Runs at a time</label>
+  <input id="max_runs" name="max_runs" type="number" min="1" max="50" value="{{.Data.Settings.MaxRuns}}" required>
+  <button>Save</button>
+</form>
+<p class="hint">Runs hold once all apps together reach this, or once an app reaches its own limit below. App admins see their limit but can't change it.</p>
+<h2>Apps</h2>
+{{with .Data.Apps}}
+<div class="table-wrap"><table class="sites">
+  <thead><tr><th>App</th><th>Status</th><th class="num">30-day spend</th><th></th><th>Limit</th><th></th></tr></thead>
+  <tbody>
+  {{range .}}
+  <tr>
+    <td><a href="/{{.Slug}}/"><b>{{.Name}}</b></a>{{if ne .Name .Slug}} <span class="muted">{{.Slug}}</span>{{end}}<br>
+      <a class="muted" href="https://github.com/{{.Repo}}">{{.Repo}}</a> <span class="muted">· {{.CreatedBy}} · {{ago .CreatedAt}}</span></td>
+    <td><span class="badge">{{.Status}}</span>{{if .Existing}} <span class="badge">existing</span>{{end}}{{with .Error}}<br><span class="bad">{{.}}</span>{{end}}</td>
+    <td class="num">{{if eq .Status "deleted"}}<span class="muted">–</span>{{else}}<span{{if .Level}} class="bad"{{end}}>${{printf "%.2f" .Spent}}</span>{{end}}</td>
+    <td>{{if ne .Status "deleted"}}<div class="bar {{.Level}}" style="--p: {{.Pct}}" title="{{.Pct}}% of its limit"><span></span></div>{{end}}</td>
+    <td>{{if ne .Status "deleted"}}<form method="post" action="/admin/tenants/{{.Slug}}/spend-limit">
+      <input name="limit" type="number" min="0.01" step="0.01" value="{{printf "%.2f" .Limit}}" aria-label="{{.Slug}} spend limit ($)" required>
+      <button class="secondary small">Set</button></form>{{end}}</td>
+    <td>{{if ne .Status "deleted"}}<details><summary>Manage</summary>
+      {{if not .Existing}}<form method="post" action="/admin/tenants/{{.Slug}}/provision"><button class="secondary small" title="Checks every resource and creates any that are missing; safe to run any time.">{{if eq .Status "ready"}}Re-provision{{else}}Provision{{end}}</button></form>{{end}}
+      <form method="post" action="/admin/tenants/{{.Slug}}/delete">
+        <input name="confirm" placeholder="type {{.Slug}}" size="10" aria-label="Type {{.Slug}} to delete">
+        <button class="secondary small"{{if .Existing}} title="Removes it from the hub; the repo and app stay."{{end}}>Delete</button>
+      </form></details>{{end}}</td>
+  </tr>
+  {{end}}
+  </tbody>
+</table></div>
+{{else}}<p class="muted">No apps yet.</p>{{end}}
 {{with .Data.Upstream}}
 <h2>Upstream</h2>
 <form method="post" action="/admin/upstream" class="row">

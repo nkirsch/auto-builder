@@ -137,3 +137,13 @@ table.sites .bad { color: var(--bad); }
 .history .prs li { position: relative; overflow-wrap: anywhere; }
 .history .prs li::before { content: ""; position: absolute; left: -25px; top: 9px; width: 6px; height: 6px;
   border-radius: 50%; background: var(--line); }
+/* spend bar: --p is the percent of the limit spent */
+.bar { height: 6px; border-radius: 3px; background: var(--line); overflow: hidden; min-width: 80px; }
+.bar span { display: block; height: 100%; width: calc(var(--p) * 1%); background: var(--ok); }
+.bar.near span { background: var(--warn); }
+.bar.over span { background: var(--bad); }
+table.sites td form { display: inline-flex; gap: 6px; align-items: center; margin: 0; }
+table.sites input[type=number] { width: 7em; }
+table.sites details summary { cursor: pointer; color: var(--accent); }
+table.sites details[open] { white-space: normal; }
+table.sites details form { margin-top: 6px; }

@@ -205,6 +205,7 @@ func (h *hub) routes() http.Handler {
 	})
 	mux.HandleFunc("GET /health", h.health)
 	mux.HandleFunc("GET /{$}", h.signedIn(h.index))
+	mux.HandleFunc("GET /mine", h.signedIn(h.mine))
 	mux.HandleFunc("GET /new", h.creator(h.newApp))
 	mux.HandleFunc("POST /new", h.creator(h.create))
 	mux.HandleFunc("POST /admin/creators", h.platformAdmin(h.addCreator))
@@ -687,6 +688,12 @@ func (h *hub) creator(next http.HandlerFunc) http.HandlerFunc {
 			http.Error(w, "internal error", http.StatusInternalServerError)
 			return
 		} else if !ok {
+			if r.Method == http.MethodGet {
+				if mine, _ := h.myApps(r.Context(), me); len(mine) > 0 {
+					http.Redirect(w, r, "/mine", http.StatusSeeOther) // they have theirs
+					return
+				}
+			}
 			http.Error(w, "you can't create an app here: ask a platform admin to add you as a creator (one app each)", http.StatusForbidden)
 			return
 		}
@@ -751,6 +758,66 @@ func (h *hub) canCreate(ctx context.Context, me string) (bool, error) {
 		}
 	}
 	return allowed, nil
+}
+
+// myApps are the slugs of identity's own apps here: the ones they created
+// (or a platform admin made for them) if any, else the ones they admin.
+func (h *hub) myApps(ctx context.Context, identity string) ([]string, error) {
+	tenants, err := h.reg.Tenants(ctx)
+	if err != nil {
+		return nil, err
+	}
+	// A platform admin's own apps are created by their login, whichever way they sign in.
+	created, _ := ownerOf(identity)
+	pa, _ := h.reg.PlatformAdmin(ctx, identity)
+	var made, admin []string
+	for _, t := range tenants {
+		if t.Status == "deleted" {
+			continue
+		}
+		if t.CreatedBy == created || (pa.Login != "" && t.CreatedBy == pa.Login) {
+			made = append(made, t.Slug)
+			continue
+		}
+		st, err := h.reg.Store(ctx, t.Slug)
+		if err != nil {
+			return nil, err
+		}
+		if roleOf(ctx, st, identity) == "admin" {
+			admin = append(admin, t.Slug)
+		}
+	}
+	if len(made) > 0 {
+		return made, nil
+	}
+	return admin, nil
+}
+
+// mine is a single board's "Your app": the viewer's own app's board, Apps
+// when they have several, New app when they have none and may make one.
+func (h *hub) mine(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	me := h.auth.SignedIn(r)
+	apps, err := h.myApps(ctx, me)
+	if err != nil {
+		slog.Error("my apps", "identity", me, "err", err)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	switch {
+	case len(apps) == 1:
+		http.Redirect(w, r, "/"+apps[0]+"/", http.StatusSeeOther)
+		return
+	case len(apps) > 1:
+		http.Redirect(w, r, "/", http.StatusSeeOther)
+		return
+	}
+	_, admin := h.reg.PlatformAdmin(ctx, me)
+	if ok, err := h.canCreate(ctx, me); admin == nil || (ok && err == nil) {
+		http.Redirect(w, r, "/new", http.StatusSeeOther)
+		return
+	}
+	http.Redirect(w, r, "/?flash="+url.QueryEscape("You don't have an app here, and can't make one: ask a platform admin to add you as a creator."), http.StatusSeeOther)
 }
 
 // app is one row on the hub's index.

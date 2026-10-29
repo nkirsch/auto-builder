@@ -31,7 +31,7 @@
     <a href="{{base}}/items/new">New</a>
     <a href="{{base}}/runs">Runs</a>
     <a href="{{base}}/history">History{{with .Pending}} <span class="count" title="{{.}} commit{{if ne . 1}}s{{end}} since the latest release: a release needs cutting">{{.}}</span>{{end}}</a>
-    {{with .NewApp}}<a href="{{.}}" title="Make an app of your own, built the same way">Your app</a>{{end}}
+    {{with .NewApp}}<a href="{{.}}" title="Your own app, built the same way, or make one">Your app</a>{{end}}
     {{if .Me.IsAdmin}}<a href="{{base}}/admin">Admin</a>{{end}}
     <form method="post" action="{{base}}/theme" class="theme">
       <input type="hidden" name="back" value="{{.Path}}">

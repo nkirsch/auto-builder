@@ -283,6 +283,15 @@ func (b *Board) names(ctx context.Context) map[string]string {
 	return names
 }
 
+// yourApp turns a hub's New app page into its /mine, which takes someone
+// who already has an app there to it and everyone else on to New app.
+func yourApp(createURL string) string {
+	if hub, ok := strings.CutSuffix(createURL, "/new"); ok {
+		return hub + "/mine"
+	}
+	return createURL
+}
+
 // page is the data every template gets.
 type page struct {
 	Me      db.Member
@@ -329,7 +338,7 @@ func (b *Board) renderRefresh(w http.ResponseWriter, r *http.Request, name, titl
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	p := page{Me: me, Unread: unread, Title: title, GitSHA: b.GitSHA, Repo: cmp.Or(b.CodeRepo, b.Repo), Flash: r.URL.Query().Get("m"),
 		BotName: b.BotLogin, Theme: theme(r), Path: r.URL.RequestURI(), BaseURL: strings.TrimSuffix(b.BaseURL, "/"),
-		AppName: b.Name, SiteURL: b.SiteURL, NewApp: b.CreateAppURL, Refresh: refresh, Names: names, Data: data}
+		AppName: b.Name, SiteURL: b.SiteURL, NewApp: yourApp(b.CreateAppURL), Refresh: refresh, Names: names, Data: data}
 	p.Version = b.Version()
 	if me.IsAdmin() {
 		p.Pending = b.pendingRelease(r.Context())

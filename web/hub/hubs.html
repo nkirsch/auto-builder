@@ -6,17 +6,17 @@
 <ul class="items">
   {{range .}}
   <li class="row">
-    <span class="badge {{if eq .Kind "urgent"}}urgent{{else if eq .Kind "blocked"}}blocked{{end}}">{{.Kind}}</span>
+    <span class="badge {{if eq .Kind "urgent"}}urgent{{else if or (eq .Kind "blocked") (eq .Kind "failing")}}blocked{{end}}">{{.Kind}}</span>
     <a href="{{.URL}}"><b>{{.Title}}</b></a>
-    <span class="muted">{{.Hub}} · {{.Site}} · #{{.ID}} by {{.Author}} · {{when .At}}</span>
+    <span class="muted">{{.Hub}} · {{.Site}}{{if .ID}} · #{{.ID}} by {{.Author}}{{end}}{{if not .At.IsZero}} · {{when .At}}{{end}}</span>
     {{with .Note}}<span class="muted" title="{{.}}">— {{.}}</span>{{end}}
   </li>
   {{end}}
 </ul>
-{{else}}<p class="muted">Nothing urgent, escalated or blocked.</p>{{end}}
+{{else}}<p class="muted">Nothing urgent, escalated, blocked or failing.</p>{{end}}
 <p class="hint">{{.Data.Other}} other unfinished item{{if ne .Data.Other 1}}s{{end}} across every board.</p>
 {{range .Data.Hubs}}{{$hub := .}}
-<h2><a href="{{.URL}}/">{{.Name}}</a>{{with .Version}} <span class="muted">{{.}}</span>{{end}}</h2>
+<h2><a href="{{.URL}}/">{{.Name}}</a>{{with .Version}} <span class="muted">{{.}}</span>{{end}}{{if not .Err}} {{if not .ReleaseKnown}}<span class="muted">–</span>{{else if .Unreleased}}<span class="behind">{{.Unreleased}} unreleased</span>{{else}}<span class="muted">released</span>{{end}}{{end}}</h2>
 {{if .Err}}<p class="hub-err">Couldn't read {{.URL}}/api/overview: {{.Err}}</p>{{else}}
 <p class="row">
   <a href="{{.URL}}/admin">Admin</a> <a href="{{.URL}}/admin/urgent">Urgent</a> <a href="{{.URL}}/admin/traffic">Traffic</a>
@@ -24,7 +24,7 @@
 </p>
 {{with .Sites}}
 <div class="table-wrap"><table class="sites">
-  <thead><tr><th>Board</th><th>Site</th><th>Health</th><th>Version</th><th>Release</th><th class="num">Needs attention</th><th class="num">Other</th><th>Last run</th><th></th></tr></thead>
+  <thead><tr><th>Board</th><th>Site</th><th>Health</th><th>Version</th><th>Release</th><th class="num">5xx (24h)</th><th class="num">Needs attention</th><th class="num">Other</th><th>Last run</th><th></th></tr></thead>
   <tbody>
   {{range .}}
   <tr>
@@ -33,9 +33,10 @@
     <td>{{if .Healthy}}{{.Health}}{{else}}<span class="bad"{{with .HealthErr}} title="{{.}}"{{end}}>{{.Health}}</span>{{end}}</td>
     <td>{{if .Stats.Version}}{{.Stats.Version}}{{else if .Stats.GitSHA}}<span class="muted">{{short .Stats.GitSHA}}</span>{{else}}<span class="muted">–</span>{{end}}</td>
     <td>{{if .Releases}}{{if .Unreleased}}<span class="behind">{{.Unreleased}} unreleased</span>{{else}}released{{end}}{{else if .App}}<span class="muted">on push</span>{{else}}<span class="muted">–</span>{{end}}</td>
+    <td class="num">{{if not .ErrorsKnown}}<span class="muted">–</span>{{else if .Errors24h}}<a class="bad" href="{{.Logs}}">{{.Errors24h}}</a>{{else}}0{{end}}</td>
     <td class="num">{{if .Detail}}{{with .Stats.Attention}}<span class="bad">{{len .}}</span>{{else}}0{{end}}{{else}}<span class="muted">–</span>{{end}}</td>
     <td class="num">{{if .Detail}}{{.Stats.Other}}{{else}}<span class="muted">–</span>{{end}}</td>
-    <td>{{with .Stats.LastRun}}{{.Status}} <span class="muted">{{when .At}}</span>{{else}}<span class="muted">–</span>{{end}}</td>
+    <td>{{with .Stats.LastRun}}{{.Status}} <span class="muted">{{when .At}}</span>{{else}}<span class="muted">–</span>{{end}}{{with .Stats.Failed7d}} · <span class="bad">{{.}} failed in 7d</span>{{end}}</td>
     <td>{{with .Logs}}<a href="{{.}}">Traffic</a>{{end}}</td>
   </tr>
   {{end}}

@@ -35,7 +35,17 @@ type siteStats struct {
 	// blocked. Other counts the rest of the unfinished items.
 	Attention []attention `json:"attention,omitempty"`
 	Other     int         `json:"other"`
+	// Failed7d counts the runs that failed in the last week; FailStreak the
+	// newest finished runs that failed in a row.
+	Failed7d   int `json:"failed_7d,omitempty"`
+	FailStreak int `json:"fail_streak,omitempty"`
 }
+
+// failedWindow and streakRuns bound what statsFor reads of a board's runs.
+const (
+	failedWindow = 7 * 24 * time.Hour
+	streakRuns   = 10
+)
 
 // attention is one item needing action, for the multi-hub view.
 type attention struct {
@@ -94,7 +104,7 @@ func statsFor(ctx context.Context, st *db.Store, version, sha string) (siteStats
 			s.Other++
 		}
 	}
-	runs, err := st.Runs(ctx, 1)
+	runs, err := st.Runs(ctx, streakRuns)
 	if err != nil {
 		return s, err
 	}
@@ -106,9 +116,30 @@ func statsFor(ctx context.Context, st *db.Store, version, sha string) (siteStats
 		}
 		s.LastRun = &runBrief{Status: r.Status, At: at}
 	}
+	s.FailStreak = failStreak(runs)
+	rs, err := st.RunStats(ctx, time.Now().Add(-failedWindow))
+	if err != nil {
+		return s, err
+	}
+	s.Failed7d = rs.Failed
 	c, err := st.RunCosts(ctx)
 	s.Spend30d = c.Last30Days
 	return s, err
+}
+
+// failStreak counts the newest runs (newest first) that failed in a row,
+// passing over runs still in flight or cancelled.
+func failStreak(runs []db.Run) int {
+	n := 0
+	for _, r := range runs {
+		if r.Status == "done" {
+			break
+		}
+		if r.Status == "failed" {
+			n++
+		}
+	}
+	return n
 }
 
 func (s *server) stats(w http.ResponseWriter, r *http.Request) {

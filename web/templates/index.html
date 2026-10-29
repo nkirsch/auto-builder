@@ -1,4 +1,16 @@
 {{define "content"}}
+{{with .Data.Provisioning}}
+<section class="provisioning">
+  <h2>{{if eq .Status "failed"}}Setting up this app failed{{else if eq .Status "securing"}}Waiting for the app's domain and certificate{{else}}Setting up this app{{end}}</h2>
+  <progress max="100" value="{{.Percent}}">{{.Percent}}%</progress>
+  <ol>
+    {{range .Steps}}<li class="step-{{.State}}">{{.Name}} <span class="muted">{{.State}}</span>{{with .Error}} <span class="bad">{{.}}</span>{{end}}</li>
+    {{end}}
+  </ol>
+  {{if eq .Status "failed"}}{{if not .Steps}}{{with .Error}}<p class="bad">{{.}}</p>{{end}}{{end}}{{if $.Me.IsAdmin}}<form method="post" action="{{base}}/admin/provision"><button>Provision (retry)</button></form>{{end}}
+  {{else}}<p class="hint">The board works already; this page reloads until the app at its domain does too.</p>{{end}}
+</section>
+{{end}}
 <div class="row">
   <h1>{{if eq .Data.Show "done"}}Done{{else}}Open{{end}}{{with .Data.Tag}} <span class="tag">#{{.}}</span>{{end}}</h1>
   <span class="spacer"></span>

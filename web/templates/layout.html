@@ -5,7 +5,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="color-scheme" content="{{if eq .Theme "light"}}only light{{else if eq .Theme "dark"}}dark{{else}}light dark{{end}}">
+{{with .Refresh}}<meta http-equiv="refresh" content="{{.}}">
+{{end}}<meta name="color-scheme" content="{{if eq .Theme "light"}}only light{{else if eq .Theme "dark"}}dark{{else}}light dark{{end}}">
 <title>{{.Title}} · {{if .AppName}}{{.AppName}}{{else}}{{template "brand-site" .}}{{end}}</title>
 <meta name="description" content="{{template "brand-description" .}}">
 <meta property="og:site_name" content="{{template "brand-site" .}}">

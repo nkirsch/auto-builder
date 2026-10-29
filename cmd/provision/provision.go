@@ -27,6 +27,8 @@ type Provisioner struct {
 	GitHub          *github.Client
 	Token           func(ctx context.Context) (string, error) // installation token for git
 	Shell           Shell
+	// Report, when set, records a step's state (running, done, failed).
+	Report func(ctx context.Context, step, state, errText string)
 }
 
 func (p *Provisioner) gcloud(ctx context.Context, args ...string) (string, error) {
@@ -48,6 +50,7 @@ func (p *Provisioner) sa(name string) string {
 
 // Create provisions t: repo, accounts, service, deploy access, domain,
 // repo variables, then the template's code (whose push deploys it).
+// Each of tenant.ProvisionSteps it covers is reported to Report.
 func (p *Provisioner) Create(ctx context.Context, t tenant.Tenant) error {
 	svc := "x-" + t.Slug
 	// Account IDs must be 6–30 characters; slugs are 2–21.
@@ -56,51 +59,100 @@ func (p *Provisioner) Create(ctx context.Context, t tenant.Tenant) error {
 	host := t.Slug + "." + p.Domain
 	org, name, _ := strings.Cut(t.Repo, "/")
 
-	exists, empty, err := p.GitHub.RepoState(ctx, t.Repo)
-	if err != nil {
-		return fmt.Errorf("repo: %w", err)
-	}
-	if !exists {
-		if err := p.GitHub.CreateOrgRepo(ctx, org, name, t.Name+" on "+host); err != nil {
-			return fmt.Errorf("create repo: %w", err)
+	var empty bool
+	if err := p.step(ctx, "Repo", func() error {
+		exists, e, err := p.GitHub.RepoState(ctx, t.Repo)
+		if err != nil {
+			return fmt.Errorf("repo: %w", err)
 		}
-		empty = true
+		empty = e
+		if !exists {
+			if err := p.GitHub.CreateOrgRepo(ctx, org, name, t.Name+" on "+host); err != nil {
+				return fmt.Errorf("create repo: %w", err)
+			}
+			empty = true
+		}
+		return nil
+	}); err != nil {
+		return err
 	}
 
+	groups := []struct {
+		step  string
+		items []struct{ describe, create []string }
+	}{
+		{"Accounts", []struct{ describe, create []string }{
+			{[]string{"iam", "service-accounts", "describe", runtime},
+				[]string{"iam", "service-accounts", "create", runtimeID, "--display-name", t.Slug + " app"}},
+			{[]string{"iam", "service-accounts", "describe", deployer},
+				[]string{"iam", "service-accounts", "create", deployerID, "--display-name", t.Slug + " deploys"}},
+		}},
+		{"Image repo and service", []struct{ describe, create []string }{
+			{[]string{"artifacts", "repositories", "describe", svc, "--location", p.Region},
+				[]string{"artifacts", "repositories", "create", svc, "--location", p.Region, "--repository-format", "docker"}},
+			{[]string{"run", "services", "describe", svc, "--region", p.Region},
+				[]string{"run", "deploy", svc, "--region", p.Region, "--image", "us-docker.pkg.dev/cloudrun/container/hello",
+					"--service-account", runtime, "--allow-unauthenticated"}},
+		}},
+		{"Domain mapping", []struct{ describe, create []string }{
+			{[]string{"beta", "run", "domain-mappings", "describe", "--domain", host, "--region", p.Region},
+				[]string{"beta", "run", "domain-mappings", "create", "--service", svc, "--domain", host, "--region", p.Region}},
+		}},
+		// The board's /logs reads the app's request log through this view.
+		{"Request log view", []struct{ describe, create []string }{
+			{[]string{"logging", "views", "describe", t.Slug + "-requests", "--bucket", "_Default", "--location", "global"},
+				[]string{"logging", "views", "create", t.Slug + "-requests", "--bucket", "_Default", "--location", "global",
+					"--log-filter", fmt.Sprintf(`resource.type="cloud_run_revision" AND resource.labels.service_name=%q AND LOG_ID("run.googleapis.com/requests")`, svc)}},
+		}},
+	}
+	for _, g := range groups {
+		if err := p.step(ctx, g.step, func() error {
+			for _, s := range g.items {
+				if err := p.ensure(ctx, s.describe, s.create); err != nil {
+					return fmt.Errorf("%s: %w", strings.Join(s.create[:2], " "), err)
+				}
+			}
+			return nil
+		}); err != nil {
+			return err
+		}
+	}
+	if err := p.step(ctx, "DNS record", func() error {
+		if err := p.cname(ctx, host); err != nil {
+			return fmt.Errorf("dns: %w", err)
+		}
+		return nil
+	}); err != nil {
+		return err
+	}
+	if err := p.step(ctx, "Deploy access", func() error {
+		return p.deployAccess(ctx, t.Repo, svc, runtime, deployer)
+	}); err != nil {
+		return err
+	}
+	return p.step(ctx, "App code", func() error {
+		if !empty {
+			return nil
+		}
+		if err := p.pushTemplate(ctx, t.Repo); err != nil {
+			return fmt.Errorf("template: %w", err)
+		}
+		return nil
+	})
+}
+
+// deployAccess lets repo's master branch deploy the app as deployer, and
+// sets the repo variables its deploy workflow reads.
+func (p *Provisioner) deployAccess(ctx context.Context, repo, svc, runtime, deployer string) error {
 	number, err := p.gcloud(ctx, "projects", "describe", p.Project, "--format=value(projectNumber)")
 	if err != nil {
 		return err
 	}
 	number = strings.TrimSpace(number)
-	steps := []struct{ describe, create []string }{
-		{[]string{"iam", "service-accounts", "describe", runtime},
-			[]string{"iam", "service-accounts", "create", runtimeID, "--display-name", t.Slug + " app"}},
-		{[]string{"iam", "service-accounts", "describe", deployer},
-			[]string{"iam", "service-accounts", "create", deployerID, "--display-name", t.Slug + " deploys"}},
-		{[]string{"artifacts", "repositories", "describe", svc, "--location", p.Region},
-			[]string{"artifacts", "repositories", "create", svc, "--location", p.Region, "--repository-format", "docker"}},
-		{[]string{"run", "services", "describe", svc, "--region", p.Region},
-			[]string{"run", "deploy", svc, "--region", p.Region, "--image", "us-docker.pkg.dev/cloudrun/container/hello",
-				"--service-account", runtime, "--allow-unauthenticated"}},
-		{[]string{"beta", "run", "domain-mappings", "describe", "--domain", host, "--region", p.Region},
-			[]string{"beta", "run", "domain-mappings", "create", "--service", svc, "--domain", host, "--region", p.Region}},
-		// The board's /logs reads the app's request log through this view.
-		{[]string{"logging", "views", "describe", t.Slug + "-requests", "--bucket", "_Default", "--location", "global"},
-			[]string{"logging", "views", "create", t.Slug + "-requests", "--bucket", "_Default", "--location", "global",
-				"--log-filter", fmt.Sprintf(`resource.type="cloud_run_revision" AND resource.labels.service_name=%q AND LOG_ID("run.googleapis.com/requests")`, svc)}},
-	}
-	for _, s := range steps {
-		if err := p.ensure(ctx, s.describe, s.create); err != nil {
-			return fmt.Errorf("%s: %w", strings.Join(s.create[:2], " "), err)
-		}
-	}
-	if err := p.cname(ctx, host); err != nil {
-		return fmt.Errorf("dns: %w", err)
-	}
 	// The deployer reaches only this app: its service, its image repo, acting
 	// as its runtime account, and only from this repo's master branch.
 	repoPrincipal := fmt.Sprintf("principalSet://iam.googleapis.com/projects/%s/locations/global/workloadIdentityPools/%s/attribute.repository/%s",
-		number, p.Pool, t.Repo)
+		number, p.Pool, repo)
 	bindings := [][]string{
 		{"run", "services", "add-iam-policy-binding", svc, "--region", p.Region,
 			"--member", "serviceAccount:" + deployer, "--role", "roles/run.developer"},
@@ -124,16 +176,28 @@ func (p *Provisioner) Create(ctx context.Context, t tenant.Tenant) error {
 			number, p.Pool, p.Provider),
 	}
 	for k, v := range vars {
-		if err := p.GitHub.SetVariable(ctx, t.Repo, k, v); err != nil {
+		if err := p.GitHub.SetVariable(ctx, repo, k, v); err != nil {
 			return fmt.Errorf("variable %s: %w", k, err)
 		}
 	}
-	if empty {
-		if err := p.pushTemplate(ctx, t.Repo); err != nil {
-			return fmt.Errorf("template: %w", err)
-		}
-	}
 	return nil
+}
+
+// step reports name running, runs f, then reports it done or failed.
+func (p *Provisioner) step(ctx context.Context, name string, f func() error) error {
+	p.report(ctx, name, "running", "")
+	if err := f(); err != nil {
+		p.report(ctx, name, "failed", err.Error())
+		return err
+	}
+	p.report(ctx, name, "done", "")
+	return nil
+}
+
+func (p *Provisioner) report(ctx context.Context, name, state, errText string) {
+	if p.Report != nil {
+		p.Report(context.WithoutCancel(ctx), name, state, errText)
+	}
 }
 
 // Delete tears down t's Google Cloud resources and archives its repo, so

@@ -72,6 +72,13 @@ form.inline button.link { color: var(--accent); font: inherit; }
 .escalated { color: var(--warn); border-color: currentColor; }
 .urgent { color: #fff; background: var(--bad); border-color: var(--bad); }
 .escalation-note { border-left: 3px solid var(--warn); padding: 8px 12px; margin-top: 12px; background: var(--card); }
+.provisioning { border-left: 3px solid var(--warn); padding: 8px 12px; margin-bottom: 16px; background: var(--card); }
+.provisioning h2 { margin-top: 0; }
+.provisioning progress { width: 100%; }
+.provisioning ol { padding-left: 20px; }
+.provisioning .bad, .step-failed { color: var(--bad); }
+.step-done .muted { color: var(--ok); }
+.step-running .muted { color: var(--warn); }
 .blocked-note { border-left: 3px solid var(--bad); padding: 8px 12px; margin-top: 12px; background: var(--card); }
 .count { background: var(--accent); color: #fff; border-radius: 9px; padding: 0 6px; font-size: 12px; }
 .post { background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px; margin: 12px 0; }

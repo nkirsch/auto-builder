@@ -333,7 +333,28 @@ func (h *hub) secure(ctx context.Context, slug string) {
 		slog.Error("mark ready", "tenant", slug, "err", err)
 		return
 	}
+	if err := h.reg.SetStep(ctx, slug, "DNS and certificate", "done", ""); err != nil {
+		slog.Error("record step", "tenant", slug, "err", err)
+	}
 	slog.Info("app reachable; ready", "tenant", slug)
+}
+
+// provisioning is a tenant board's setup progress while its app isn't
+// ready; nil once it is, and for existing repos and deleted apps.
+func (h *hub) provisioning(ctx context.Context, slug string) *board.Provisioning {
+	t, err := h.reg.Tenant(ctx, slug)
+	if err != nil {
+		slog.Warn("provisioning", "tenant", slug, "err", err)
+		return nil
+	}
+	if t.Existing || (t.Status != "provisioning" && t.Status != "securing" && t.Status != "failed") {
+		return nil
+	}
+	p := &board.Provisioning{Status: t.Status, Error: t.Error}
+	for _, s := range t.Steps {
+		p.Steps = append(p.Steps, board.ProvisionStep{Name: s.Name, State: s.State, Error: s.Error})
+	}
+	return p
 }
 
 // hold stops launches past the platform's run cap or spend limit.
@@ -469,6 +490,19 @@ func (h *hub) tenantFor(ctx context.Context, slug string) (*tenantRT, error) {
 		Ready: func(ctx context.Context) bool {
 			t, err := h.reg.Tenant(ctx, slug)
 			return err == nil && t.Live()
+		},
+		Provisioning: func(ctx context.Context) *board.Provisioning { return h.provisioning(ctx, slug) },
+		Reprovision: func(ctx context.Context) error {
+			if t, err := h.reg.Tenant(ctx, slug); err != nil {
+				return err
+			} else if t.Status != "failed" {
+				return errors.New("the app is " + t.Status)
+			}
+			// provisioning at once, so a second click doesn't start another job
+			if err := h.reg.SetStatus(ctx, slug, "provisioning", ""); err != nil {
+				return err
+			}
+			return h.provision(ctx, slug, "sync")
 		},
 	}
 	if ta.CanMail() {
@@ -846,8 +880,14 @@ func ownerOf(identity string) (string, tenant.Admin) {
 	return identity, tenant.Admin{Login: identity}
 }
 
-// provision starts the provision job for one tenant.
+// provision starts the provision job for one tenant, resetting its
+// progress unless it's being deleted.
 func (h *hub) provision(ctx context.Context, slug, action string) error {
+	if action != "delete" {
+		if err := h.reg.StartSteps(ctx, slug); err != nil {
+			return err
+		}
+	}
 	exec, err := h.provisioner.LaunchEnv(ctx, map[string]string{"TENANT": slug, "ACTION": action})
 	if err != nil {
 		slog.Error("provision", "tenant", slug, "err", err)

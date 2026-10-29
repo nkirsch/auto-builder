@@ -54,6 +54,23 @@ type Tenant struct {
 	Error                               string
 	// Existing is a repo that deploys itself: never provisioned, ready from the start.
 	Existing bool
+	// Steps is the last provisioning's progress, in ProvisionSteps order.
+	Steps []Step
+}
+
+// Step is one provisioning step's state: pending, running, done or failed.
+type Step struct {
+	Name  string `json:"name"`
+	State string `json:"state"`
+	Error string `json:"error,omitempty"`
+}
+
+// ProvisionSteps are the steps of creating an app, in order; the provision
+// job reports each one, and the hub's tick the last.
+var ProvisionSteps = []string{
+	"Job queued", "Job started", "Repo", "Accounts", "Image repo and service",
+	"Domain mapping", "Request log view", "DNS record", "Deploy access", "App code",
+	"DNS and certificate",
 }
 
 // Live reports whether t's repo and service exist, so its board runs:
@@ -166,11 +183,11 @@ func (r *Registry) Create(ctx context.Context, t Tenant) error {
 	return err
 }
 
-const tenantCols = `slug, name, repo, status, created_by, created_at, provisioned_at, error, existing`
+const tenantCols = `slug, name, repo, status, created_by, created_at, provisioned_at, error, existing, steps`
 
 func scanTenant(row pgx.Row) (Tenant, error) {
 	var t Tenant
-	err := row.Scan(&t.Slug, &t.Name, &t.Repo, &t.Status, &t.CreatedBy, &t.CreatedAt, &t.ProvisionedAt, &t.Error, &t.Existing)
+	err := row.Scan(&t.Slug, &t.Name, &t.Repo, &t.Status, &t.CreatedBy, &t.CreatedAt, &t.ProvisionedAt, &t.Error, &t.Existing, &t.Steps)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return t, db.ErrNotFound
 	}
@@ -208,6 +225,31 @@ func (r *Registry) SetStatus(ctx context.Context, slug, status, errText string) 
 	if err == nil && tag.RowsAffected() == 0 {
 		return db.ErrNotFound
 	}
+	return err
+}
+
+// StartSteps resets slug's progress to ProvisionSteps, all pending but the
+// first, done: the provision job is queued.
+func (r *Registry) StartSteps(ctx context.Context, slug string) error {
+	steps := make([]Step, len(ProvisionSteps))
+	for i, name := range ProvisionSteps {
+		steps[i] = Step{Name: name, State: "pending"}
+	}
+	steps[0].State = "done"
+	tag, err := r.Control.Exec(ctx, `UPDATE tenants SET steps = $2 WHERE slug = $1`, slug, steps)
+	if err == nil && tag.RowsAffected() == 0 {
+		return db.ErrNotFound
+	}
+	return err
+}
+
+// SetStep records one step's state; a step not in slug's progress is ignored.
+func (r *Registry) SetStep(ctx context.Context, slug, name, state, errText string) error {
+	_, err := r.Control.Exec(ctx, `UPDATE tenants SET steps = coalesce((
+		SELECT jsonb_agg(CASE WHEN e->>'name' = $2 THEN jsonb_strip_nulls(jsonb_build_object(
+			'name', $2::text, 'state', $3::text, 'error', nullif($4::text, ''))) ELSE e END ORDER BY i)
+		FROM jsonb_array_elements(steps) WITH ORDINALITY AS s(e, i)), '[]')
+		WHERE slug = $1`, slug, name, state, errText)
 	return err
 }
 

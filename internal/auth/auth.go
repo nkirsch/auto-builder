@@ -65,6 +65,12 @@ type Config struct {
 	// BoardOf names the board a multi-mode sign-in is for from its next
 	// path, or "".
 	BoardOf func(next string) string
+	// GitHubLinkOnly uses the GitHub OAuth app only for members to connect
+	// their GitHub accounts, not to sign in.
+	GitHubLinkOnly bool
+	// LinkGitHub records identity's connected GitHub account ("" to
+	// disconnect); the store's member by login when nil.
+	LinkGitHub func(ctx context.Context, identity, github string) error
 }
 
 // Users keeps multi-mode profiles, keyed by identity (login or address).
@@ -154,6 +160,8 @@ func (a *Auth) TenantRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /auth/github", a.handleGitHub)
 	mux.HandleFunc("GET /auth/google", a.handleGoogle)
 	mux.HandleFunc("GET /auth/gmail", a.handleGmail)
+	mux.HandleFunc("GET /auth/github/link", a.handleLink)
+	mux.HandleFunc("POST /auth/github/unlink", a.handleUnlink)
 	mux.HandleFunc("POST /auth/logout", a.handleLogout)
 }
 
@@ -274,8 +282,14 @@ func (a *Auth) sameOrigin(r *http.Request) bool {
 
 // GitHub and Google report which sign-in buttons to offer; GitHub is the
 // default when neither is configured.
-func (a *Auth) GitHub() bool { return a.dev || a.oauth.ClientID != "" || a.google.ClientID == "" }
+func (a *Auth) GitHub() bool {
+	return a.dev || (a.oauth.ClientID != "" && !a.cfg.GitHubLinkOnly) || a.google.ClientID == ""
+}
+
 func (a *Auth) Google() bool { return a.google.ClientID != "" }
+
+// CanLinkGitHub reports whether members can connect their GitHub accounts.
+func (a *Auth) CanLinkGitHub() bool { return a.oauth.ClientID != "" && !a.dev }
 
 // SignedIn returns the session's login, or "" when signed out. It does not
 // check membership.
@@ -344,7 +358,8 @@ func (a *Auth) verify(value string, now time.Time) (string, time.Time, bool) {
 }
 
 // Routes registers /auth/github, /auth/callback, /auth/google,
-// /auth/google/callback, /auth/gmail, /auth/gmail/callback and /auth/logout.
+// /auth/google/callback, /auth/gmail, /auth/gmail/callback,
+// /auth/github/link, /auth/github/unlink and /auth/logout.
 // The /auth/login page itself is served by the board.
 func (a *Auth) Routes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /auth/github", a.handleGitHub)
@@ -353,16 +368,60 @@ func (a *Auth) Routes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /auth/google/callback", a.handleGoogleCallback)
 	mux.HandleFunc("GET /auth/gmail", a.handleGmail)
 	mux.HandleFunc("GET /auth/gmail/callback", a.handleGmailCallback)
+	mux.HandleFunc("GET /auth/github/link", a.handleLink)
+	mux.HandleFunc("POST /auth/github/unlink", a.handleUnlink)
 	mux.HandleFunc("POST /auth/logout", a.handleLogout)
 }
 
 // handleGitHub starts the OAuth redirect.
 func (a *Auth) handleGitHub(w http.ResponseWriter, r *http.Request) {
-	if a.oauth.ClientID == "" && !a.dev {
-		http.Error(w, "GitHub sign-in is not configured (GITHUB_CLIENT_ID)", http.StatusServiceUnavailable)
+	if !a.GitHub() || (a.oauth.ClientID == "" && !a.dev) {
+		http.Error(w, "GitHub sign-in is off", http.StatusServiceUnavailable)
 		return
 	}
 	a.start(w, r, a.oauth)
+}
+
+// handleLink starts connecting the signed-in member's GitHub account.
+func (a *Auth) handleLink(w http.ResponseWriter, r *http.Request) {
+	if !a.CanLinkGitHub() {
+		http.Error(w, "connecting GitHub isn't configured (GITHUB_CLIENT_ID)", http.StatusServiceUnavailable)
+		return
+	}
+	if a.login(r) == "" {
+		http.Redirect(w, r, "/auth/login", http.StatusFound)
+		return
+	}
+	a.startLink(w, r, a.oauth, true)
+}
+
+// handleUnlink disconnects the signed-in member's GitHub account.
+func (a *Auth) handleUnlink(w http.ResponseWriter, r *http.Request) {
+	identity := a.login(r)
+	if !a.sameOrigin(r) || identity == "" {
+		http.Error(w, "sign in first", http.StatusUnauthorized)
+		return
+	}
+	if err := a.linkGitHub(r.Context(), identity, ""); err != nil && !errors.Is(err, db.ErrNotFound) {
+		slog.Error("unlink github", "err", err)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	next := safeNext(r.FormValue("next"))
+	if a.tenant {
+		next = a.prefix + next
+	}
+	http.Redirect(w, r, next, http.StatusSeeOther)
+}
+
+func (a *Auth) linkGitHub(ctx context.Context, identity, github string) error {
+	if a.cfg.LinkGitHub != nil {
+		return a.cfg.LinkGitHub(ctx, identity, github)
+	}
+	if a.store == nil {
+		return db.ErrNotFound
+	}
+	return a.store.LinkGitHub(ctx, identity, github)
 }
 
 // handleGoogle starts the Google OAuth redirect.
@@ -376,6 +435,12 @@ func (a *Auth) handleGoogle(w http.ResponseWriter, r *http.Request) {
 
 // start sets the state cookie and redirects to the provider.
 func (a *Auth) start(w http.ResponseWriter, r *http.Request, oc *oauth2.Config, opts ...oauth2.AuthCodeOption) {
+	a.startLink(w, r, oc, false, opts...)
+}
+
+// startLink is start; link marks the callback as connecting an account,
+// not signing in.
+func (a *Auth) startLink(w http.ResponseWriter, r *http.Request, oc *oauth2.Config, link bool, opts ...oauth2.AuthCodeOption) {
 	next := safeNext(r.URL.Query().Get("next"))
 	if a.dev {
 		http.Redirect(w, r, next, http.StatusFound)
@@ -388,6 +453,9 @@ func (a *Auth) start(w http.ResponseWriter, r *http.Request, oc *oauth2.Config, 
 	b := make([]byte, 16)
 	rand.Read(b)
 	state := hex.EncodeToString(b)
+	if link {
+		next = "link|" + next // next starts with "/", so this can't be a path
+	}
 	http.SetCookie(w, &http.Cookie{
 		Name: stateCookie, Value: state + "|" + next, Path: a.authPath, MaxAge: 600,
 		HttpOnly: true, Secure: a.secure, SameSite: http.SameSiteLaxMode,
@@ -397,20 +465,27 @@ func (a *Auth) start(w http.ResponseWriter, r *http.Request, oc *oauth2.Config, 
 
 // checkState validates and clears the state cookie, returning the next path.
 func (a *Auth) checkState(w http.ResponseWriter, r *http.Request, provider string) (string, bool) {
+	next, _, ok := a.checkLinkState(w, r, provider)
+	return next, ok
+}
+
+// checkLinkState is checkState, also reporting a link started by startLink.
+func (a *Auth) checkLinkState(w http.ResponseWriter, r *http.Request, provider string) (next string, link, ok bool) {
 	c, err := r.Cookie(stateCookie)
 	if err != nil {
 		a.record(r, provider, "", db.SignInStateMissed, "")
 		http.Error(w, "sign-in expired; try again", http.StatusBadRequest)
-		return "", false
+		return "", false, false
 	}
 	state, next, _ := strings.Cut(c.Value, "|")
 	if subtle.ConstantTimeCompare([]byte(state), []byte(r.URL.Query().Get("state"))) != 1 {
 		a.record(r, provider, "", db.SignInStateBad, next)
 		http.Error(w, "bad sign-in state; try again", http.StatusBadRequest)
-		return "", false
+		return "", false, false
 	}
 	http.SetCookie(w, &http.Cookie{Name: stateCookie, Path: a.authPath, MaxAge: -1})
-	return next, true
+	next, link = strings.CutPrefix(next, "link|")
+	return next, link, true
 }
 
 // setSession signs the member in and returns to next.
@@ -423,8 +498,17 @@ func (a *Auth) setSession(w http.ResponseWriter, r *http.Request, login, next st
 }
 
 func (a *Auth) handleCallback(w http.ResponseWriter, r *http.Request) {
-	next, ok := a.checkState(w, r, "github")
+	next, link, ok := a.checkLinkState(w, r, "github")
 	if !ok {
+		return
+	}
+	identity := a.login(r)
+	if link && identity == "" {
+		http.Error(w, "sign in first", http.StatusUnauthorized)
+		return
+	}
+	if !link && !a.GitHub() {
+		http.Error(w, "GitHub sign-in is off", http.StatusForbidden)
 		return
 	}
 	tok, err := a.oauth.Exchange(r.Context(), r.URL.Query().Get("code"))
@@ -439,6 +523,16 @@ func (a *Auth) handleCallback(w http.ResponseWriter, r *http.Request) {
 		slog.Warn("github user", "err", err)
 		a.record(r, "github", "", db.SignInProfile, next)
 		http.Error(w, "GitHub sign-in failed", http.StatusBadGateway)
+		return
+	}
+	if link {
+		if err := a.linkGitHub(r.Context(), identity, user.Login); err != nil {
+			slog.Error("link github", "err", err)
+			http.Error(w, "connecting GitHub failed", http.StatusInternalServerError)
+			return
+		}
+		slog.Info("linked github", "github", user.Login)
+		http.Redirect(w, r, safeNext(next), http.StatusFound)
 		return
 	}
 	if a.cfg.Multi {

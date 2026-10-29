@@ -179,23 +179,25 @@ func (s *IssueSync) reopenIssues(ctx context.Context) error {
 	return errors.Join(errs...)
 }
 
-// member returns login's board spelling, or "" if they aren't a member.
-func (s *IssueSync) member(ctx context.Context, login string) (string, error) {
-	m, err := s.Store.Member(ctx, login)
+// member returns the member GitHub account login belongs to; Login is ""
+// if none.
+func (s *IssueSync) member(ctx context.Context, login string) (db.Member, error) {
+	m, err := s.Store.MemberByGitHub(ctx, login)
 	if errors.Is(err, db.ErrNotFound) {
-		return "", nil
+		return db.Member{}, nil
 	}
-	return m.Login, err
+	return m, err
 }
 
 func (s *IssueSync) importIssue(ctx context.Context, is github.Issue) error {
 	if is.PullRequest != nil {
 		return nil
 	}
-	author, err := s.member(ctx, is.User.Login)
-	if author == "" || err != nil {
+	m, err := s.member(ctx, is.User.Login)
+	if m.Login == "" || err != nil {
 		return err
 	}
+	author := m.Login
 	title := strings.TrimSpace(is.Title)
 	if r := []rune(title); len(r) > 200 {
 		title = string(r[:200])
@@ -208,10 +210,9 @@ func (s *IssueSync) importIssue(ctx context.Context, is github.Issue) error {
 	id, created, err := s.Store.ImportIssue(ctx, is.Number, title, body, author)
 	if created {
 		slog.Info("imported issue", "issue", is.Number, "item", id, "author", author)
-		// An auto-approving admin's issue starts approved, but only when GitHub
-		// vouches the author can write to the repo: a board login need not be
-		// its owner's GitHub account.
-		if m, merr := s.Store.Member(ctx, author); merr == nil && m.IsAdmin() && m.AutoApprove && writer(is.AuthorAssociation) {
+		// An auto-approving admin's issue starts approved when the account is
+		// one they connected, or GitHub vouches its author can write to the repo.
+		if m.IsAdmin() && m.AutoApprove && (strings.EqualFold(m.GitHubLogin, is.User.Login) || writer(is.AuthorAssociation)) {
 			err = s.Store.SetApproved(ctx, id, true, author)
 		}
 	}
@@ -234,10 +235,11 @@ func (s *IssueSync) importComment(ctx context.Context, c github.IssueComment) er
 	if err != nil {
 		return err
 	}
-	author, err := s.member(ctx, c.User.Login)
-	if author == "" || err != nil || strings.TrimSpace(c.Body) == "" {
+	m, err := s.member(ctx, c.User.Login)
+	if m.Login == "" || err != nil || strings.TrimSpace(c.Body) == "" {
 		return err
 	}
+	author := m.Login
 	created, err := s.Store.ImportIssueComment(ctx, it.ID, c.ID, author, strings.TrimSpace(c.Body))
 	if created && s.Notified != nil {
 		s.Notified(ctx, it, author, c.Body)

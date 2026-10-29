@@ -182,6 +182,9 @@ func newHub(ctx context.Context, cfg config, reg *tenant.Registry, storage store
 		GoogleClientID: cfg.GoogleClientID, GoogleClientSecret: cfg.GoogleClientSecret,
 		SessionKey: []byte(cfg.SessionKey), DevLogin: cfg.DevLogin, Multi: true, Users: reg, Mailboxes: reg,
 		SignIns: reg, BoardOf: boardOf,
+		GitHubLinkOnly: cfg.GitHubLinkOnly, LinkGitHub: func(ctx context.Context, identity, github string) error {
+			return linkGitHub(ctx, reg, identity, github)
+		},
 	}, nil)
 	if err != nil {
 		return nil, err
@@ -1375,4 +1378,33 @@ func (h *hub) health(w http.ResponseWriter, r *http.Request) {
 		status, code = "db: "+err.Error(), http.StatusServiceUnavailable
 	}
 	writeJSON(w, code, map[string]string{"status": status, "sha": h.cfg.GitSHA})
+}
+
+// linkGitHub records identity's GitHub account on every live board they're a
+// member of: it's the person's account, whichever board they connected it on.
+func linkGitHub(ctx context.Context, reg *tenant.Registry, identity, github string) error {
+	ts, err := reg.Tenants(ctx)
+	if err != nil {
+		return err
+	}
+	var errs []error
+	for _, t := range ts {
+		if !t.Live() {
+			continue
+		}
+		st, err := reg.Store(ctx, t.Slug)
+		if err != nil {
+			errs = append(errs, err)
+			continue
+		}
+		if strings.Contains(identity, "@") {
+			err = st.LinkGitHubByEmail(ctx, identity, github)
+		} else {
+			err = st.LinkGitHub(ctx, identity, github)
+		}
+		if err != nil && !errors.Is(err, db.ErrNotFound) {
+			errs = append(errs, fmt.Errorf("%s: %w", t.Slug, err))
+		}
+	}
+	return errors.Join(errs...)
 }

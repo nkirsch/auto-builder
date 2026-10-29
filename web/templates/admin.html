@@ -8,7 +8,7 @@
   <tbody>
   {{range .Data.Members}}
   <tr>
-    <td>{{if .AvatarURL}}<img src="{{.Avatar}}" alt="" class="avatar"> {{end}}<b>{{who $.Names .Login}}</b>{{if .Name}} <span class="muted">{{.Login}}</span>{{end}}</td>
+    <td>{{if .AvatarURL}}<img src="{{.Avatar}}" alt="" class="avatar"> {{end}}<b>{{who $.Names .Login}}</b>{{if .Name}} <span class="muted">{{.Login}}</span>{{end}}{{with .GitHubLogin}} <a class="muted" href="https://github.com/{{.}}" title="GitHub account they connected">GitHub @{{.}}</a>{{end}}</td>
     <td><span class="badge">{{.Role}}</span></td>
     <td>{{if .Email}}{{.Email}}{{if and .GitHub $.Data.GitHub}}<span class="muted"> or GitHub</span>{{end}}{{else if $.Data.GitHub}}<span class="muted">GitHub</span>{{else}}<span class="bad">no email</span>{{end}}</td>
     <td><a href="{{base}}/admin/signins?who={{.Login}}" title="{{.Login}}'s sign-in attempts">{{with .LastSeen}}{{ago .}}{{else}}never signed in{{end}}</a>{{if not .LastSeen}} · {{if $.Data.Hold}}<span class="muted" title="{{$.Data.Hold}}">invite once the app is ready</span>{{else if and .Email $.Data.Mail $.Data.Mail.From}}<form method="post" action="{{base}}/admin/members/{{.Login}}/invite" class="inline"><button class="link" title="Email them the board's link and how to sign in, from {{$.Data.Mail.From}}">Email invite</button></form>{{else}}<a href="{{invite .}}" title="Email them the board's link and how to sign in">Invite</a>{{end}}{{end}}</td>

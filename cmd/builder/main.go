@@ -44,6 +44,7 @@ type config struct {
 
 	AdminEmail                         string // Google sign-in addresses, paired with ADMIN_LOGIN
 	GoogleClientID, GoogleClientSecret string
+	GitHubLinkOnly                     bool     // GITHUB_SIGN_IN=off: the GitHub app only connects members' accounts
 	RedirectHosts                      []string // old hosts that 308 to BASE_URL's
 
 	Tenancy      bool   // TENANCY=on: multi-tenant mode (TENANCY.md)
@@ -103,10 +104,11 @@ func loadConfig() (config, error) {
 	}
 	c.AdminEmail = env("ADMIN_EMAIL", "")
 	c.GoogleClientID, c.GoogleClientSecret = env("GOOGLE_CLIENT_ID", ""), env("GOOGLE_CLIENT_SECRET", "")
-	// GITHUB_SIGN_IN=off leaves Google as the only sign-in, once Google is configured.
+	// GITHUB_SIGN_IN=off leaves Google as the only sign-in, once Google is
+	// configured; GitHub then only connects members' accounts.
 	if env("GITHUB_SIGN_IN", "off") == "off" {
 		if c.GoogleClientID != "" {
-			c.ClientID, c.ClientSecret = "", ""
+			c.GitHubLinkOnly = true
 		} else {
 			slog.Warn("GITHUB_SIGN_IN=off ignored: Google sign-in isn't configured")
 		}
@@ -244,6 +246,7 @@ func run() error {
 		BaseURL: cfg.BaseURL, ClientID: cfg.ClientID, ClientSecret: cfg.ClientSecret,
 		SessionKey: []byte(cfg.SessionKey), DevLogin: cfg.DevLogin,
 		GoogleClientID: cfg.GoogleClientID, GoogleClientSecret: cfg.GoogleClientSecret,
+		GitHubLinkOnly: cfg.GitHubLinkOnly,
 	}, st)
 	if err != nil {
 		return err

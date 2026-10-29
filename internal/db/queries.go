@@ -45,6 +45,9 @@ type Member struct {
 	// AutoApprove (admins only): their new asks, and items the agent files
 	// from their comments, start approved.
 	AutoApprove bool
+	// GitHubLogin is the GitHub account the member connected, verified by
+	// GitHub sign-in; "" for none.
+	GitHubLogin string
 }
 
 func (m Member) IsAdmin() bool { return m.Role == "admin" }
@@ -229,11 +232,11 @@ func notFound(err error) error {
 
 // Members
 
-const memberCols = `login, role, name, avatar_url, email, github, added_by, added_at, last_seen, auto_approve`
+const memberCols = `login, role, name, avatar_url, email, github, added_by, added_at, last_seen, auto_approve, github_login`
 
 func scanMember(row pgx.Row) (Member, error) {
 	var m Member
-	err := row.Scan(&m.Login, &m.Role, &m.Name, &m.AvatarURL, &m.Email, &m.GitHub, &m.AddedBy, &m.AddedAt, &m.LastSeen, &m.AutoApprove)
+	err := row.Scan(&m.Login, &m.Role, &m.Name, &m.AvatarURL, &m.Email, &m.GitHub, &m.AddedBy, &m.AddedAt, &m.LastSeen, &m.AutoApprove, &m.GitHubLogin)
 	return m, notFound(err)
 }
 
@@ -248,6 +251,50 @@ func (s *Store) MemberByEmail(ctx context.Context, email string) (Member, error)
 		return Member{}, ErrNotFound
 	}
 	return scanMember(s.Pool.QueryRow(ctx, `SELECT `+memberCols+` FROM members WHERE lower(email) = lower($1)`, email))
+}
+
+// MemberByGitHub finds the member a GitHub account belongs to: the one who
+// connected it, else one whose login is theirs on GitHub (GitHubSignIn).
+func (s *Store) MemberByGitHub(ctx context.Context, login string) (Member, error) {
+	return scanMember(s.Pool.QueryRow(ctx, `SELECT `+memberCols+` FROM members
+		WHERE lower(github_login) = lower($1) OR (lower(login) = lower($1) AND (email = '' OR github))
+		ORDER BY lower(github_login) = lower($1) DESC LIMIT 1`, login))
+}
+
+// LinkGitHub records the GitHub account login connected; "" disconnects.
+// The account leaves any other member who had it.
+func (s *Store) LinkGitHub(ctx context.Context, login, github string) error {
+	return s.setGitHub(ctx, `lower(login) = lower($1)`, login, github)
+}
+
+// LinkGitHubByEmail is LinkGitHub for the member Google sign-in is for.
+func (s *Store) LinkGitHubByEmail(ctx context.Context, email, github string) error {
+	if email == "" {
+		return ErrNotFound
+	}
+	return s.setGitHub(ctx, `lower(email) = lower($1)`, email, github)
+}
+
+func (s *Store) setGitHub(ctx context.Context, where, key, github string) error {
+	tx, err := s.Pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	if github != "" {
+		if _, err := tx.Exec(ctx, `UPDATE members SET github_login = '' WHERE lower(github_login) = lower($2) AND NOT (`+where+`)`,
+			key, github); err != nil {
+			return err
+		}
+	}
+	tag, err := tx.Exec(ctx, `UPDATE members SET github_login = $2 WHERE `+where, key, github)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrNotFound
+	}
+	return tx.Commit(ctx)
 }
 
 func (s *Store) Members(ctx context.Context) ([]Member, error) {

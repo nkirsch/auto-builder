@@ -233,6 +233,51 @@ func TestMemberEmail(t *testing.T) {
 	}
 }
 
+func TestMemberGitHubLink(t *testing.T) {
+	ctx := context.Background()
+	s := testStore(t)
+	s.UpsertMember(ctx, "katrina", "member", "nkirsch")
+	s.SetMemberEmail(ctx, "katrina", "k@example.com")
+	s.UpsertMember(ctx, "momo", "member", "nkirsch")
+	s.SetMemberEmail(ctx, "momo", "m@example.com")
+	s.UpsertMember(ctx, "octocat", "member", "nkirsch")
+	// A made-up handle isn't its owner's GitHub account.
+	if _, err := s.MemberByGitHub(ctx, "momo"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("made-up handle matched: %v", err)
+	}
+	if m, err := s.MemberByGitHub(ctx, "OctoCat"); err != nil || m.Login != "octocat" {
+		t.Fatalf("GitHub login = %+v, %v", m, err)
+	}
+	if err := s.LinkGitHubByEmail(ctx, "K@example.com", "kat-gh"); err != nil {
+		t.Fatal(err)
+	}
+	if m, err := s.MemberByGitHub(ctx, "KAT-GH"); err != nil || m.Login != "katrina" || m.GitHubLogin != "kat-gh" {
+		t.Fatalf("linked = %+v, %v", m, err)
+	}
+	// Connecting octocat's account elsewhere wins over the login match and moves it.
+	if err := s.LinkGitHub(ctx, "momo", "octocat"); err != nil {
+		t.Fatal(err)
+	}
+	if m, _ := s.MemberByGitHub(ctx, "octocat"); m.Login != "momo" {
+		t.Fatalf("link not preferred: %+v", m)
+	}
+	if err := s.LinkGitHub(ctx, "katrina", "octocat"); err != nil {
+		t.Fatal(err)
+	}
+	if m, _ := s.Member(ctx, "momo"); m.GitHubLogin != "" {
+		t.Fatalf("account kept by its old member: %+v", m)
+	}
+	if err := s.LinkGitHub(ctx, "katrina", ""); err != nil {
+		t.Fatal(err)
+	}
+	if m, _ := s.MemberByGitHub(ctx, "octocat"); m.Login != "octocat" {
+		t.Fatalf("after disconnect = %+v", m)
+	}
+	if err := s.LinkGitHub(ctx, "nobody", "x"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("missing member: %v", err)
+	}
+}
+
 func TestMemberAvatar(t *testing.T) {
 	for in, want := range map[string]string{
 		"https://avatars.githubusercontent.com/u/1?v=4": "https://avatars.githubusercontent.com/u/1?v=4&s=48",

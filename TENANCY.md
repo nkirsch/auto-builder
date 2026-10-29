@@ -180,14 +180,19 @@ All done for extreme.org (2026-10-25):
 7. Hubs page (`/admin/hubs`, platform admins): every hub's boards in one place.
    Each hub serves `GET /api/overview` behind `STATS_TOKEN`: its Apps rows
    (absolute board, site and `/logs` URLs; health, version, unreleased
-   commits when `RELEASES=true`, last run) with each board's unfinished items
-   that need someone (escalated to the platform admins: urgent; to a board's
-   admins: escalated; blocked) and a count of the rest, plus how far the
-   platform repo is behind upstream. The page shows this hub's and those of
-   `HUBS` (space-separated `name=hub URL`; this hub's own URL is skipped):
-   urgent, escalated and blocked items from every board first, oldest first
-   within each, the count of other unfinished items, then a table per hub
-   linking its Admin, Urgent and Traffic. Each hub in `HUBS` needs the same
+   commits when `RELEASES=true`, last run, failed runs in the last 7 days,
+   each app's 5xx responses over the last 24h from its `<slug>-requests` view
+   in `LOG_PROJECT`, counted at most every 10 minutes) with each board's
+   unfinished items that need someone (escalated to the platform admins:
+   urgent; to a board's admins: escalated; blocked) and a count of the rest,
+   plus how far the platform repo is behind upstream and how many commits on
+   its `master` the hub's live `GIT_SHA` lacks (unreleased). The page shows
+   this hub's and those of `HUBS` (space-separated `name=hub URL`; this hub's
+   own URL is skipped): urgent, escalated and blocked items from every board
+   first, then boards whose last two or more runs failed (failing), oldest
+   first within each, the count of other unfinished items, then a table per
+   hub linking its Admin, Urgent and Traffic. Fields a hub that hasn't merged
+   them yet leaves out show as `–`. Each hub in `HUBS` needs the same
    `STATS_TOKEN` (copied as above); `infra/tenancy.sh` sets `HUBS` (default: iterate.nick.org and iterate.kirsch.org).
 
 ## Build order

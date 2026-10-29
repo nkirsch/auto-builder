@@ -152,60 +152,86 @@ type logView struct {
 }
 
 func (l logView) hits(ctx context.Context, since time.Time) ([]hit, error) {
+	var out []hit
+	filter := fmt.Sprintf(`timestamp >= %q AND httpRequest.requestMethod = "GET"`, since.UTC().Format(time.RFC3339))
+	err := l.list(ctx, filter, "entries(timestamp,httpRequest)", 100, func(raw json.RawMessage) error {
+		var e struct {
+			Timestamp   time.Time `json:"timestamp"`
+			HTTPRequest struct {
+				RequestMethod, RequestURL, UserAgent, RemoteIP, Referer string
+				Status                                                  int
+			} `json:"httpRequest"`
+		}
+		if err := json.Unmarshal(raw, &e); err != nil {
+			return err
+		}
+		h := e.HTTPRequest
+		p := h.RequestURL
+		if u, err := url.Parse(h.RequestURL); err == nil {
+			p = u.Path
+		}
+		out = append(out, hit{At: e.Timestamp, IP: h.RemoteIP, UA: h.UserAgent, Path: p,
+			Ref: h.Referer, Method: h.RequestMethod, Status: h.Status})
+		return nil
+	})
+	return out, err
+}
+
+// serverErrors counts the 5xx responses since a time, reading only their
+// timestamps.
+func (l logView) serverErrors(ctx context.Context, since time.Time) (int, error) {
+	n := 0
+	filter := fmt.Sprintf(`timestamp >= %q AND httpRequest.status >= 500`, since.UTC().Format(time.RFC3339))
+	err := l.list(ctx, filter, "entries(timestamp)", 20, func(json.RawMessage) error { n++; return nil })
+	return n, err
+}
+
+// list calls add with each entry matching filter, oldest first, reading at
+// most maxPages pages of 1000; fields picks the entries' fields.
+func (l logView) list(ctx context.Context, filter, fields string, maxPages int, add func(json.RawMessage) error) error {
 	tok, err := metadataToken(ctx, l.client)
 	if err != nil {
-		return nil, err
+		return err
 	}
-	var out []hit
 	body := map[string]any{
 		"resourceNames": []string{l.name},
-		"filter":        fmt.Sprintf(`timestamp >= %q AND httpRequest.requestMethod = "GET"`, since.UTC().Format(time.RFC3339)),
+		"filter":        filter,
 		"orderBy":       "timestamp asc",
 		"pageSize":      1000,
 	}
-	for pages := 0; pages < 100; pages++ {
+	for pages := 0; pages < maxPages; pages++ {
 		b, _ := json.Marshal(body)
 		req, _ := http.NewRequestWithContext(ctx, http.MethodPost,
-			"https://logging.googleapis.com/v2/entries:list?fields=entries(timestamp,httpRequest),nextPageToken", bytes.NewReader(b))
+			"https://logging.googleapis.com/v2/entries:list?fields="+fields+",nextPageToken", bytes.NewReader(b))
 		req.Header.Set("Authorization", "Bearer "+tok)
 		req.Header.Set("Content-Type", "application/json")
 		resp, err := l.client.Do(req)
 		if err != nil {
-			return nil, err
+			return err
 		}
 		var page struct {
-			Entries []struct {
-				Timestamp   time.Time `json:"timestamp"`
-				HTTPRequest struct {
-					RequestMethod, RequestURL, UserAgent, RemoteIP, Referer string
-					Status                                                  int
-				} `json:"httpRequest"`
-			} `json:"entries"`
-			NextPageToken string `json:"nextPageToken"`
+			Entries       []json.RawMessage `json:"entries"`
+			NextPageToken string            `json:"nextPageToken"`
 		}
 		err = json.NewDecoder(resp.Body).Decode(&page)
 		resp.Body.Close()
 		if resp.StatusCode != http.StatusOK {
-			return nil, fmt.Errorf("entries.list: %s", resp.Status)
+			return fmt.Errorf("entries.list: %s", resp.Status)
 		}
 		if err != nil {
-			return nil, err
+			return err
 		}
 		for _, e := range page.Entries {
-			h := e.HTTPRequest
-			p := h.RequestURL
-			if u, err := url.Parse(h.RequestURL); err == nil {
-				p = u.Path
+			if err := add(e); err != nil {
+				return err
 			}
-			out = append(out, hit{At: e.Timestamp, IP: h.RemoteIP, UA: h.UserAgent, Path: p,
-				Ref: h.Referer, Method: h.RequestMethod, Status: h.Status})
 		}
 		if page.NextPageToken == "" {
-			return out, nil
+			return nil
 		}
 		body["pageToken"] = page.NextPageToken
 	}
-	return out, nil
+	return nil
 }
 
 func metadataToken(ctx context.Context, c *http.Client) (string, error) {

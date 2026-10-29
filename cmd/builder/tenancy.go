@@ -67,6 +67,9 @@ func runTenancy(ctx context.Context, cfg config) error {
 		return err
 	}
 	h.launcher, h.provisioner, h.app = launcher, provisioner, app
+	if app != nil {
+		h.gh = github.ForApp(app)
+	}
 	if app != nil && cfg.Upstream != "" {
 		// The platform repo keeps up with upstream through the provision image (UPSTREAM_JOB).
 		h.upstream = &gate.Upstream{State: reg, GitHub: github.ForApp(app), Repo: cfg.Repo, Upstream: cfg.Upstream,
@@ -122,6 +125,15 @@ type hub struct {
 	behindMu sync.Mutex
 	behindAt time.Time   // when behindOf was last counted
 	behindOf upstreamLag // the platform repo's lag behind upstream, for /admin
+
+	gh          *github.Client // the platform repo's, for its unreleased commits; nil without the App
+	releasedMu  sync.Mutex
+	releasedAt  time.Time   // when releasedLag was last counted
+	releasedLag upstreamLag // commits on the platform repo's master that GIT_SHA lacks
+
+	errsMu    sync.Mutex
+	errs      map[string]errCount                                                  // each app's 5xx count, by slug
+	countErrs func(ctx context.Context, view string, since time.Time) (int, error) // tests: instead of the log view
 }
 
 // boardOf is the tenant slug a sign-in headed for next is for, or "".

@@ -392,3 +392,56 @@ func TestWho(t *testing.T) {
 		}
 	}
 }
+
+// Admins change a member's email in place, or clear it to make them GitHub-only.
+func TestSetMemberEmail(t *testing.T) {
+	ctx := context.Background()
+	b, _ := dbBoard(t)
+	b.Store.UpsertMember(ctx, "setheck", "member", "nkirsch")
+	b.Store.SetMemberEmail(ctx, "setheck", "old@example.org")
+	b.Store.UpsertMember(ctx, "other", "member", "nkirsch")
+	b.Store.SetMemberEmail(ctx, "other", "taken@example.org")
+	set := func(login, email string) (int, string) {
+		r := httptest.NewRequest(http.MethodPost, "/admin/members/"+login+"/email", strings.NewReader(url.Values{"email": {email}}.Encode()))
+		r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		r.SetPathValue("login", login)
+		r = r.WithContext(auth.WithMember(r.Context(), db.Member{Login: "nkirsch", Role: "admin"}))
+		w := httptest.NewRecorder()
+		b.setMemberEmail(w, r)
+		loc, _ := url.Parse(w.Header().Get("Location"))
+		return w.Code, loc.Query().Get("m")
+	}
+	email := func() db.Member { m, _ := b.Store.Member(ctx, "setheck"); return m }
+
+	if _, got := set("setheck", " New@Example.ORG "); got != "setheck's email changed from old@example.org to new@example.org: they sign in with Google as new@example.org; their invite goes there too" {
+		t.Errorf("flash %q", got)
+	}
+	if m := email(); m.Email != "new@example.org" {
+		t.Fatalf("email = %q", m.Email)
+	}
+	if !strings.HasPrefix(b.invite(email()), "mailto:new@example.org?") {
+		t.Errorf("invite = %s", b.invite(email()))
+	}
+	if _, got := set("setheck", "taken@example.org"); got != "taken@example.org belongs to another member" {
+		t.Errorf("flash %q", got)
+	}
+	if _, got := set("setheck", "nope"); got != "That email doesn't look right" {
+		t.Errorf("flash %q", got)
+	}
+	if m := email(); m.Email != "new@example.org" {
+		t.Fatalf("email = %q after rejected changes", m.Email)
+	}
+	if _, got := set("setheck", ""); !strings.HasPrefix(got, "Cleared setheck's email: they sign in with GitHub") {
+		t.Errorf("flash %q", got)
+	}
+	if m := email(); m.Email != "" || !m.GitHubSignIn() {
+		t.Fatalf("cleared member = %+v", m)
+	}
+	b.Store.TouchMember(ctx, "setheck", "", "")
+	if _, got := set("setheck", "g@example.org"); got != "setheck's email is now g@example.org: they sign in with Google as g@example.org" {
+		t.Errorf("flash %q", got)
+	}
+	if code, _ := set("nobody", "x@example.org"); code != http.StatusNotFound {
+		t.Errorf("unknown member: %d", code)
+	}
+}

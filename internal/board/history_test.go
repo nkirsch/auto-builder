@@ -59,7 +59,7 @@ func TestHistoryPage(t *testing.T) {
 		`<a class="tag" href="https://github.com/o/r/tree/v26.10.27-1">v26.10.27-1</a>`,
 		`<span class="badge live">live</span>`,
 		`<a href="https://github.com/o/r/pull/6">#6</a> Dark mode`,
-		`<a href="/items/3">item #3</a> asked by alice`,
+		`<a href="/items/3">item #3</a> asked by <a href="/?by=alice" title="Only their asks">alice</a>`,
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("history page missing %s", want)

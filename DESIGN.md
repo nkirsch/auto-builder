@@ -97,6 +97,9 @@ non-bot change (create, reply, approve) and drives the gate.
 - `#tag` in a new item's title or body tags it (lower-cased, up to 5); tags
   show as links that filter the board (`/?tag=bug`). The agent tags untagged
   items with its guess via `set_tags`.
+- An ask's author links to the board filtered to their asks (`/?by=login`,
+  combinable with `tag` and `show`) from the board, Runs (beside each item a
+  run acted on) and History.
 - An admin reply on a `closed` or `shipped` item reopens it (approval kept),
   so the agent picks it up again; member replies only notify. On a `merged`
   item it sets `reopen_on_ship`, and the ship-checker reopens it right after

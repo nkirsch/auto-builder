@@ -25,7 +25,7 @@
     </div>
     {{with .Stages}}<div class="stages">{{range .}}<span class="st-{{.State}}">{{.Name}}{{if or (eq .State "done") (eq .State "active")}} {{dur .Duration}}{{end}}</span>{{end}}</div>{{end}}
     {{with .Items}}<ul class="run-items">{{range .}}
-      <li><a href="{{base}}/items/{{.ItemID}}">#{{.ItemID}} {{.Title}}</a> <span class="status s-{{.Status}}">{{.Status}}</span></li>
+      <li><a href="{{base}}/items/{{.ItemID}}">#{{.ItemID}} {{.Title}}</a> <span class="status s-{{.Status}}">{{.Status}}</span> <span class="muted">asked by <a href="{{base}}/{{boardq "" "" .Author}}" title="Only their asks">{{who $.Names .Author}}</a></span></li>
     {{end}}</ul>{{end}}
     {{with .Summary}}<details><summary>Summary</summary><pre>{{.}}</pre></details>{{end}}
   </li>

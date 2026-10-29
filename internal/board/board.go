@@ -166,6 +166,7 @@ func (b *Board) Routes(mux *http.ServeMux) error {
 	mux.Handle("POST /admin/members", admin(b.addMember))
 	mux.Handle("POST /admin/members/{login}/delete", admin(b.deleteMember))
 	mux.Handle("POST /admin/members/{login}/github", admin(b.setMemberGitHub))
+	mux.Handle("POST /admin/members/{login}/email", admin(b.setMemberEmail))
 	mux.Handle("POST /admin/members/{login}/invite", admin(b.sendInvite))
 	mux.Handle("POST /admin/run", admin(b.runNow))
 	mux.Handle("POST /admin/provision", admin(b.reprovision))
@@ -1061,6 +1062,56 @@ func (b *Board) setMemberGitHub(w http.ResponseWriter, r *http.Request) {
 	msg := login + " signs in with Google only"
 	if on {
 		msg = login + " signs in with GitHub or Google"
+	}
+	redirect(w, r, "/admin", msg)
+}
+
+// setMemberEmail changes, or with an empty email clears, the address a member
+// signs in with Google as; without one they sign in with GitHub only.
+func (b *Board) setMemberEmail(w http.ResponseWriter, r *http.Request) {
+	m, err := b.Store.Member(r.Context(), r.PathValue("login"))
+	if errors.Is(err, db.ErrNotFound) {
+		http.NotFound(w, r)
+		return
+	} else if err != nil {
+		b.fail(w, err)
+		return
+	}
+	// Google sign-in matches the lower-cased address.
+	email := strings.ToLower(strings.TrimSpace(r.FormValue("email")))
+	switch {
+	case email == m.Email:
+		redirect(w, r, "/admin", m.Login+"'s email is unchanged")
+		return
+	case email != "" && !strings.Contains(email, "@"):
+		redirect(w, r, "/admin", "That email doesn't look right")
+		return
+	case email == "" && !b.gitHubSignIn():
+		redirect(w, r, "/admin", "GitHub sign-in is off, so "+m.Login+" needs a Google email")
+		return
+	}
+	if err := b.Store.SetMemberEmail(r.Context(), m.Login, email); errors.Is(err, db.ErrEmailTaken) {
+		redirect(w, r, "/admin", email+" belongs to another member")
+		return
+	} else if err != nil {
+		b.fail(w, err)
+		return
+	}
+	if email == "" {
+		// GitHub is then their only way in.
+		if err := b.Store.SetMemberGitHub(r.Context(), m.Login, true); err != nil {
+			b.fail(w, err)
+			return
+		}
+		redirect(w, r, "/admin", "Cleared "+m.Login+"'s email: they sign in with GitHub as "+m.Login+" only, so that must be their GitHub login")
+		return
+	}
+	msg := m.Login + "'s email is now " + email + ": they sign in with Google as " + email
+	if m.Email != "" {
+		msg = m.Login + "'s email changed from " + m.Email + " to " + email + ": they sign in with Google as " + email
+	}
+	if m.LastSeen == nil {
+		msg += "; their invite goes there too"
 	}
 	redirect(w, r, "/admin", msg)
 }

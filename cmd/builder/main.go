@@ -57,6 +57,7 @@ type config struct {
 
 	StatsToken string       // STATS_TOKEN: bearer for GET /api/stats; the hub sends it to SITES
 	Sites      []remoteSite // multi mode: SITES, standalone boards on the hub's Apps page
+	Hubs       []remoteSite // multi mode: HUBS, other hubs whose /api/overview /admin/hubs gathers
 	// multi mode: CREATORS_FROM, names in SITES whose members may create an app
 	CreatorsFrom []string
 	// single mode: CREATE_APP_URL, a hub's New app page linked for members
@@ -123,7 +124,10 @@ func loadConfig() (config, error) {
 	c.StatsToken = env("STATS_TOKEN", "")
 	c.LogProject = env("LOG_PROJECT", c.Project)
 	if c.Sites, err = parseSites(env("SITES", "")); err != nil {
-		return c, err
+		return c, fmt.Errorf("SITES: %w", err)
+	}
+	if c.Hubs, err = parseSites(env("HUBS", "")); err != nil {
+		return c, fmt.Errorf("HUBS: %w", err)
 	}
 	c.CreatorsFrom = strings.FieldsFunc(env("CREATORS_FROM", ""), func(r rune) bool { return r == ',' || r == ' ' })
 	c.CreateAppURL = env("CREATE_APP_URL", "")

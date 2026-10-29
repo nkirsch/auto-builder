@@ -530,3 +530,15 @@ func TestInvitesHeldUntilReady(t *testing.T) {
 		t.Errorf("invite flash %q", got)
 	}
 }
+
+func TestYourApp(t *testing.T) {
+	for in, want := range map[string]string{
+		"https://extreme.org/new": "https://extreme.org/mine",
+		"https://hub.example/x":   "https://hub.example/x",
+		"":                        "",
+	} {
+		if got := yourApp(in); got != want {
+			t.Errorf("yourApp(%q) = %q, want %q", in, got, want)
+		}
+	}
+}

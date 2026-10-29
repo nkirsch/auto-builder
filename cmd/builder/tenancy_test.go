@@ -795,3 +795,45 @@ func TestHubSignIns(t *testing.T) {
 		}
 	}
 }
+
+// A single board's "Your app" lands on /mine: the viewer's own app if they
+// have one, New app if they may make one.
+func TestHubMine(t *testing.T) {
+	h := testHub(t)
+	srv := h.routes()
+	to := func(identity, path, want string) {
+		t.Helper()
+		if w := do(h, srv, identity, "GET", path, nil); w.Code != 303 || w.Header().Get("Location") != want {
+			t.Errorf("%s %s: %d %q; want %q", identity, path, w.Code, w.Header().Get("Location"), want)
+		}
+	}
+	if w := do(h, srv, "", "GET", "/mine", nil); w.Code != 302 {
+		t.Errorf("signed out: %d", w.Code)
+	}
+	to("nkirsch", "/mine", "/new")
+	do(h, srv, "nick@example.org", "POST", "/new", url.Values{"slug": {"alpha"}})
+	to("nkirsch", "/mine", "/alpha/")
+	to("nick@example.org", "/mine", "/alpha/")
+
+	// An app made for carol is hers, not the platform admin's.
+	do(h, srv, "nkirsch", "POST", "/new", url.Values{"slug": {"carols"}, "owner": {"carol"}})
+	to("nkirsch", "/mine", "/alpha/")
+	to("carol", "/mine", "/carols/")
+	to("carol", "/new", "/mine")
+	if w := do(h, srv, "carol", "POST", "/new", url.Values{"slug": {"beta"}}); w.Code != 403 {
+		t.Errorf("carol made another: %d", w.Code)
+	}
+
+	// A member without an app who can't make one stays on Apps; so does one with several.
+	do(h, srv, "nkirsch", "POST", "/alpha/admin/members", url.Values{"login": {"bob"}, "role": {"member"}})
+	if w := do(h, srv, "bob", "GET", "/mine", nil); !strings.HasPrefix(w.Header().Get("Location"), "/?flash=") {
+		t.Errorf("bob: %q", w.Header().Get("Location"))
+	}
+	if w := do(h, srv, "bob", "GET", "/new", nil); w.Code != 403 {
+		t.Errorf("bob on New app: %d", w.Code)
+	}
+	h.reg.AddCreator(context.Background(), "bob", "nkirsch")
+	to("bob", "/mine", "/new")
+	do(h, srv, "nkirsch", "POST", "/new", url.Values{"slug": {"beta"}})
+	to("nkirsch", "/mine", "/")
+}

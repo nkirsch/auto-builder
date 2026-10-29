@@ -48,6 +48,7 @@
 
 <form method="post" action="{{base}}/items/{{$it.ID}}/responses" enctype="multipart/form-data" class="stack">
   {{if and $me.IsAdmin (eq $it.Status "closed" "shipped")}}<p class="hint">Replying reopens this item so the agent picks it up again.</p>{{end}}
+  {{if and $me.IsAdmin (eq $it.Status "merged")}}<p class="hint">Replying reopens this item once it ships, so the agent picks it up again.</p>{{end}}
   <textarea name="body" rows="4" placeholder="Reply (markdown, @login)"></textarea>
   <div class="row">
     <input type="file" name="files" multiple>

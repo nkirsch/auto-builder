@@ -98,7 +98,15 @@ func (s *Shipper) ship(ctx context.Context, it db.Item) error {
 		return err
 	}
 	slog.Info("item shipped", "item", it.ID, "sha", it.MergeSHA)
-	return s.Reply(ctx, it, s.shippedNote(ctx, it.MergeSHA))
+	note := s.shippedNote(ctx, it.MergeSHA)
+	// An admin replied while it was merged: their follow-up reopens it now.
+	if reopened, err := s.Store.ReopenShipped(ctx, it.ID); err != nil {
+		return err
+	} else if reopened {
+		slog.Info("item reopened on ship", "item", it.ID)
+		note += " Reopened for the follow-up above."
+	}
+	return s.Reply(ctx, it, note)
 }
 
 // shippedNote names the release, e.g. "Shipped in v26.10.25-3 (abc1234).",

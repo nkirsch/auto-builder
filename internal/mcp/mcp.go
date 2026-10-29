@@ -21,8 +21,9 @@ import (
 type Board struct {
 	Store    *db.Store
 	BotLogin string
-	BaseURL  string
-	GitSHA   string
+	// BaseURL is where the runner API (/api/runner/...) is served.
+	BaseURL string
+	GitSHA  string
 	// Deployed, when set, reports the live SHA instead of GitSHA: a tenant's
 	// app deploys apart from this server.
 	Deployed func(ctx context.Context) (string, error)

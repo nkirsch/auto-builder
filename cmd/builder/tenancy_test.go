@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/nkirsch/auto-builder/internal/db"
 	"github.com/nkirsch/auto-builder/internal/store"
 	"github.com/nkirsch/auto-builder/internal/tenant"
 )
@@ -254,6 +255,17 @@ func TestHubRuns(t *testing.T) {
 	w := runnerDo(srv, tok, "POST", "/mcp", `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"list_items","arguments":{}}}`)
 	if w.Code != 200 || !strings.Contains(w.Body.String(), "alpha ask") || strings.Contains(w.Body.String(), "beta ask") {
 		t.Fatalf("mcp: %d %s", w.Code, w.Body.String())
+	}
+
+	// get_item's attachment URLs are served by the hub's runner API.
+	h.storage.Put(ctx, "t/alpha/attachments/1/a.txt", "text/plain", strings.NewReader("hi"))
+	alpha.AddAttachment(ctx, db.Attachment{ItemID: 1, Name: "a.txt", ContentType: "text/plain", Size: 2, Object: "attachments/1/a.txt", UploadedBy: "nkirsch"})
+	w = runnerDo(srv, tok, "POST", "/mcp", `{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"get_item","arguments":{"id":1}}}`)
+	if !strings.Contains(w.Body.String(), `https://hub.example/api/runner/attachments/1`) {
+		t.Fatalf("get_item attachment URL: %s", w.Body.String())
+	}
+	if a := runnerDo(srv, tok, "GET", "/api/runner/attachments/1", ""); a.Code != 200 || a.Body.String() != "hi" {
+		t.Errorf("attachment: %d %q", a.Code, a.Body.String())
 	}
 
 	// The platform cap holds other tenants' launches while alpha's run is active.

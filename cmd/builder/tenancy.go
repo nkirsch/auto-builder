@@ -450,7 +450,8 @@ func (h *hub) tenantFor(ctx context.Context, slug string) (*tenantRT, error) {
 	if h.cfg.Version != "" {
 		b.SetVersion(h.cfg.Version)
 	}
-	tools := &mcp.Board{Store: st, BotLogin: h.cfg.BotLogin, BaseURL: base, GitSHA: h.cfg.GitSHA, Deployed: deployed, Reply: b.BotReply}
+	// The runner API is the hub's, not the tenant's: it finds the tenant by run token.
+	tools := &mcp.Board{Store: st, BotLogin: h.cfg.BotLogin, BaseURL: h.cfg.BaseURL, GitSHA: h.cfg.GitSHA, Deployed: deployed, Reply: b.BotReply}
 	if h.app != nil && h.cfg.IssueSync {
 		g.Issues = &gate.IssueSync{Store: st, GitHub: gh, Repo: t.Repo, BaseURL: base, Notified: b.Notified}
 		b.Filer, b.Welcomer, tools.Filer = g.Issues, g.Issues, g.Issues

@@ -73,6 +73,11 @@ func run() error {
 			return tok, err
 		},
 		Shell: execShell{},
+		Report: func(ctx context.Context, step, state, errText string) {
+			if err := reg.SetStep(ctx, slug, step, state, errText); err != nil {
+				slog.Error("record step", "step", step, "err", err)
+			}
+		},
 	}
 	if action == "delete" {
 		slog.Info("deleting", "tenant", slug, "repo", t.Repo)
@@ -87,6 +92,7 @@ func run() error {
 	if err := reg.SetStatus(ctx, slug, "provisioning", ""); err != nil {
 		return err
 	}
+	p.Report(ctx, "Job started", "done", "")
 	slog.Info("provisioning", "tenant", slug, "action", action, "repo", t.Repo)
 	if err := p.Create(ctx, t); err != nil {
 		if serr := reg.SetStatus(context.WithoutCancel(ctx), slug, "failed", err.Error()); serr != nil {
@@ -97,6 +103,7 @@ func run() error {
 	// The hub's tick makes it ready once the app answers on its domain,
 	// which waits on DNS and the certificate (up to an hour).
 	slog.Info("provisioned", "tenant", slug)
+	p.Report(ctx, "DNS and certificate", "running", "")
 	return reg.SetStatus(ctx, slug, "securing", "")
 }
 

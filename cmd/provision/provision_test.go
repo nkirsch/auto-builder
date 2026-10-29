@@ -70,9 +70,21 @@ func TestCreate(t *testing.T) {
 		Pool: "extreme", Provider: "github", Template: "extreme-dot-org/extreme-template",
 		GitHub: github.New(srv.URL, "t"), Shell: sh,
 		Token: func(context.Context) (string, error) { return "sekrit", nil }}
+	var reports []string
+	p.Report = func(_ context.Context, step, state, errText string) {
+		reports = append(reports, step+" "+state+errText)
+	}
 	tn := tenant.Tenant{Slug: "alpha", Name: "Alpha", Repo: "extreme-dot-org/alpha"}
 	if err := p.Create(ctx, tn); err != nil {
 		t.Fatal(err)
+	}
+	// Each step the job covers is reported running, then done, in order.
+	var want []string
+	for _, step := range tenant.ProvisionSteps[2 : len(tenant.ProvisionSteps)-1] {
+		want = append(want, step+" running", step+" done")
+	}
+	if !slices.Equal(reports, want) {
+		t.Errorf("reports %q, want %q", reports, want)
 	}
 	all := strings.Join(sh.cmds, "\n")
 	for _, want := range []string{
@@ -163,4 +175,39 @@ func (g *goneShell) Run(_ context.Context, _ []string, args ...string) (string, 
 		return "", errors.New("HTTPError 404: does not exist")
 	}
 	return "", nil
+}
+
+// A failing step is reported failed with its error, and later steps don't run.
+func TestCreateReportsFailure(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte(`[{}]`)) // the repo exists and has commits
+	}))
+	defer srv.Close()
+	sh := &failShell{fakeShell: fakeShell{exists: false}, fail: "domain-mappings create"}
+	reports := map[string]string{}
+	p := &Provisioner{Project: "proj", Region: "us-central1", Domain: "extreme.org", Zone: "extreme-org",
+		GitHub: github.New(srv.URL, "t"), Shell: sh,
+		Report: func(_ context.Context, step, state, errText string) { reports[step] = state + " " + errText }}
+	if err := p.Create(context.Background(), tenant.Tenant{Slug: "alpha", Repo: "extreme-dot-org/alpha"}); err == nil {
+		t.Fatal("no error")
+	}
+	if got := reports["Domain mapping"]; !strings.HasPrefix(got, "failed beta run: ") || !strings.Contains(got, "not verified") {
+		t.Errorf("domain mapping %q", got)
+	}
+	if reports["Image repo and service"] != "done " || reports["DNS record"] != "" {
+		t.Errorf("reports %v", reports)
+	}
+}
+
+// failShell is a fakeShell whose commands containing fail error out.
+type failShell struct {
+	fakeShell
+	fail string
+}
+
+func (f *failShell) Run(ctx context.Context, env []string, args ...string) (string, error) {
+	if strings.Contains(strings.Join(args, " "), f.fail) {
+		return "", errors.New("domain not verified")
+	}
+	return f.fakeShell.Run(ctx, env, args...)
 }

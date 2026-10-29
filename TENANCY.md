@@ -94,6 +94,10 @@ platform admin can re-run it from `/admin`. The job writes
 log is in Cloud Logging. `securing` means provisioned but the domain or its
 certificate (15–60 min) isn't working yet: the hub's tick requests
 `https://<slug>.<domain>/` and marks the app `ready` once anything answers.
+Each step's state goes in `control.tenants.steps` (JSONB, `tenant.ProvisionSteps`
+order; reset when the hub starts the job), and until the app is `ready` its
+board's index shows them with a progress bar, reloading every 15s, plus a
+Provision (retry) button for board admins when it failed.
 
 Domain mappings require the caller to be a verified owner of extreme.org, so
 the provisioner SA is added as an owner in Search Console (manual, once).
@@ -112,7 +116,7 @@ the provisioner SA is added as an owner in Search Console (manual, once).
 ## Control schema
 
 ```
-control.tenants       (slug PK, name, repo, status, created_by, created_at, provisioned_at, error)
+control.tenants       (slug PK, name, repo, status, created_by, created_at, provisioned_at, error, existing, steps)
 control.platform_admins (login PK, email UNIQUE)
 control.users         (identity PK, name, avatar_url, last_seen)
 control.run_tokens    (hash PK, tenant, run_id, expires_at)

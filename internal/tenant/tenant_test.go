@@ -145,6 +145,22 @@ func TestRegistry(t *testing.T) {
 	if tn, _ = r.Tenant(ctx, "alpha"); tn.Status != "ready" || tn.ProvisionedAt == nil || !tn.Live() {
 		t.Errorf("ready tenant %+v", tn)
 	}
+	// Progress starts with the job queued; steps record their state in order.
+	if err := r.StartSteps(ctx, "alpha"); err != nil {
+		t.Fatal(err)
+	}
+	r.SetStep(ctx, "alpha", "Repo", "done", "")
+	r.SetStep(ctx, "alpha", "Accounts", "failed", "quota")
+	r.SetStep(ctx, "alpha", "No such step", "done", "")
+	tn, _ = r.Tenant(ctx, "alpha")
+	if len(tn.Steps) != len(ProvisionSteps) || tn.Steps[0] != (Step{Name: "Job queued", State: "done"}) ||
+		tn.Steps[1].State != "pending" || tn.Steps[2] != (Step{Name: "Repo", State: "done"}) ||
+		tn.Steps[3] != (Step{Name: "Accounts", State: "failed", Error: "quota"}) {
+		t.Errorf("steps %+v", tn.Steps)
+	}
+	if err := r.StartSteps(ctx, "nobody"); !errors.Is(err, db.ErrNotFound) {
+		t.Errorf("steps of missing tenant: %v", err)
+	}
 	if err := r.SetStatus(ctx, "nobody", "ready", ""); !errors.Is(err, db.ErrNotFound) {
 		t.Errorf("status of missing tenant: %v", err)
 	}

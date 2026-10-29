@@ -334,13 +334,14 @@ func TestHubRuns(t *testing.T) {
 	}
 }
 
-// A provisioned app is securing until it answers on its domain: its board
-// runs, and the tick makes it ready once the app responds.
+// A new app's board shows its setup's progress; once provisioned it's
+// securing until it answers on its domain: its board runs, and the tick
+// makes it ready once the app responds.
 func TestHubSecuring(t *testing.T) {
 	ctx := context.Background()
 	h := testHub(t)
-	job := &fakeJob{}
-	h.launcher, h.provisioner = job, &fakeJob{}
+	job, prov := &fakeJob{}, &fakeJob{}
+	h.launcher, h.provisioner = job, prov
 	up := false
 	app := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if !up { // no certificate yet: the connection fails
@@ -357,7 +358,34 @@ func TestHubSecuring(t *testing.T) {
 	if w := do(h, srv, "nkirsch", "POST", "/new", url.Values{"slug": {"alpha"}}); w.Code != 303 {
 		t.Fatalf("create: %d", w.Code)
 	}
+	// Until the app is ready, its board shows the setup's progress and reloads.
+	body := do(h, srv, "nick@example.org", "GET", "/alpha/", nil).Body.String()
+	for _, want := range []string{`<meta http-equiv="refresh" content="15">`, "Setting up this app", `<progress max="100" value="9">`,
+		`<li class="step-done">Job queued`, `<li class="step-pending">DNS and certificate`} {
+		if !strings.Contains(body, want) {
+			t.Errorf("provisioning board missing %q", want)
+		}
+	}
+	// A failed step shows its error, and the board's admins can retry.
+	h.reg.SetStep(ctx, "alpha", "Domain mapping", "failed", "domain not verified")
+	h.reg.SetStatus(ctx, "alpha", "failed", "beta run: domain not verified")
+	body = do(h, srv, "nick@example.org", "GET", "/alpha/", nil).Body.String()
+	if !strings.Contains(body, `<li class="step-failed">Domain mapping <span class="muted">failed</span> <span class="bad">domain not verified</span>`) ||
+		!strings.Contains(body, `action="/alpha/admin/provision"`) || strings.Contains(body, `http-equiv="refresh"`) {
+		t.Errorf("failed provisioning board: %s", body)
+	}
+	if w := do(h, srv, "nick@example.org", "POST", "/alpha/admin/provision", url.Values{}); !strings.Contains(w.Header().Get("Location"), "Provisioning%20again") ||
+		prov.launches[len(prov.launches)-1]["ACTION"] != "sync" {
+		t.Fatalf("retry: %q %v", w.Header().Get("Location"), prov.launches)
+	}
+	if w := do(h, srv, "nick@example.org", "POST", "/alpha/admin/provision", url.Values{}); !strings.Contains(w.Header().Get("Location"), "didn") {
+		t.Fatalf("retry while provisioning: %q", w.Header().Get("Location"))
+	}
+
 	h.reg.SetStatus(ctx, "alpha", "securing", "")
+	if !strings.Contains(do(h, srv, "nick@example.org", "GET", "/alpha/", nil).Body.String(), "Waiting for the app") {
+		t.Error("securing board without its panel")
+	}
 	if w := do(h, srv, "nick@example.org", "POST", "/alpha/admin/run", url.Values{}); !strings.Contains(w.Header().Get("Location"), "Started") {
 		t.Fatalf("run now while securing: %q", w.Header().Get("Location"))
 	}
@@ -377,8 +405,11 @@ func TestHubSecuring(t *testing.T) {
 	}
 	up = true
 	tick()
-	if tn, _ := h.reg.Tenant(ctx, "alpha"); tn.Status != "ready" || tn.ProvisionedAt == nil {
+	if tn, _ := h.reg.Tenant(ctx, "alpha"); tn.Status != "ready" || tn.ProvisionedAt == nil || tn.Steps[len(tn.Steps)-1].State != "done" {
 		t.Fatalf("reachable app %+v", tn)
+	}
+	if body := do(h, srv, "nick@example.org", "GET", "/alpha/", nil).Body.String(); strings.Contains(body, `class="provisioning"`) || strings.Contains(body, "http-equiv") {
+		t.Error("ready board still shows provisioning")
 	}
 }
 

@@ -106,6 +106,11 @@ type Board struct {
 	Platform Platform
 	// Mailer, when set, lets admins email invites instead of opening a mail client.
 	Mailer Mailer
+	// Provisioning, when set (a hub's tenant board), returns the app's setup
+	// progress until it's ready, then nil.
+	Provisioning func(ctx context.Context) *Provisioning
+	// Reprovision, when set, re-runs the app's failed setup.
+	Reprovision func(ctx context.Context) error
 
 	tmpl    map[string]*template.Template
 	version atomic.Pointer[string]
@@ -161,6 +166,7 @@ func (b *Board) Routes(mux *http.ServeMux) error {
 	mux.Handle("POST /admin/members/{login}/github", admin(b.setMemberGitHub))
 	mux.Handle("POST /admin/members/{login}/invite", admin(b.sendInvite))
 	mux.Handle("POST /admin/run", admin(b.runNow))
+	mux.Handle("POST /admin/provision", admin(b.reprovision))
 	mux.Handle("POST /runs/{id}/cancel", admin(b.cancelRun))
 	mux.Handle("POST /admin/release", admin(b.release))
 	mux.Handle("POST /admin/spend-limit", admin(b.setSpendLimit))
@@ -245,10 +251,16 @@ type page struct {
 	AppName string // a multi-tenant app's name, shown instead of the brand's
 	SiteURL string // the app's site, linked from the nav
 	NewApp  string // a hub's New app page, for members to make their own app
+	Refresh int    // seconds until the page reloads itself; 0 never
 	Data    any
 }
 
 func (b *Board) render(w http.ResponseWriter, r *http.Request, name, title string, data any) {
+	b.renderRefresh(w, r, name, title, data, 0)
+}
+
+// renderRefresh renders a page that reloads itself every refresh seconds.
+func (b *Board) renderRefresh(w http.ResponseWriter, r *http.Request, name, title string, data any, refresh int) {
 	me := auth.Member(r.Context())
 	var unread int
 	if me.Login != "" {
@@ -265,7 +277,7 @@ func (b *Board) render(w http.ResponseWriter, r *http.Request, name, title strin
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	p := page{Me: me, Unread: unread, Title: title, GitSHA: b.GitSHA, Repo: cmp.Or(b.CodeRepo, b.Repo), Flash: r.URL.Query().Get("m"),
 		BotName: b.BotLogin, Theme: theme(r), Path: r.URL.RequestURI(), BaseURL: strings.TrimSuffix(b.BaseURL, "/"),
-		AppName: b.Name, SiteURL: b.SiteURL, NewApp: b.CreateAppURL, Data: data}
+		AppName: b.Name, SiteURL: b.SiteURL, NewApp: b.CreateAppURL, Refresh: refresh, Data: data}
 	p.Version = b.Version()
 	if err := t.ExecuteTemplate(w, "layout", p); err != nil {
 		slog.Error("render", "page", name, "err", err)
@@ -323,8 +335,13 @@ func (b *Board) index(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		slog.Warn("unread items", "err", err)
 	}
-	b.render(w, r, "index", "Board", map[string]any{"Sections": sections(items, show == "done"), "Show": show, "Tag": tag,
-		"Unread": unread})
+	// While the app is being set up, its progress reloads itself.
+	prov, refresh := b.provisioning(r.Context()), 0
+	if prov != nil && prov.Status != "failed" {
+		refresh = 15
+	}
+	b.renderRefresh(w, r, "index", "Board", map[string]any{"Sections": sections(items, show == "done"), "Show": show, "Tag": tag,
+		"Unread": unread, "Provisioning": prov}, refresh)
 }
 
 // isDone reports whether an item belongs in the Done view: shipped or closed

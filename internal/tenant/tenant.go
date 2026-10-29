@@ -397,6 +397,12 @@ func (r *Registry) Settings(ctx context.Context) (Settings, error) {
 	return s, err
 }
 
+// SetSettings changes the limits across all tenants.
+func (r *Registry) SetSettings(ctx context.Context, s Settings) error {
+	_, err := r.Control.Exec(ctx, `UPDATE settings SET spend_limit_usd = $1, max_runs = $2`, s.SpendLimit, s.MaxRuns)
+	return err
+}
+
 // UpstreamSync reports whether the platform repo keeps up with its upstream
 // and the upstream PR in flight (0 for none).
 func (r *Registry) UpstreamSync(ctx context.Context) (on bool, pr int, err error) {

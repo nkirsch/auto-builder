@@ -102,6 +102,8 @@ type Board struct {
 	Upstream string
 	// Traffic, when set, links the admin page to the site's traffic at /logs.
 	Traffic bool
+	// HubLimits: the hub's platform admins set the spend limit; board admins only see it.
+	HubLimits bool
 	// Platform, when set (multi-tenant mode), is whom admins escalate to.
 	Platform Platform
 	// Mailer, when set, lets admins email invites instead of opening a mail client.
@@ -212,6 +214,7 @@ var funcs = template.FuncMap{
 		}
 	},
 	"who": who,
+	"pct": pct,
 	"deref": func(p *int) int {
 		if p == nil {
 			return 0
@@ -245,6 +248,14 @@ func who(names map[string]string, login string) template.HTML {
 		return template.HTML(template.HTMLEscapeString(login))
 	}
 	return template.HTML(`<span title="` + template.HTMLEscapeString(name+" ("+login+")") + `">` + template.HTMLEscapeString(first) + `</span>`)
+}
+
+// pct is spent as a whole percent of limit, capped at 100.
+func pct(spent, limit float64) int {
+	if limit <= 0 {
+		return 100
+	}
+	return min(100, int(spent/limit*100))
 }
 
 // names maps each member's login to their name, for who.
@@ -910,7 +921,7 @@ func (b *Board) admin(w http.ResponseWriter, r *http.Request) {
 		mail = map[string]any{"From": b.Mailer.Mailbox(r)}
 	}
 	b.render(w, r, "admin", "Admin", map[string]any{"Members": members, "Costs": costs, "Traffic": b.Traffic,
-		"Limit": limit, "MemberCosts": byMember, "Stats": []db.RunStats{recent, all}, "Upstream": upstream, "Mail": mail,
+		"Limit": limit, "MemberCosts": byMember, "Stats": []db.RunStats{recent, all}, "Upstream": upstream, "Mail": mail, "HubLimits": b.HubLimits,
 		"Workflows": workflows, "GitHub": b.gitHubSignIn()})
 }
 
@@ -918,6 +929,10 @@ func (b *Board) admin(w http.ResponseWriter, r *http.Request) {
 func (b *Board) gitHubSignIn() bool { return b.Auth == nil || b.Auth.GitHub() }
 
 func (b *Board) setSpendLimit(w http.ResponseWriter, r *http.Request) {
+	if b.HubLimits {
+		redirect(w, r, "/admin", "The hub's admins set this app's spend limit")
+		return
+	}
 	v, err := strconv.ParseFloat(strings.TrimPrefix(strings.TrimSpace(r.FormValue("limit")), "$"), 64)
 	if err != nil || !(v >= 0.01 && v < 1e6) {
 		redirect(w, r, "/admin", "Enter a spend limit in dollars, at least $0.01")

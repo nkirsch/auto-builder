@@ -1,6 +1,7 @@
 package main
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -9,6 +10,7 @@ import (
 	"net/http"
 	"net/url"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -206,6 +208,8 @@ func (h *hub) routes() http.Handler {
 	mux.HandleFunc("POST /admin/tenants/{slug}/provision", h.platformAdmin(h.reprovision))
 	mux.HandleFunc("POST /admin/tenants/{slug}/delete", h.platformAdmin(h.deleteApp))
 	mux.HandleFunc("POST /admin/upstream", h.platformAdmin(h.setUpstream))
+	mux.HandleFunc("POST /admin/limits", h.platformAdmin(h.setLimits))
+	mux.HandleFunc("POST /admin/tenants/{slug}/spend-limit", h.platformAdmin(h.setTenantLimit))
 	mux.HandleFunc("GET /admin/urgent", h.platformAdmin(h.urgent))
 	mux.HandleFunc("GET /admin/traffic", h.platformAdmin(h.trafficAll))
 	mux.HandleFunc("POST /admin/tenants/{slug}/items/{id}/reassign", h.platformAdmin(h.reassign))
@@ -486,7 +490,7 @@ func (h *hub) tenantFor(ctx context.Context, slug string) (*tenantRT, error) {
 		Store: st, Storage: storage, Auth: ta, Gate: g, BaseURL: base,
 		BotLogin: h.cfg.BotLogin, GitSHA: h.cfg.GitSHA, Repo: t.Repo, CodeRepo: h.cfg.Repo, GitHub: gh,
 		Name: t.Name, SiteURL: h.appURL(slug), Releases: h.cfg.Releases, Traffic: h.cfg.LogProject != "",
-		Platform: hubPlatform{h, slug}, Deployed: deployed,
+		Platform: hubPlatform{h, slug}, Deployed: deployed, HubLimits: true,
 		Ready: func(ctx context.Context) bool {
 			t, err := h.reg.Tenant(ctx, slug)
 			return err == nil && t.Live()
@@ -942,6 +946,100 @@ func (h *hub) reprovision(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, "/admin?flash="+url.QueryEscape(msg), http.StatusSeeOther)
 }
 
+// appSpend is an app's last 30 days of agent cost against its limit.
+type appSpend struct {
+	tenant.Tenant
+	Spent, Limit float64
+	Pct          int    // of Limit, capped at 100
+	Level        string // "near" from 80%, "over" at the limit
+}
+
+// spends lists every app's spend, nearest its limit first.
+func (h *hub) spends(ctx context.Context, tenants []tenant.Tenant) (rows []appSpend, total float64) {
+	for _, t := range tenants {
+		row := appSpend{Tenant: t}
+		if t.Status != "deleted" {
+			if st, err := h.reg.Store(ctx, t.Slug); err != nil {
+				slog.Warn("spend", "tenant", t.Slug, "err", err)
+			} else {
+				c, err := st.RunCosts(ctx)
+				if err != nil {
+					slog.Warn("spend", "tenant", t.Slug, "err", err)
+				}
+				if row.Limit, err = st.SpendLimit(ctx); err != nil {
+					slog.Warn("spend limit", "tenant", t.Slug, "err", err)
+				}
+				row.Spent = c.Last30Days
+			}
+		}
+		row.Pct, row.Level = spendLevel(row.Spent, row.Limit)
+		total += row.Spent
+		rows = append(rows, row)
+	}
+	slices.SortStableFunc(rows, func(a, b appSpend) int { return cmp.Compare(b.Pct, a.Pct) })
+	return rows, total
+}
+
+func spendLevel(spent, limit float64) (int, string) {
+	if limit <= 0 {
+		return 0, ""
+	}
+	p := min(100, int(spent/limit*100))
+	switch {
+	case spent >= limit:
+		return p, "over"
+	case p >= 80:
+		return p, "near"
+	}
+	return p, ""
+}
+
+func (h *hub) setLimits(w http.ResponseWriter, r *http.Request) {
+	limit, err := dollars(r.FormValue("limit"))
+	runs, rerr := strconv.Atoi(r.FormValue("max_runs"))
+	if err != nil || rerr != nil || runs < 1 || runs > 50 {
+		http.Redirect(w, r, "/admin?flash="+url.QueryEscape("Enter a spend limit of at least $0.01 and 1–50 runs"), http.StatusSeeOther)
+		return
+	}
+	if err := h.reg.SetSettings(r.Context(), tenant.Settings{SpendLimit: limit, MaxRuns: runs}); err != nil {
+		slog.Error("set settings", "err", err)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	msg := fmt.Sprintf("All apps: $%.2f over 30 days, %d runs at a time", limit, runs)
+	http.Redirect(w, r, "/admin?flash="+url.QueryEscape(msg), http.StatusSeeOther)
+}
+
+func (h *hub) setTenantLimit(w http.ResponseWriter, r *http.Request) {
+	slug := r.PathValue("slug")
+	limit, err := dollars(r.FormValue("limit"))
+	if err != nil {
+		http.Redirect(w, r, "/admin?flash="+url.QueryEscape("Enter a spend limit of at least $0.01"), http.StatusSeeOther)
+		return
+	}
+	rt, err := h.tenantFor(r.Context(), slug)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	if err := rt.b.Store.SetSpendLimit(r.Context(), limit); err != nil {
+		slog.Error("set spend limit", "tenant", slug, "err", err)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	rt.gate.Activity() // raising the limit may release held work
+	http.Redirect(w, r, "/admin?flash="+url.QueryEscape(fmt.Sprintf("%s: $%.2f over 30 days", slug, limit)), http.StatusSeeOther)
+}
+
+// dollars parses a spend limit: at least $0.01, under $1M.
+func dollars(s string) (float64, error) {
+	v, err := strconv.ParseFloat(strings.TrimPrefix(strings.TrimSpace(s), "$"), 64)
+	if err != nil || !(v >= 0.01 && v < 1e6) {
+		return 0, errors.New("bad limit")
+	}
+	return v, nil
+}
+
 func (h *hub) admin(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	tenants, err := h.reg.Tenants(ctx)
@@ -950,6 +1048,14 @@ func (h *hub) admin(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
+	set, err := h.reg.Settings(ctx)
+	if err != nil {
+		slog.Error("settings", "err", err)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	apps, total := h.spends(ctx, tenants)
+	totalPct, totalLevel := spendLevel(total, set.SpendLimit)
 	admins, err := h.reg.PlatformAdmins(ctx)
 	if err != nil {
 		slog.Error("platform admins", "err", err)
@@ -970,7 +1076,8 @@ func (h *hub) admin(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
-	h.render(w, r, "admin", "Admin", map[string]any{"Tenants": tenants, "Admins": admins, "Upstream": up, "Creators": creators})
+	h.render(w, r, "admin", "Admin", map[string]any{"Apps": apps, "Admins": admins, "Upstream": up, "Creators": creators,
+		"Settings": set, "Spent": total, "Pct": totalPct, "Level": totalLevel})
 }
 
 func (h *hub) addAdmin(w http.ResponseWriter, r *http.Request) {

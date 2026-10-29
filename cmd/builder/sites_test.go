@@ -116,9 +116,12 @@ func TestHubSites(t *testing.T) {
 	w := do(h, srv, "nkirsch", "GET", "/", nil)
 	body := w.Body.String()
 	for _, want := range []string{
-		`<a href="/alpha/"><b>alpha</b></a> <span class="muted">Alpha</span> · <a href="` + app.URL + `/alpha">site</a> <span class="badge">admin</span>`,
+		`<td><a href="/alpha/"><b>alpha</b></a></td>
+    <td>Alpha</td>
+    <td><a href="` + app.URL + `/alpha">` + strings.TrimPrefix(app.URL, "http://") + `/alpha</a></td>
+    <td><span class="badge">admin</span></td>`,
 		"aaa1111", `<td class="num">2</td>`, // the starter item and Dark mode
-		`<a href="` + remote.URL + `/"><b>momo</b></a> <span class="muted">standalone</span>`, "v26.10.20-1", `<td class="num">4</td>`, "$2.25", "<b>$2.25</b>",
+		`<td><a href="` + remote.URL + `/"><b>momo</b></a></td>`, `<td><span class="badge">standalone</span></td>`, "v26.10.20-1", `<td class="num">4</td>`, "$2.25", "<b>$2.25</b>",
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("apps page missing %q", want)

@@ -144,6 +144,11 @@ type siteRow struct {
 	Role        string // the viewer's role on a hub app, "" if none
 }
 
+// SiteHost is the app's site without its scheme, for its link.
+func (r siteRow) SiteHost() string {
+	return strings.TrimPrefix(strings.TrimPrefix(r.Site, "https://"), "http://")
+}
+
 // fetchSite reads a remote board's public /health and /version, then
 // /api/stats when a token is configured. Failures land in Health.
 func fetchSite(ctx context.Context, c *http.Client, s remoteSite, token string) siteRow {

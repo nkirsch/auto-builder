@@ -120,6 +120,15 @@ type hub struct {
 	traffics  map[string]*traffic // each app's traffic report, shared by its /logs and /admin/traffic
 }
 
+// boardOf is the tenant slug a sign-in headed for next is for, or "".
+func boardOf(next string) string {
+	slug, _, _ := strings.Cut(strings.TrimPrefix(next, "/"), "/")
+	if tenant.ValidSlug(slug) != nil {
+		return ""
+	}
+	return slug
+}
+
 // tenantRT is one tenant's board, gate and runner endpoints, built on first use.
 type tenantRT struct {
 	slug  string
@@ -156,6 +165,7 @@ func newHub(ctx context.Context, cfg config, reg *tenant.Registry, storage store
 		BaseURL: cfg.BaseURL, ClientID: cfg.ClientID, ClientSecret: cfg.ClientSecret,
 		GoogleClientID: cfg.GoogleClientID, GoogleClientSecret: cfg.GoogleClientSecret,
 		SessionKey: []byte(cfg.SessionKey), DevLogin: cfg.DevLogin, Multi: true, Users: reg, Mailboxes: reg,
+		SignIns: reg, BoardOf: boardOf,
 	}, nil)
 	if err != nil {
 		return nil, err
@@ -303,6 +313,9 @@ func (h *hub) tick(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			errs = append(errs, fmt.Errorf("%s: %w", t.Slug, err))
 		}
+	}
+	if err := h.reg.PruneSignIns(r.Context(), time.Now().Add(-db.SignInKeep)); err != nil {
+		errs = append(errs, fmt.Errorf("prune sign-ins: %w", err))
 	}
 	if h.upstream != nil {
 		if err := h.upstream.Check(r.Context()); err != nil {
@@ -490,7 +503,7 @@ func (h *hub) tenantFor(ctx context.Context, slug string) (*tenantRT, error) {
 		Store: st, Storage: storage, Auth: ta, Gate: g, BaseURL: base,
 		BotLogin: h.cfg.BotLogin, GitSHA: h.cfg.GitSHA, Repo: t.Repo, CodeRepo: h.cfg.Repo, GitHub: gh,
 		Name: t.Name, SiteURL: h.appURL(slug), Releases: h.cfg.Releases, Traffic: h.cfg.LogProject != "",
-		Platform: hubPlatform{h, slug}, Deployed: deployed, HubLimits: true,
+		Platform: hubPlatform{h, slug}, Deployed: deployed, HubLimits: true, SignIns: h.reg, Slug: slug,
 		Ready: func(ctx context.Context) bool {
 			t, err := h.reg.Tenant(ctx, slug)
 			return err == nil && t.Live()

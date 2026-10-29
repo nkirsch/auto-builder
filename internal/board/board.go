@@ -113,6 +113,10 @@ type Board struct {
 	Provisioning func(ctx context.Context) *Provisioning
 	// Reprovision, when set, re-runs the app's failed setup.
 	Reprovision func(ctx context.Context) error
+	// SignIns, when set (a hub's tenant board), keeps sign-in attempts at
+	// every board, this one's under Slug; else the board's store has them.
+	SignIns db.SignInLog
+	Slug    string
 
 	tmpl    map[string]*template.Template
 	version atomic.Pointer[string]
@@ -167,6 +171,7 @@ func (b *Board) Routes(mux *http.ServeMux) error {
 	mux.Handle("POST /admin/members/{login}/delete", admin(b.deleteMember))
 	mux.Handle("POST /admin/members/{login}/github", admin(b.setMemberGitHub))
 	mux.Handle("POST /admin/members/{login}/email", admin(b.setMemberEmail))
+	mux.Handle("GET /admin/signins", admin(b.signIns))
 	mux.Handle("POST /admin/members/{login}/invite", admin(b.sendInvite))
 	mux.Handle("POST /admin/run", admin(b.runNow))
 	mux.Handle("POST /admin/provision", admin(b.reprovision))
@@ -1114,6 +1119,41 @@ func (b *Board) setMemberEmail(w http.ResponseWriter, r *http.Request) {
 		msg += "; their invite goes there too"
 	}
 	redirect(w, r, "/admin", msg)
+}
+
+// signIns lists the last 30 days' sign-in attempts at this board, plus
+// failures anywhere by a member's login or email; ?who=<login> just theirs.
+func (b *Board) signIns(w http.ResponseWriter, r *http.Request) {
+	members, err := b.Store.Members(r.Context())
+	if err != nil {
+		b.fail(w, err)
+		return
+	}
+	who := r.URL.Query().Get("who")
+	var ids []string
+	for _, m := range members {
+		if who != "" && !strings.EqualFold(m.Login, who) {
+			continue
+		}
+		ids = append(ids, m.Login)
+		if m.Email != "" {
+			ids = append(ids, m.Email)
+		}
+	}
+	if who != "" && len(ids) == 0 {
+		http.NotFound(w, r)
+		return
+	}
+	var log db.SignInLog = b.Store
+	if b.SignIns != nil {
+		log = b.SignIns
+	}
+	list, err := log.SignIns(r.Context(), b.Slug, ids, who != "", time.Now().Add(-30*24*time.Hour))
+	if err != nil {
+		b.fail(w, err)
+		return
+	}
+	b.render(w, r, "signins", "Sign-ins", map[string]any{"SignIns": list, "Who": who, "Slug": b.Slug})
 }
 
 // name is the board's name for invitations: b.Name, else BaseURL's host.

@@ -60,6 +60,11 @@ type Config struct {
 	Users Users // multi mode: profiles shared by all boards; optional
 	// Mailboxes keeps connected Gmail; the store's members when nil.
 	Mailboxes Mailboxes
+	// SignIns records sign-in attempts; the store when nil.
+	SignIns db.SignInLog
+	// BoardOf names the board a multi-mode sign-in is for from its next
+	// path, or "".
+	BoardOf func(next string) string
 }
 
 // Users keeps multi-mode profiles, keyed by identity (login or address).
@@ -221,6 +226,7 @@ func (a *Auth) Require(next http.Handler) http.Handler {
 			return
 		}
 		m, err := a.member(r.Context(), login)
+		a.recordFirstVisit(r, login, err)
 		if errors.Is(err, db.ErrNotFound) {
 			w.WriteHeader(http.StatusForbidden)
 			fmt.Fprintf(w, "%s is not a member of this board. Ask the admin to add you.\n", login)
@@ -276,22 +282,28 @@ func (a *Auth) Google() bool { return a.google.ClientID != "" }
 func (a *Auth) SignedIn(r *http.Request) string { return a.login(r) }
 
 func (a *Auth) login(r *http.Request) string {
+	login, _ := a.session(r)
+	return login
+}
+
+// session returns the session's login and when it was signed; "" when signed out.
+func (a *Auth) session(r *http.Request) (string, time.Time) {
 	if a.dev {
-		return a.cfg.DevLogin
+		return a.cfg.DevLogin, time.Time{}
 	}
 	c, err := r.Cookie(a.cookie())
 	if err != nil {
-		return ""
+		return "", time.Time{}
 	}
-	login, ok := a.verify(c.Value, time.Now())
+	login, expiry, ok := a.verify(c.Value, time.Now())
 	if !ok {
-		return ""
+		return "", time.Time{}
 	}
 	// A multi-mode GitHub session ends once GitHub sign-in is off.
 	if a.cfg.Multi && !a.GitHub() && !strings.Contains(login, "@") {
-		return ""
+		return "", time.Time{}
 	}
-	return login
+	return login, expiry.Add(-sessionTTL)
 }
 
 // SessionCookie is a signed-in session for identity, as sign-in sets it.
@@ -311,24 +323,24 @@ func (a *Auth) mac(payload string) string {
 	return hex.EncodeToString(h.Sum(nil))
 }
 
-func (a *Auth) verify(value string, now time.Time) (string, bool) {
+func (a *Auth) verify(value string, now time.Time) (string, time.Time, bool) {
 	payload, sig, ok := strings.Cut(value, ".")
 	if !ok || !hmac.Equal([]byte(sig), []byte(a.mac(payload))) {
-		return "", false
+		return "", time.Time{}, false
 	}
 	raw, err := base64.RawURLEncoding.DecodeString(payload)
 	if err != nil {
-		return "", false
+		return "", time.Time{}, false
 	}
 	login, exp, ok := strings.Cut(string(raw), "|")
 	if !ok {
-		return "", false
+		return "", time.Time{}, false
 	}
 	unix, err := strconv.ParseInt(exp, 10, 64)
 	if err != nil || now.Unix() > unix || login == "" {
-		return "", false
+		return "", time.Time{}, false
 	}
-	return login, true
+	return login, time.Unix(unix, 0), true
 }
 
 // Routes registers /auth/github, /auth/callback, /auth/google,
@@ -384,14 +396,16 @@ func (a *Auth) start(w http.ResponseWriter, r *http.Request, oc *oauth2.Config, 
 }
 
 // checkState validates and clears the state cookie, returning the next path.
-func (a *Auth) checkState(w http.ResponseWriter, r *http.Request) (string, bool) {
+func (a *Auth) checkState(w http.ResponseWriter, r *http.Request, provider string) (string, bool) {
 	c, err := r.Cookie(stateCookie)
 	if err != nil {
+		a.record(r, provider, "", db.SignInStateMissed, "")
 		http.Error(w, "sign-in expired; try again", http.StatusBadRequest)
 		return "", false
 	}
 	state, next, _ := strings.Cut(c.Value, "|")
 	if subtle.ConstantTimeCompare([]byte(state), []byte(r.URL.Query().Get("state"))) != 1 {
+		a.record(r, provider, "", db.SignInStateBad, next)
 		http.Error(w, "bad sign-in state; try again", http.StatusBadRequest)
 		return "", false
 	}
@@ -409,31 +423,42 @@ func (a *Auth) setSession(w http.ResponseWriter, r *http.Request, login, next st
 }
 
 func (a *Auth) handleCallback(w http.ResponseWriter, r *http.Request) {
-	next, ok := a.checkState(w, r)
+	next, ok := a.checkState(w, r, "github")
 	if !ok {
 		return
 	}
 	tok, err := a.oauth.Exchange(r.Context(), r.URL.Query().Get("code"))
 	if err != nil {
 		slog.Warn("oauth exchange", "err", err)
+		a.record(r, "github", "", db.SignInExchange, next)
 		http.Error(w, "GitHub sign-in failed", http.StatusBadGateway)
 		return
 	}
 	user, err := a.githubUser(r.Context(), tok.AccessToken)
 	if err != nil {
 		slog.Warn("github user", "err", err)
+		a.record(r, "github", "", db.SignInProfile, next)
 		http.Error(w, "GitHub sign-in failed", http.StatusBadGateway)
 		return
 	}
 	if a.cfg.Multi {
+		// The board records the outcome on the first visit (recordFirstVisit).
 		a.signIn(w, r, user.Login, user.Name, user.AvatarURL, next)
 		return
 	}
 	// A member with an email may be a made-up handle that a stranger owns on GitHub.
-	if m, err := a.store.Member(r.Context(), user.Login); err == nil && !m.GitHubSignIn() {
+	m, err := a.store.Member(r.Context(), user.Login)
+	if err == nil && !m.GitHubSignIn() {
+		a.record(r, "github", user.Login, db.SignInGoogleOnly, next)
 		w.WriteHeader(http.StatusForbidden)
 		fmt.Fprintf(w, "%s signs in with Google.\n", user.Login)
 		return
+	}
+	// A non-member gets a session too, and Require turns them away.
+	if errors.Is(err, db.ErrNotFound) {
+		a.record(r, "github", user.Login, db.SignInNotMember, next)
+	} else {
+		a.record(r, "github", user.Login, db.SignInOK, next)
 	}
 	if err := a.store.TouchMember(r.Context(), user.Login, user.Name, user.AvatarURL); err != nil {
 		slog.Error("touch member", "err", err)
@@ -444,28 +469,36 @@ func (a *Auth) handleCallback(w http.ResponseWriter, r *http.Request) {
 // handleGoogleCallback signs in the member whose email matches the verified
 // Google address; the session carries that member's login.
 func (a *Auth) handleGoogleCallback(w http.ResponseWriter, r *http.Request) {
-	next, ok := a.checkState(w, r)
+	next, ok := a.checkState(w, r, "google")
 	if !ok {
 		return
 	}
 	tok, err := a.google.Exchange(r.Context(), r.URL.Query().Get("code"))
 	if err != nil {
 		slog.Warn("google exchange", "err", err)
+		a.record(r, "google", "", db.SignInExchange, next)
 		http.Error(w, "Google sign-in failed", http.StatusBadGateway)
 		return
 	}
 	user, err := a.googleUser(r.Context(), tok.AccessToken)
 	if err != nil {
 		slog.Warn("google user", "err", err)
+		result := db.SignInProfile
+		if errors.Is(err, errUnverified) {
+			result = db.SignInUnverified
+		}
+		a.record(r, "google", strings.ToLower(user.Email), result, next)
 		http.Error(w, "Google sign-in failed", http.StatusBadGateway)
 		return
 	}
 	if a.cfg.Multi {
+		// The board records the outcome on the first visit (recordFirstVisit).
 		a.signIn(w, r, strings.ToLower(user.Email), user.Name, user.Picture, next)
 		return
 	}
 	m, err := a.store.MemberByEmail(r.Context(), user.Email)
 	if errors.Is(err, db.ErrNotFound) {
+		a.record(r, "google", strings.ToLower(user.Email), db.SignInNotMember, next)
 		w.WriteHeader(http.StatusForbidden)
 		fmt.Fprintf(w, "%s is not a member of this board. Ask the admin to add you.\n", user.Email)
 		return
@@ -475,6 +508,7 @@ func (a *Auth) handleGoogleCallback(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
+	a.record(r, "google", strings.ToLower(user.Email), db.SignInOK, next)
 	if err := a.store.TouchMember(r.Context(), m.Login, user.Name, user.Picture); err != nil {
 		slog.Error("touch member", "err", err)
 	}
@@ -490,6 +524,8 @@ func (a *Auth) signIn(w http.ResponseWriter, r *http.Request, identity, name, av
 	}
 	a.setSession(w, r, identity, next)
 }
+
+var errUnverified = errors.New("GET userinfo: no verified email")
 
 type googleUser struct {
 	Email         string `json:"email"`
@@ -514,7 +550,7 @@ func (a *Auth) googleUser(ctx context.Context, token string) (googleUser, error)
 		return u, err
 	}
 	if u.Email == "" || !u.EmailVerified {
-		return u, errors.New("GET userinfo: no verified email")
+		return u, errUnverified
 	}
 	return u, nil
 }

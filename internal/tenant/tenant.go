@@ -421,3 +421,17 @@ func (r *Registry) SetUpstreamPR(ctx context.Context, pr int) error {
 	_, err := r.Control.Exec(ctx, `UPDATE settings SET upstream_pr = nullif($1, 0)`, pr)
 	return err
 }
+
+// RecordSignIn, SignIns and PruneSignIns keep every board's sign-in attempts
+// in control (db.SignInLog): sessions are hub-wide, membership per board.
+func (r *Registry) RecordSignIn(ctx context.Context, s db.SignIn, within time.Duration) error {
+	return db.RecordSignIn(ctx, r.Control, s, within)
+}
+
+func (r *Registry) SignIns(ctx context.Context, board string, identities []string, only bool, since time.Time) ([]db.SignIn, error) {
+	return db.SignIns(ctx, r.Control, board, identities, only, since)
+}
+
+func (r *Registry) PruneSignIns(ctx context.Context, before time.Time) error {
+	return db.PruneSignIns(ctx, r.Control, before)
+}

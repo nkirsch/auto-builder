@@ -58,7 +58,7 @@ func (a *Auth) handleGmail(w http.ResponseWriter, r *http.Request) {
 
 // handleGmailCallback stores the refresh token for the session's identity.
 func (a *Auth) handleGmailCallback(w http.ResponseWriter, r *http.Request) {
-	next, ok := a.checkState(w, r)
+	next, ok := a.checkState(w, r, "")
 	if !ok {
 		return
 	}

@@ -17,7 +17,7 @@ func testStore(t *testing.T) *Store {
 		t.Fatal(err)
 	}
 	t.Cleanup(pool.Close)
-	if _, err := pool.Exec(ctx, `TRUNCATE members, items, responses, attachments, notifications, runs, run_items RESTART IDENTITY CASCADE;
+	if _, err := pool.Exec(ctx, `TRUNCATE members, items, responses, attachments, notifications, runs, run_items, signins RESTART IDENTITY CASCADE;
 		UPDATE settings SET spend_limit_usd = 20, issues_synced_at = NULL`); err != nil {
 		t.Fatal(err)
 	}

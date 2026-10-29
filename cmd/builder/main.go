@@ -570,6 +570,9 @@ func (s *server) attachment(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *server) tick(w http.ResponseWriter, r *http.Request) {
+	if err := s.store.PruneSignIns(r.Context(), time.Now().Add(-db.SignInKeep)); err != nil {
+		slog.Error("prune sign-ins", "err", err)
+	}
 	if err := s.gate.Tick(r.Context()); err != nil {
 		slog.Error("tick", "err", err)
 		writeJSON(w, http.StatusOK, map[string]string{"status": "partial", "error": err.Error()})

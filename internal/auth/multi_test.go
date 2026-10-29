@@ -52,7 +52,7 @@ func TestMultiSignIn(t *testing.T) {
 		if w.Code != http.StatusFound || got == nil || got.Path != "/" || got.Domain != "" || !got.Secure {
 			t.Fatalf("%s: %d cookie %+v", path, w.Code, got)
 		}
-		if id, _ := a.verify(got.Value, time.Now()); id != want {
+		if id, _, _ := a.verify(got.Value, time.Now()); id != want {
 			t.Errorf("%s: identity %q, want %q", path, id, want)
 		}
 	}

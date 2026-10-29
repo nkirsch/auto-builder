@@ -61,6 +61,8 @@ The hubs are git-level forks that merge upstream with `make merge-upstream`:
 `nkirsch/iterate` (iterate.nick.org) and `kirsch/iterate` (iterate.kirsch.org). Their
 apps are plain repos (no board code) on the hubs' boards; `builder.extreme.org`
 (this repo's board) is the one single board left.
+Each hub's `GET /api/overview` (bearer `STATS_TOKEN`) lists its boards with health,
+unreleased commits, failed runs and items needing attention; `/admin/hubs` shows every hub's at once.
 A fork owns `app.env`, `CLAUDE.md`, `README.md` (once it writes one), `.claude/site.md`, branding, its site, and appended sections of
 `DESIGN.md`; everything else is upstream's, so merges don't conflict. `.gitattributes` marks the
 fork-owned files `merge=ours`, so when upstream changes one too the fork keeps its copy. Upstream adds new settings to

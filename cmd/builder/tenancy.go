@@ -886,6 +886,16 @@ func (h *hub) create(w http.ResponseWriter, r *http.Request) {
 		back("created, but adding its admins failed: " + err.Error())
 		return
 	}
+	if !existing {
+		// The first run turns the starter template into the app's own site.
+		admin := me.Login
+		if owner.Login != "" {
+			admin = owner.Login
+		}
+		if err := starterItem(ctx, st, cmp.Or(name, slug), admin); err != nil {
+			slog.Error("starter item", "tenant", slug, "err", err)
+		}
+	}
 	done := "/" + slug + "/"
 	if owner.Login != "" {
 		done += "?flash=" + url.QueryEscape(createdBy+" is its admin: they sign in at "+h.cfg.BaseURL+"/ and find it under Apps")
@@ -899,6 +909,19 @@ func (h *hub) create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	http.Redirect(w, r, done, http.StatusSeeOther)
+}
+
+// starterItem files a new app's first item, approved by its admin, so its
+// first run (once the app is live) builds a basic site.
+func starterItem(ctx context.Context, st *db.Store, name, admin string) error {
+	id, err := st.CreateItem(ctx, "Build a basic site",
+		"Turn the starter app into a basic site for "+name+": a home page with its name, a short description "+
+			"to replace once we know more, and a clean, responsive layout that works in light and dark mode. "+
+			"Keep it small; we'll ask for more on this board.", admin)
+	if err != nil {
+		return err
+	}
+	return st.SetApproved(ctx, id, true, admin)
 }
 
 // ownerOf turns a GitHub login or Google address into an app's created_by

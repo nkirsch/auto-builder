@@ -150,3 +150,19 @@ table.sites input[type=number] { width: 7em; }
 table.sites details summary { cursor: pointer; color: var(--accent); }
 table.sites details[open] { white-space: normal; }
 table.sites details form { margin-top: 6px; }
+/* Members: the admin page widens and the table wraps instead of scrolling; rows stack on phones. */
+body:has(table.members) :is(nav, main, footer) { max-width: 1040px; }
+table.members { white-space: normal; }
+table.members td:is(:first-child, :nth-child(2), :nth-child(4)) { white-space: nowrap; }
+table.members td:last-child .row { gap: 6px; }
+table.members td:last-child form.row { flex-wrap: nowrap; }
+table.members td:last-child button { white-space: nowrap; }
+table.members td:last-child input { min-width: 0; width: 12em; flex: 0 1 auto; }
+@media (max-width: 720px) {
+  table.members thead { display: none; }
+  table.members tr, table.members td { display: block; }
+  table.members tr { padding: 10px 0; border-bottom: 1px solid var(--line); }
+  table.members td { border: 0; padding: 3px 0; }
+  table.members td:last-child .row { flex-wrap: wrap; }
+  table.members td:last-child input { flex: 1; width: auto; }
+}

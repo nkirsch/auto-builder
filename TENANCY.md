@@ -188,7 +188,7 @@ All done for extreme.org (2026-10-25):
    urgent, escalated and blocked items from every board first, oldest first
    within each, the count of other unfinished items, then a table per hub
    linking its Admin, Urgent and Traffic. Each hub in `HUBS` needs the same
-   `STATS_TOKEN` (copied as above); `infra/tenancy.sh` sets `HUBS` when given.
+   `STATS_TOKEN` (copied as above); `infra/tenancy.sh` sets `HUBS` (default: iterate.nick.org and iterate.kirsch.org).
 
 ## Build order
 

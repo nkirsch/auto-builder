@@ -281,6 +281,31 @@ func (c *Client) Contains(ctx context.Context, repo, head, sha string) (bool, er
 	return cmp.Status == "identical" || cmp.Status == "behind", nil
 }
 
+// Behind counts the commits on upstream's default branch that repo's head
+// lacks, among upstream's newest 100: more is true when it lacks them all.
+// Upstream's history is linear (squash merges), so it binary-searches for the
+// newest commit repo contains.
+func (c *Client) Behind(ctx context.Context, repo, head, upstream string) (n int, more bool, err error) {
+	commits, err := c.Commits(ctx, upstream, 100)
+	if err != nil {
+		return 0, false, err
+	}
+	lo, hi := 0, len(commits) // commits[:lo] are missing; commits[hi:] are contained
+	for lo < hi {
+		mid := (lo + hi) / 2
+		ok, err := c.Contains(ctx, repo, head, commits[mid].SHA)
+		if err != nil && !IsNotFound(err) { // not found: repo has never seen it
+			return 0, false, err
+		}
+		if ok {
+			hi = mid
+		} else {
+			lo = mid + 1
+		}
+	}
+	return lo, lo == len(commits) && lo > 0, nil
+}
+
 // Version names commit sha "vYY.MM.DD-N": the UTC day it was committed and its
 // position among that day's commits reachable from it.
 func (c *Client) Version(ctx context.Context, repo, sha string) (string, error) {

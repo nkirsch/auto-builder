@@ -9,9 +9,12 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/nkirsch/auto-builder/internal/db"
+	"github.com/nkirsch/auto-builder/internal/gate"
+	"github.com/nkirsch/auto-builder/internal/github"
 	"github.com/nkirsch/auto-builder/internal/store"
 	"github.com/nkirsch/auto-builder/internal/tenant"
 )
@@ -836,4 +839,40 @@ func TestHubMine(t *testing.T) {
 	to("bob", "/mine", "/new")
 	do(h, srv, "nkirsch", "POST", "/new", url.Values{"slug": {"beta"}})
 	to("nkirsch", "/mine", "/")
+}
+
+// /admin says how far the platform repo is behind upstream.
+func TestHubUpstreamLag(t *testing.T) {
+	h := testHub(t)
+	merged := map[string]bool{"u1": true}
+	calls := 0
+	gh := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		switch {
+		case r.URL.Path == "/repos/nkirsch/auto-builder/commits":
+			w.Write([]byte(`[{"sha":"u3"},{"sha":"u2"},{"sha":"u1"}]`))
+		case strings.HasPrefix(r.URL.Path, "/repos/kirsch/extreme/compare/master...") &&
+			merged[strings.TrimPrefix(r.URL.Path, "/repos/kirsch/extreme/compare/master...")]:
+			w.Write([]byte(`{"status":"behind"}`))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer gh.Close()
+	h.cfg.Upstream = "nkirsch/auto-builder"
+	h.upstream = &gate.Upstream{State: h.reg, GitHub: github.New(gh.URL, ""), Repo: h.cfg.Repo, Upstream: h.cfg.Upstream, Branch: "master"}
+	srv := h.routes()
+	if body := do(h, srv, "nkirsch", "GET", "/admin", nil).Body.String(); !strings.Contains(body, `<b class="behind">2 commits behind</b>`) {
+		t.Errorf("admin doesn't say 2 behind: %s", body)
+	}
+	// Counted once per lagTTL.
+	before := calls
+	merged["u2"], merged["u3"] = true, true
+	if body := do(h, srv, "nkirsch", "GET", "/admin", nil).Body.String(); !strings.Contains(body, "2 commits behind") || calls != before {
+		t.Errorf("lag not cached: %d calls", calls-before)
+	}
+	h.behindAt = time.Time{}
+	if body := do(h, srv, "nkirsch", "GET", "/admin", nil).Body.String(); !strings.Contains(body, "<b>up to date</b>") {
+		t.Errorf("admin doesn't say up to date: %s", body)
+	}
 }

@@ -5,11 +5,18 @@
 {{if not $.Data.Token}}No <code>STATS_TOKEN</code>, so standalone boards show only their public version and health.{{end}}
 30-day agent spend: <b>${{printf "%.2f" $.Data.Spend30d}}</b>.</p>
 <div class="table-wrap"><table class="sites">
-  <thead><tr><th>Board</th><th>Version</th><th>Live since</th><th class="num">Open</th><th>Last run</th><th class="num">30-day spend</th><th>Health</th></tr></thead>
+  <thead><tr><th>Board</th><th>Name</th><th>Site</th><th>Role</th><th>Version</th><th>Live since</th><th class="num">Open</th><th>Last run</th><th class="num">30-day spend</th><th>Health</th></tr></thead>
   <tbody>
   {{range .}}
   <tr>
-    <td>{{if .App}}<a href="{{.Board}}"><b>{{.Slug}}</b></a>{{if ne .Name .Slug}} <span class="muted">{{.Name}}</span>{{end}} · <a href="{{.Site}}">site</a>{{with .Role}} <span class="badge">{{.}}</span>{{end}}{{else}}<a href="{{.Board}}"><b>{{.Name}}</b></a> <span class="muted">standalone</span>{{end}}</td>
+    {{if .App}}<td><a href="{{.Board}}"><b>{{.Slug}}</b></a></td>
+    <td>{{.Name}}</td>
+    <td><a href="{{.Site}}">{{.SiteHost}}</a></td>
+    <td>{{with .Role}}<span class="badge">{{.}}</span>{{else}}<span class="muted">–</span>{{end}}</td>
+    {{else}}<td><a href="{{.Board}}"><b>{{.Name}}</b></a></td>
+    <td><span class="muted">–</span></td>
+    <td><span class="muted">–</span></td>
+    <td><span class="badge">standalone</span></td>{{end}}
     <td>{{if .Stats.Version}}{{.Stats.Version}}{{else if .Stats.GitSHA}}<span class="muted">{{short .Stats.GitSHA}}</span>{{else}}<span class="muted">–</span>{{end}}</td>
     <td>{{if and .Detail (not .Stats.Started.IsZero)}}{{when .Stats.Started}}{{else}}<span class="muted">–</span>{{end}}</td>
     <td class="num">{{if .Detail}}{{.Stats.Open}}{{else}}<span class="muted">–</span>{{end}}</td>

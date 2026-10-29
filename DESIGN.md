@@ -205,7 +205,10 @@ In multi-tenant mode the hub does the same for the platform repo
 worker: the job `UPSTREAM_JOB` names, default `PROVISION_JOB`, so a hub that
 doesn't provision apps runs one only for this (it needs the App's secrets,
 `PLATFORM_REPO` and `UPSTREAM`; deploys update it via the `UPSTREAM_JOB`
-repo variable).
+repo variable). The hub's `/admin` says how many commits the platform repo's
+`master` lacks of upstream's newest 100 (binary search with the compare API,
+since upstream squash-merges into a linear history), counted at most every 10
+minutes.
 
 ## GitHub issues (deterministic, no agent)
 

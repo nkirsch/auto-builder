@@ -300,3 +300,34 @@ func TestRepoSetup(t *testing.T) {
 		t.Errorf("vars %v", vars)
 	}
 }
+
+func TestBehind(t *testing.T) {
+	merged := map[string]bool{"u3": true, "u2": true, "u1": true}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.URL.Path == "/repos/up/r/commits":
+			w.Write([]byte(`[{"sha":"u5"},{"sha":"u4"},{"sha":"u3"},{"sha":"u2"},{"sha":"u1"}]`))
+		case strings.HasPrefix(r.URL.Path, "/repos/f/r/compare/master..."):
+			if !merged[strings.TrimPrefix(r.URL.Path, "/repos/f/r/compare/master...")] {
+				http.NotFound(w, r) // the fork has never seen it
+				return
+			}
+			w.Write([]byte(`{"status":"behind"}`))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+	c, ctx := New(srv.URL, ""), context.Background()
+	if n, more, err := c.Behind(ctx, "f/r", "master", "up/r"); err != nil || n != 2 || more {
+		t.Fatalf("Behind = %d, %v, %v; want 2", n, more, err)
+	}
+	merged["u5"], merged["u4"] = true, true
+	if n, more, err := c.Behind(ctx, "f/r", "master", "up/r"); err != nil || n != 0 || more {
+		t.Fatalf("Behind up to date = %d, %v, %v", n, more, err)
+	}
+	clear(merged)
+	if n, more, err := c.Behind(ctx, "f/r", "master", "up/r"); err != nil || n != 5 || !more {
+		t.Fatalf("Behind none merged = %d, %v, %v", n, more, err)
+	}
+}

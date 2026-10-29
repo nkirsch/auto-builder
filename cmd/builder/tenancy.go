@@ -118,6 +118,10 @@ type hub struct {
 
 	trafficMu sync.Mutex
 	traffics  map[string]*traffic // each app's traffic report, shared by its /logs and /admin/traffic
+
+	behindMu sync.Mutex
+	behindAt time.Time   // when behindOf was last counted
+	behindOf upstreamLag // the platform repo's lag behind upstream, for /admin
 }
 
 // boardOf is the tenant slug a sign-in headed for next is for, or "".
@@ -1194,7 +1198,7 @@ func (h *hub) admin(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			slog.Error("upstream sync", "err", err)
 		}
-		up = map[string]any{"Repo": h.cfg.Upstream, "Platform": h.cfg.Repo, "On": on, "PR": pr}
+		up = map[string]any{"Repo": h.cfg.Upstream, "Platform": h.cfg.Repo, "On": on, "PR": pr, "Lag": h.lag(ctx)}
 	}
 	creators, err := h.reg.Creators(ctx)
 	if err != nil {
@@ -1204,6 +1208,35 @@ func (h *hub) admin(w http.ResponseWriter, r *http.Request) {
 	}
 	h.render(w, r, "admin", "Admin", map[string]any{"Apps": apps, "Admins": admins, "Upstream": up, "Creators": creators,
 		"Settings": set, "Spent": total, "Pct": totalPct, "Level": totalLevel})
+}
+
+// upstreamLag is how many of upstream's commits the platform repo lacks.
+type upstreamLag struct {
+	Known bool // false when GitHub couldn't say
+	N     int
+	More  bool // it lacks all of upstream's newest N
+}
+
+// lagTTL spaces out counting the platform repo's lag for /admin.
+const lagTTL = 10 * time.Minute
+
+// lag counts the commits on upstream's master the platform repo's master
+// lacks, at most once per lagTTL; a failure isn't cached.
+func (h *hub) lag(ctx context.Context) upstreamLag {
+	h.behindMu.Lock()
+	defer h.behindMu.Unlock()
+	if h.behindOf.Known && time.Since(h.behindAt) < lagTTL {
+		return h.behindOf
+	}
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	n, more, err := h.upstream.GitHub.Behind(ctx, h.cfg.Repo, "master", h.cfg.Upstream)
+	if err != nil {
+		slog.Error("upstream lag", "err", err)
+		return upstreamLag{}
+	}
+	h.behindOf, h.behindAt = upstreamLag{Known: true, N: n, More: more}, time.Now()
+	return h.behindOf
 }
 
 // signIns lists the last 30 days' sign-in attempts at every board, or one

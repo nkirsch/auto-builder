@@ -97,7 +97,9 @@ certificate (15–60 min) isn't working yet: the hub's tick requests
 Each step's state goes in `control.tenants.steps` (JSONB, `tenant.ProvisionSteps`
 order; reset when the hub starts the job), and until the app is `ready` its
 board's index shows them with a progress bar, reloading every 15s, plus a
-Provision (retry) button for board admins when it failed.
+Provision (retry) button for board admins when it failed. Until then invites
+wait too: the board's `/admin` offers no Invite / Email invite (it says why),
+sending one is refused, and adding a member doesn't welcome them on GitHub.
 
 Domain mappings require the caller to be a verified owner of extreme.org, so
 the provisioner SA is added as an owner in Search Console (manual, once).

@@ -224,8 +224,9 @@ var funcs = template.FuncMap{
 			return fmt.Sprintf("%d B", n)
 		}
 	},
-	"who": Who,
-	"pct": pct,
+	"who":    Who,
+	"boardq": boardQuery,
+	"pct":    pct,
 	"deref": func(p *int) int {
 		if p == nil {
 			return 0
@@ -259,6 +260,21 @@ func Who(names map[string]string, login string) template.HTML {
 		return template.HTML(template.HTMLEscapeString(login))
 	}
 	return template.HTML(`<span title="` + template.HTMLEscapeString(name+" ("+login+")") + `">` + template.HTMLEscapeString(first) + `</span>`)
+}
+
+// boardQuery is the board's query string for a view (show), tag and author
+// (by), each left out when empty or missing: "" or "?by=nkirsch&show=done&tag=bug".
+func boardQuery(show, tag, by any) string {
+	q := url.Values{}
+	for k, v := range map[string]any{"show": show, "tag": tag, "by": by} {
+		if s, _ := v.(string); s != "" {
+			q.Set(k, s)
+		}
+	}
+	if len(q) == 0 {
+		return ""
+	}
+	return "?" + q.Encode()
 }
 
 // pct is spent as a whole percent of limit, capped at 100.
@@ -395,6 +411,10 @@ func (b *Board) index(w http.ResponseWriter, r *http.Request) {
 	if tag != "" {
 		items = slices.DeleteFunc(items, func(it db.Item) bool { return !slices.Contains(it.Tags, tag) })
 	}
+	by := strings.TrimSpace(r.URL.Query().Get("by"))
+	if by != "" {
+		items = slices.DeleteFunc(items, func(it db.Item) bool { return !strings.EqualFold(it.Author, by) })
+	}
 	unread, err := b.Store.UnreadItems(r.Context(), auth.Member(r.Context()).Login)
 	if err != nil {
 		slog.Warn("unread items", "err", err)
@@ -404,7 +424,7 @@ func (b *Board) index(w http.ResponseWriter, r *http.Request) {
 	if prov != nil && prov.Status != "failed" {
 		refresh = 15
 	}
-	b.renderRefresh(w, r, "index", "Board", map[string]any{"Sections": sections(items, show == "done"), "Show": show, "Tag": tag,
+	b.renderRefresh(w, r, "index", "Board", map[string]any{"Sections": sections(items, show == "done"), "Show": show, "Tag": tag, "By": by,
 		"Unread": unread, "Provisioning": prov}, refresh)
 }
 

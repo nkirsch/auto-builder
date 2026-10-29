@@ -985,6 +985,7 @@ type RunItem struct {
 	ItemID int
 	Title  string
 	Status string
+	Author string
 }
 
 // NoteRunItem records that the running run acted on an item. It does nothing
@@ -1052,7 +1053,7 @@ func (s *Store) RunStats(ctx context.Context, since time.Time) (RunStats, error)
 // RunItems returns the items each of the given runs acted on, in the order it
 // first touched them.
 func (s *Store) RunItems(ctx context.Context, runIDs []int) (map[int][]RunItem, error) {
-	rows, err := s.Pool.Query(ctx, `SELECT ri.run_id, i.id, i.title, i.status FROM run_items ri
+	rows, err := s.Pool.Query(ctx, `SELECT ri.run_id, i.id, i.title, i.status, i.author FROM run_items ri
 		JOIN items i ON i.id = ri.item_id WHERE ri.run_id = ANY($1) ORDER BY ri.run_id, ri.created_at, i.id`, runIDs)
 	if err != nil {
 		return nil, err

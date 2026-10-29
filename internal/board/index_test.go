@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/nkirsch/auto-builder/internal/auth"
 	"github.com/nkirsch/auto-builder/internal/db"
 	"github.com/nkirsch/auto-builder/internal/github"
 )
@@ -69,7 +70,7 @@ func TestRunsListItems(t *testing.T) {
 		t.Fatal(err)
 	}
 	rows := []runRow{
-		{Run: db.Run{ID: 2, Status: "running"}, Items: []db.RunItem{{RunID: 2, ItemID: 5, Title: "Chrome <toggle>", Status: "building"}}},
+		{Run: db.Run{ID: 2, Status: "running"}, Items: []db.RunItem{{RunID: 2, ItemID: 5, Title: "Chrome <toggle>", Status: "building", Author: "alice"}}},
 		{Run: db.Run{ID: 1, Status: "done"}},
 	}
 	var sb strings.Builder
@@ -79,6 +80,9 @@ func TestRunsListItems(t *testing.T) {
 	}
 	out := sb.String()
 	if want := `<a href="/items/5">#5 Chrome &lt;toggle&gt;</a> <span class="status s-building">building</span>`; !strings.Contains(out, want) {
+		t.Errorf("runs page missing %s", want)
+	}
+	if want := `asked by <a href="/?by=alice" title="Only their asks">alice</a>`; !strings.Contains(out, want) {
 		t.Errorf("runs page missing %s", want)
 	}
 	if n := strings.Count(out, `class="run-items"`); n != 1 {
@@ -435,6 +439,39 @@ func TestReleaseBack(t *testing.T) {
 		r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 		if got := releaseBack(r); got != want {
 			t.Errorf("releaseBack(%q) = %q, want %q", back, got, want)
+		}
+	}
+}
+
+// ?by=<login> shows only that member's asks; names link to it.
+func TestIndexByAuthor(t *testing.T) {
+	ctx := context.Background()
+	b, _ := dbBoard(t)
+	if err := b.parse(); err != nil {
+		t.Fatal(err)
+	}
+	b.Store.UpsertMember(ctx, "alice", "member", "test")
+	b.Store.UpsertMember(ctx, "bob", "member", "test")
+	b.Store.CreateItem(ctx, "Alice's ask", "", "alice")
+	b.Store.CreateItem(ctx, "Bob's ask", "", "bob")
+	get := func(path string) string {
+		r := httptest.NewRequest(http.MethodGet, path, nil)
+		r = r.WithContext(auth.WithMember(r.Context(), db.Member{Login: "bob", Role: "member"}))
+		w := httptest.NewRecorder()
+		b.index(w, r)
+		return w.Body.String()
+	}
+	all := get("/")
+	if !strings.Contains(all, "Bob&#39;s ask") || !strings.Contains(all, `by <a href="/?by=alice" title="Only their asks">alice</a>`) {
+		t.Errorf("board doesn't link authors: %s", all)
+	}
+	out := get("/?by=Alice&tag=")
+	if !strings.Contains(out, "Alice&#39;s ask") || strings.Contains(out, "Bob&#39;s ask") {
+		t.Errorf("?by=Alice doesn't filter: %s", out)
+	}
+	for _, want := range []string{`<span class="muted">by Alice</span>`, `<a href="/">Everyone</a>`, `href="/?by=Alice&amp;show=done">Done</a>`} {
+		if !strings.Contains(out, want) {
+			t.Errorf("filtered board missing %s", want)
 		}
 	}
 }

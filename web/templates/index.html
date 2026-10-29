@@ -12,10 +12,11 @@
 </section>
 {{end}}
 <div class="row">
-  <h1>{{if eq .Data.Show "done"}}Done{{else}}Open{{end}}{{with .Data.Tag}} <span class="tag">#{{.}}</span>{{end}}</h1>
+  <h1>{{if eq .Data.Show "done"}}Done{{else}}Open{{end}}{{with .Data.Tag}} <span class="tag">#{{.}}</span>{{end}}{{with .Data.By}} <span class="muted">by {{who $.Names .}}</span>{{end}}</h1>
   <span class="spacer"></span>
-  {{with .Data.Tag}}<a href="{{base}}/{{if eq $.Data.Show "done"}}?show=done{{end}}">All tags</a>{{end}}
-  {{if eq .Data.Show "done"}}<a class="button secondary" href="{{base}}/{{with .Data.Tag}}?tag={{.}}{{end}}">Open</a>{{else}}<a class="button secondary" href="{{base}}/?show=done{{with .Data.Tag}}&amp;tag={{.}}{{end}}">Done</a>{{end}}
+  {{with .Data.Tag}}<a href="{{base}}/{{boardq $.Data.Show "" $.Data.By}}">All tags</a>{{end}}
+  {{with .Data.By}}<a href="{{base}}/{{boardq $.Data.Show $.Data.Tag ""}}">Everyone</a>{{end}}
+  {{if eq .Data.Show "done"}}<a class="button secondary" href="{{base}}/{{boardq "" .Data.Tag .Data.By}}">Open</a>{{else}}<a class="button secondary" href="{{base}}/{{boardq "done" .Data.Tag .Data.By}}">Done</a>{{end}}
   {{if .Data.Unread}}<form method="post" action="{{base}}/read"><input type="hidden" name="back" value="{{.Path}}"><button class="secondary">Mark all read</button></form>{{end}}
   {{if .Me.IsAdmin}}<form method="post" action="{{base}}/admin/run"><button class="secondary">Run now</button></form>{{end}}
   <a class="button" href="{{base}}/items/new">New ask</a>
@@ -31,8 +32,8 @@
       {{if .Approved}}<span class="badge approved">approved</span>{{end}}
       {{with .Blocked}}<span class="badge blocked" title="{{.}}">blocked</span>{{end}}
       {{template "escalation" .}}
-      {{range .Tags}}<a class="tag" href="{{base}}/?{{if eq $.Data.Show "done"}}show=done&amp;{{end}}tag={{.}}">#{{.}}</a>{{end}}
-      #{{.ID}} by {{who $.Names .Author}} · {{ago .UpdatedAt}}{{if .Replies}} · {{.Replies}} repl{{if eq .Replies 1}}y{{else}}ies{{end}}{{end}}
+      {{range .Tags}}<a class="tag" href="{{base}}/{{boardq $.Data.Show . $.Data.By}}">#{{.}}</a>{{end}}
+      #{{.ID}} by <a href="{{base}}/{{boardq $.Data.Show "" .Author}}" title="Only their asks">{{who $.Names .Author}}</a> · {{ago .UpdatedAt}}{{if .Replies}} · {{.Replies}} repl{{if eq .Replies 1}}y{{else}}ies{{end}}{{end}}
     </div>
   </li>
   {{end}}

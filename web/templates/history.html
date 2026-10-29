@@ -16,7 +16,7 @@
     </div>
     {{with .PRs}}<ol class="prs">{{range .}}
       <li><a href="{{.URL}}">#{{.Number}}</a> {{.Title}}
-        <span class="muted">{{with .Item}}· <a href="{{base}}/items/{{.ID}}">item #{{.ID}}</a> asked by {{who $.Names .Author}}{{else}}· by {{who $.Names .Author}}{{end}} · {{ago .MergedAt}}</span></li>
+        <span class="muted">{{with .Item}}· <a href="{{base}}/items/{{.ID}}">item #{{.ID}}</a> asked by <a href="{{base}}/{{boardq "" "" .Author}}" title="Only their asks">{{who $.Names .Author}}</a>{{else}}· by {{who $.Names .Author}}{{end}} · {{ago .MergedAt}}</span></li>
     {{end}}</ol>{{end}}
   </li>
   {{end}}

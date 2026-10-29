@@ -204,6 +204,14 @@ func TestRegistry(t *testing.T) {
 	if name, avatar, _ := r.User(ctx, "alice"); name != "Alice B" || avatar != "b.png" {
 		t.Errorf("user %q %q", name, avatar)
 	}
+	// A platform admin signed in with Google is named under their login too.
+	r.AddPlatformAdmin(ctx, "gadmin", "G.Admin@Example.org")
+	r.SetUser(ctx, "g.admin@example.org", "Gail Admin", "")
+	r.SetUser(ctx, "nameless", "", "")
+	if names, err := r.Names(ctx); err != nil || names["alice"] != "Alice B" || names["gadmin"] != "Gail Admin" ||
+		names["g.admin@example.org"] != "Gail Admin" || len(names) != 3 {
+		t.Errorf("names %v %v", names, err)
+	}
 	if s, err := r.Settings(ctx); err != nil || s.SpendLimit != 50 || s.MaxRuns != 3 {
 		t.Errorf("settings %+v %v", s, err)
 	}

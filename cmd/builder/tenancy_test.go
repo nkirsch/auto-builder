@@ -147,6 +147,10 @@ func TestHubTenants(t *testing.T) {
 	}
 	check(do(h, srv, "nkirsch", "GET", "/admin", nil), 200, "", `action="/admin/platform-admins/katrina/delete"`)
 	check(do(h, srv, "nkirsch", "GET", "/admin", nil), 200, "", ">Provision</button>")
+	// Admin names people: a platform admin who signed in with Google, by their login too.
+	h.reg.SetUser(ctx, "nick@example.org", "Nick Kirsch", "")
+	check(do(h, srv, "nkirsch", "GET", "/admin", nil), 200, "", `· <span title="Nick Kirsch (nkirsch)">Nick</span> ·`)
+	check(do(h, srv, "nkirsch", "GET", "/admin", nil), 200, "", `<b><span title="Nick Kirsch (nkirsch)">Nick</span></b> <span class="muted">nkirsch</span>`)
 	h.reg.SetStatus(ctx, "beta", "ready", "")
 	check(do(h, srv, "nkirsch", "GET", "/admin", nil), 200, "", ">Re-provision</button>")
 	check(do(h, srv, "nkirsch", "POST", "/admin/platform-admins/nkirsch/delete", url.Values{}), 303,

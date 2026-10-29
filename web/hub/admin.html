@@ -19,7 +19,7 @@
   {{range .}}
   <tr>
     <td><a href="/{{.Slug}}/"><b>{{.Name}}</b></a>{{if ne .Name .Slug}} <span class="muted">{{.Slug}}</span>{{end}}<br>
-      <a class="muted" href="https://github.com/{{.Repo}}">{{.Repo}}</a> <span class="muted">· {{.CreatedBy}} · {{ago .CreatedAt}}</span></td>
+      <a class="muted" href="https://github.com/{{.Repo}}">{{.Repo}}</a> <span class="muted">· {{who $.Names .CreatedBy}} · {{ago .CreatedAt}}</span></td>
     <td><span class="badge">{{.Status}}</span>{{if .Existing}} <span class="badge">existing</span>{{end}}{{with .Error}}<br><span class="bad">{{.}}</span>{{end}}</td>
     <td class="num">{{if eq .Status "deleted"}}<span class="muted">–</span>{{else}}<span{{if .Level}} class="bad"{{end}}>${{printf "%.2f" .Spent}}</span>{{end}}</td>
     <td>{{if ne .Status "deleted"}}<div class="bar {{.Level}}" style="--p: {{.Pct}}" title="{{.Pct}}% of its limit"><span></span></div>{{end}}</td>
@@ -47,7 +47,7 @@
 <h2>Platform admins</h2>
 <p class="hint">They create apps and see every app here; each app's board has its own members and admins.</p>
 <ul class="items">
-  {{range .Data.Admins}}<li class="row"><b>{{.Login}}</b>{{with .Email}} <span class="muted">{{.}}</span>{{end}}
+  {{range .Data.Admins}}<li class="row"><b>{{who $.Names .Login}}</b>{{if index $.Names .Login}} <span class="muted">{{.Login}}</span>{{end}}{{with .Email}} <span class="muted">{{.}}</span>{{end}}
     <span class="spacer"></span>
     {{if ne .Login $.MeLogin}}<form method="post" action="/admin/platform-admins/{{.Login}}/delete"><button class="secondary">Remove</button></form>{{end}}
   </li>{{end}}
@@ -60,7 +60,7 @@
 <h2>Creators</h2>
 <p class="hint">Each may create one app of their own from New app and becomes its admin. Someone who already admins an app here has theirs.</p>
 <ul class="items">
-  {{range .Data.Creators}}<li class="row"><b>{{.}}</b>
+  {{range .Data.Creators}}<li class="row"><b>{{who $.Names .}}</b>{{if index $.Names .}} <span class="muted">{{.}}</span>{{end}}
     <span class="spacer"></span>
     <form method="post" action="/admin/creators/{{.}}/delete"><button class="secondary">Remove</button></form>
   </li>{{end}}

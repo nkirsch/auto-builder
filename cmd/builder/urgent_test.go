@@ -36,12 +36,15 @@ func TestHubUrgent(t *testing.T) {
 		t.Fatalf("item = %+v", it)
 	}
 
-	// The platform admins see it on Urgent and hand it back to a board admin.
+	// The platform admins see it on Urgent, by name, and hand it back to a board admin.
+	st.TouchMember(ctx, "bob", "Bob Burns", "")
+	h.reg.SetUser(ctx, "nkirsch", "Nick Kirsch", "")
 	if w := do(h, srv, "bob", "GET", "/admin/urgent", nil); w.Code != 403 {
 		t.Fatalf("board admin on Urgent: %d", w.Code)
 	}
 	w := do(h, srv, "nkirsch", "GET", "/admin/urgent", nil)
-	for _, want := range []string{`href="/alpha/items/1"`, `action="/admin/tenants/alpha/items/1/reassign"`, `<option value="bob">bob</option>`} {
+	for _, want := range []string{`href="/alpha/items/1"`, `action="/admin/tenants/alpha/items/1/reassign"`,
+		`escalated by <span title="Bob Burns (bob)">Bob</span>`, `<option value="bob">Bob Burns</option>`, `<summary title="Sign out…"><span title="Nick Kirsch (nkirsch)">Nick</span> ⎋</summary>`} {
 		if !strings.Contains(w.Body.String(), want) {
 			t.Errorf("Urgent missing %q:\n%s", want, w.Body)
 		}

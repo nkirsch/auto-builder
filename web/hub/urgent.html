@@ -6,10 +6,10 @@
 <ul class="items">
   {{range .Items}}
   <li class="row">
-    <a href="/{{$app.Slug}}/items/{{.ID}}"><b>{{.Title}}</b></a> <span class="muted">#{{.ID}} by {{.Author}}, escalated by {{.EscalatedBy}}{{with .EscalatedAt}} {{when .}}{{end}}</span>
+    <a href="/{{$app.Slug}}/items/{{.ID}}"><b>{{.Title}}</b></a> <span class="muted">#{{.ID}} by {{who $app.Names .Author}}, escalated by {{who $app.Names .EscalatedBy}}{{with .EscalatedAt}} {{when .}}{{end}}</span>
     <span class="spacer"></span>
     {{if $app.Admins}}<form method="post" action="/admin/tenants/{{$app.Slug}}/items/{{.ID}}/reassign" class="row">
-      <select name="to" aria-label="Admin">{{range $app.Admins}}<option value="{{.Login}}">{{.Login}}{{with .Email}} ({{.}}){{end}}</option>{{end}}</select>
+      <select name="to" aria-label="Admin">{{range $app.Admins}}<option value="{{.Login}}">{{or .Name .Login}}{{with .Email}} ({{.}}){{end}}</option>{{end}}</select>
       <button class="secondary">Re-assign</button>
     </form>{{else}}<span class="muted">no board admins</span>{{end}}
   </li>

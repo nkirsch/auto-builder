@@ -186,6 +186,7 @@ func (h *hub) parse() error {
 			"short": func(s string) string { return s[:min(7, len(s))] },
 			"ago":   func(t time.Time) string { return t.Format("Jan 2, 2006") },
 			"when":  func(t time.Time) string { return t.Local().Format("Jan 2 15:04") },
+			"who":   board.Who,
 		}).ParseFS(web.FS, "hub/layout.html", "hub/"+p+".html")
 		if err != nil {
 			return fmt.Errorf("hub template %s: %w", p, err)
@@ -616,6 +617,7 @@ type hubPage struct {
 	Version, Repo                  string // footer: release name and the code's repo
 	MeLogin                        string // the viewer's platform admin login, if any
 	Admin                          bool
+	Names                          map[string]string // signed-in identities to names, for who
 	Data                           any
 }
 
@@ -627,7 +629,13 @@ func (h *hub) render(w http.ResponseWriter, r *http.Request, name, title string,
 	if name == "index" && me != "" && err != nil {
 		canCreate, _ = h.canCreate(r.Context(), me)
 	}
-	p := hubPage{Title: title, Site: h.host, Me: me, Admin: me != "" && err == nil, MeLogin: admin.Login, CanCreate: canCreate,
+	var names map[string]string
+	if me != "" {
+		if names, err = h.reg.Names(r.Context()); err != nil {
+			slog.Warn("names", "err", err)
+		}
+	}
+	p := hubPage{Title: title, Site: h.host, Me: me, Admin: me != "" && admin.Login != "", MeLogin: admin.Login, CanCreate: canCreate, Names: names,
 		Flash: r.URL.Query().Get("flash"), GitSHA: h.cfg.GitSHA, Feedback: h.cfg.FeedbackURL, Version: h.cfg.Version, Repo: h.cfg.Repo, Data: data}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if err := h.tmpl[name].ExecuteTemplate(w, "layout", p); err != nil {

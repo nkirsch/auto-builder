@@ -54,7 +54,9 @@ func TestIssueSync(t *testing.T) {
 			w.Write([]byte(`[
 				{"number":1,"title":"Crash","body":"boom","user":{"login":"alice"}},
 				{"number":2,"title":"Spam","body":"buy now","user":{"login":"stranger"}},
-				{"number":3,"title":"A PR","user":{"login":"alice"},"pull_request":{}}]`))
+				{"number":3,"title":"A PR","user":{"login":"alice"},"pull_request":{}},
+				{"number":4,"title":"Mine","user":{"login":"nkirsch"},"author_association":"OWNER"},
+				{"number":5,"title":"Not mine","user":{"login":"nkirsch"},"author_association":"NONE"}]`))
 		case "GET /repos/o/r/issues/comments":
 			w.Write([]byte(`[
 				{"id":10,"body":"me too @nkirsch","user":{"login":"nkirsch"},"issue_url":"https://api.github.com/repos/o/r/issues/1"},
@@ -82,8 +84,14 @@ func TestIssueSync(t *testing.T) {
 		}
 	}
 	items, _ := st.Items(ctx)
-	if len(items) != 1 {
+	if len(items) != 3 {
 		t.Fatalf("items = %+v", items)
+	}
+	// An auto-approving admin's issue starts approved only when GitHub says they can write.
+	for _, it := range items[1:] {
+		if want := it.Title == "Mine"; it.Approved != want || (want && it.ApprovedBy != "nkirsch") {
+			t.Errorf("%q approved %v by %q", it.Title, it.Approved, it.ApprovedBy)
+		}
 	}
 	it := items[0]
 	if it.Title != "Crash" || it.Author != "Alice" || *it.IssueNumber != 1 || it.Approved ||

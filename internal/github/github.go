@@ -338,7 +338,9 @@ type Issue struct {
 	User   struct {
 		Login string `json:"login"`
 	} `json:"user"`
-	PullRequest *struct{} `json:"pull_request"`
+	// AuthorAssociation is OWNER, MEMBER or COLLABORATOR when the author can write to the repo.
+	AuthorAssociation string    `json:"author_association"`
+	PullRequest       *struct{} `json:"pull_request"`
 }
 
 // IssueComment is a comment on an issue (or pull request).

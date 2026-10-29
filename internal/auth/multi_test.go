@@ -116,3 +116,22 @@ func TestMultiRequire(t *testing.T) {
 		t.Errorf("member not touched from the profile: %+v", m)
 	}
 }
+
+// With GitHub sign-in off, a hub's GitHub sessions end; Google ones don't.
+func TestMultiGitHubOff(t *testing.T) {
+	a, err := New(Config{BaseURL: "https://hub.example", SessionKey: []byte("0123456789abcdef"),
+		GoogleClientID: "g", Multi: true}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if a.GitHub() {
+		t.Fatal("GitHub offered without a client ID")
+	}
+	for identity, want := range map[string]string{"octocat": "", "kat@example.com": "kat@example.com"} {
+		r := httptest.NewRequest(http.MethodGet, "/", nil)
+		r.AddCookie(a.SessionCookie(identity))
+		if got := a.SignedIn(r); got != want {
+			t.Errorf("%s: signed in as %q, want %q", identity, got, want)
+		}
+	}
+}

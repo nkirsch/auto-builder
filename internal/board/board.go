@@ -862,8 +862,11 @@ func (b *Board) admin(w http.ResponseWriter, r *http.Request) {
 	}
 	b.render(w, r, "admin", "Admin", map[string]any{"Members": members, "Costs": costs, "Traffic": b.Traffic,
 		"Limit": limit, "MemberCosts": byMember, "Stats": []db.RunStats{recent, all}, "Upstream": upstream, "Mail": mail,
-		"Workflows": workflows})
+		"Workflows": workflows, "GitHub": b.gitHubSignIn()})
 }
+
+// gitHubSignIn reports whether members may sign in with GitHub at all.
+func (b *Board) gitHubSignIn() bool { return b.Auth == nil || b.Auth.GitHub() }
 
 func (b *Board) setSpendLimit(w http.ResponseWriter, r *http.Request) {
 	v, err := strconv.ParseFloat(strings.TrimPrefix(strings.TrimSpace(r.FormValue("limit")), "$"), 64)
@@ -935,6 +938,10 @@ func (b *Board) addMember(w http.ResponseWriter, r *http.Request) {
 	email := strings.TrimSpace(r.FormValue("email"))
 	if email != "" && !strings.Contains(email, "@") {
 		redirect(w, r, "/admin", "That email doesn't look right")
+		return
+	}
+	if email == "" && !b.gitHubSignIn() {
+		redirect(w, r, "/admin", "Enter their Google email: GitHub sign-in is off")
 		return
 	}
 	_, err := b.Store.Member(r.Context(), login)
@@ -1011,7 +1018,7 @@ func (b *Board) inviteMessage(m db.Member) (subject, body string) {
 	name := b.name()
 	how := "Sign in with GitHub as " + m.Login + "."
 	switch {
-	case m.Email != "" && m.GitHub:
+	case m.Email != "" && m.GitHub && b.gitHubSignIn():
 		how = "Sign in with GitHub as " + m.Login + " or with Google as " + m.Email + "."
 	case m.Email != "":
 		how = "Sign in with Google as " + m.Email + "."

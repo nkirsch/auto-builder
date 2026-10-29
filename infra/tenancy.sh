@@ -19,8 +19,8 @@ ADMIN_EMAIL=${ADMIN_EMAIL:-nick@kirsch.org}
 # Standalone boards on the hub's Apps page (platform admins) (space-separated name=board URL);
 # each mounts the shared STATS_TOKEN secret, which this project holds.
 SITES=${SITES-builder=https://builder.extreme.org} # momo, katrina and youkoh.org are apps on iterate.kirsch.org now
-# Other hubs on /admin/hubs (space-separated name=hub URL), each holding STATS_TOKEN; left as is when unset.
-HUBS=${HUBS-}
+# Other hubs on /admin/hubs (space-separated name=hub URL), each holding STATS_TOKEN; empty leaves the service's as is.
+HUBS=${HUBS-nick=https://iterate.nick.org kirsch=https://iterate.kirsch.org}
 # Names in SITES whose members may each create one app.
 CREATORS_FROM=${CREATORS_FROM-builder}
 # Claude auth for the runner: the comma-separated ANTHROPIC_* IDs printed by

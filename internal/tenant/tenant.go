@@ -441,3 +441,8 @@ func (r *Registry) SignIns(ctx context.Context, board string, identities []strin
 func (r *Registry) PruneSignIns(ctx context.Context, before time.Time) error {
 	return db.PruneSignIns(ctx, r.Control, before)
 }
+
+// AllSignIns lists every board's sign-in attempts for platform admins; see db.AllSignIns.
+func (r *Registry) AllSignIns(ctx context.Context, board, identity string, since time.Time) ([]db.SignIn, error) {
+	return db.AllSignIns(ctx, r.Control, board, identity, since)
+}

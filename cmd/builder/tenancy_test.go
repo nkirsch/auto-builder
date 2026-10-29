@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"os"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -738,6 +739,48 @@ func TestBoardOf(t *testing.T) {
 	for next, want := range map[string]string{"/alpha/items/3": "alpha", "/alpha": "alpha", "/": "", "/admin": "", "/Bad_Slug/x": ""} {
 		if got := boardOf(next); got != want {
 			t.Errorf("boardOf(%q) = %q, want %q", next, got, want)
+		}
+	}
+}
+
+// Platform admins see every board's sign-in attempts, filtered by board or identity.
+func TestHubSignIns(t *testing.T) {
+	ctx := context.Background()
+	h := testHub(t)
+	srv := h.routes()
+	for _, s := range []db.SignIn{
+		{Provider: "google", Identity: "kat@example.org", Result: db.SignInNotMember, Board: "alpha"},
+		{Provider: "github", Identity: "octocat", Result: db.SignInOK, Board: "beta"},
+		{Provider: "github", Result: db.SignInStateBad},
+	} {
+		if err := h.reg.RecordSignIn(ctx, s, 0); err != nil {
+			t.Fatal(err)
+		}
+	}
+	get := func(identity, path string) string {
+		w := do(h, srv, identity, "GET", path, nil)
+		if w.Code != 200 {
+			return strconv.Itoa(w.Code)
+		}
+		return w.Body.String()
+	}
+	if got := get("mallory", "/admin/signins"); got != "403" {
+		t.Errorf("non-admin: %.40s", got)
+	}
+	for path, want := range map[string][]string{
+		"/admin/signins":                     {"kat@example.org", "octocat", "state mismatch", `class="failed"`},
+		"/admin/signins?board=alpha":         {"kat@example.org"},
+		"/admin/signins?board=-":             {"state mismatch"},
+		"/admin/signins?who=KAT@example.org": {"kat@example.org"},
+	} {
+		body := get("nkirsch", path)
+		for _, w := range want {
+			if !strings.Contains(body, w) {
+				t.Errorf("%s missing %q", path, w)
+			}
+		}
+		if n := strings.Count(body, "<tr") - 1; n != len(want) && path != "/admin/signins" {
+			t.Errorf("%s: %d rows", path, n)
 		}
 	}
 }

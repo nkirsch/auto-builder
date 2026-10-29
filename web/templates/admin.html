@@ -1,7 +1,8 @@
 {{define "content"}}
 {{if .Data.Traffic}}<p><a href="{{base}}/logs">Site traffic</a></p>{{end}}
 <h1>Members</h1>
-{{with .Data.Hold}}<p class="flash">Invites wait until the app is ready: {{.}}. Add members now and invite them then.</p>{{end}}
+{{range .Data.Stuck}}<p class="flash"><b>{{who $.Names .Login}}</b> hasn't signed in yet: signing in with {{if eq .Last.Provider "google"}}Google{{else}}GitHub{{end}} as {{.Last.Identity}} failed ({{.Last.Result}}), <span title="{{stamp .Last.At}}">{{ago .Last.At}}</span>. <a href="{{base}}/admin/signins?who={{.Login}}">Their sign-ins</a></p>
+{{end}}{{with .Data.Hold}}<p class="flash">Invites wait until the app is ready: {{.}}. Add members now and invite them then.</p>{{end}}
 <ul class="items">
   {{range .Data.Members}}
   <li class="row">

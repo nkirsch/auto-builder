@@ -936,11 +936,16 @@ func (b *Board) admin(w http.ResponseWriter, r *http.Request) {
 		b.fail(w, err)
 		return
 	}
+	stuck, err := b.stuckSignIns(r.Context(), members)
+	if err != nil {
+		b.fail(w, err)
+		return
+	}
 	var mail map[string]any
 	if b.Mailer != nil {
 		mail = map[string]any{"From": b.Mailer.Mailbox(r)}
 	}
-	b.render(w, r, "admin", "Admin", map[string]any{"Members": members, "Hold": b.inviteHold(r.Context()), "Costs": costs, "Traffic": b.Traffic,
+	b.render(w, r, "admin", "Admin", map[string]any{"Members": members, "Stuck": stuck, "Hold": b.inviteHold(r.Context()), "Costs": costs, "Traffic": b.Traffic,
 		"Limit": limit, "MemberCosts": byMember, "Stats": []db.RunStats{recent, all}, "Upstream": upstream, "Mail": mail, "HubLimits": b.HubLimits,
 		"Workflows": workflows, "GitHub": b.gitHubSignIn()})
 }
@@ -1162,16 +1167,66 @@ func (b *Board) signIns(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	var log db.SignInLog = b.Store
-	if b.SignIns != nil {
-		log = b.SignIns
-	}
-	list, err := log.SignIns(r.Context(), b.Slug, ids, who != "", time.Now().Add(-30*24*time.Hour))
+	list, err := b.signInLog().SignIns(r.Context(), b.Slug, ids, who != "", time.Now().Add(-30*24*time.Hour))
 	if err != nil {
 		b.fail(w, err)
 		return
 	}
 	b.render(w, r, "signins", "Sign-ins", map[string]any{"SignIns": list, "Who": who, "Slug": b.Slug})
+}
+
+// signInLog is where this board's sign-in attempts are: SignIns, else the store.
+func (b *Board) signInLog() db.SignInLog {
+	if b.SignIns != nil {
+		return b.SignIns
+	}
+	return b.Store
+}
+
+// stuckWithin is how far back /admin looks for never-signed-in members' failures.
+const stuckWithin = 7 * 24 * time.Hour
+
+// StuckSignIn is a member who has never signed in and failed to since being
+// added: usually the wrong address or provider.
+type StuckSignIn struct {
+	Login string
+	Last  db.SignIn // the latest failure
+}
+
+// stuckSignIns lists members who have never signed in but failed to in the
+// last week (after they were added), with their latest failure, one per member.
+func (b *Board) stuckSignIns(ctx context.Context, members []db.Member) ([]StuckSignIn, error) {
+	owner := map[string]db.Member{}
+	var ids []string
+	for _, m := range members {
+		if m.LastSeen != nil {
+			continue
+		}
+		owner[strings.ToLower(m.Login)] = m
+		ids = append(ids, m.Login)
+		if m.Email != "" {
+			owner[strings.ToLower(m.Email)] = m
+			ids = append(ids, m.Email)
+		}
+	}
+	if len(ids) == 0 {
+		return nil, nil
+	}
+	list, err := b.signInLog().SignIns(ctx, b.Slug, ids, true, time.Now().Add(-stuckWithin))
+	if err != nil {
+		return nil, err
+	}
+	var out []StuckSignIn
+	seen := map[string]bool{}
+	for _, s := range list { // newest first
+		m, ok := owner[strings.ToLower(s.Identity)]
+		if !ok || !s.Failed() || s.At.Before(m.AddedAt) || seen[m.Login] {
+			continue
+		}
+		seen[m.Login] = true
+		out = append(out, StuckSignIn{Login: m.Login, Last: s})
+	}
+	return out, nil
 }
 
 // inviteHold is why invites wait, or "" when they needn't.

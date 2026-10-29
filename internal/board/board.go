@@ -76,6 +76,10 @@ type Board struct {
 	// Ready, when set (a hub's tenant board), reports whether the app is
 	// provisioned; until it is, the runs page skips the GitHub lookups.
 	Ready func(ctx context.Context) bool
+	// InviteHold, when set (a hub's tenant board), says why invites must wait
+	// (the app isn't ready: setting up, or its domain and certificate pending),
+	// or "" once they needn't.
+	InviteHold func(ctx context.Context) string
 	// CreateAppURL, when set, is a hub's New app page, linked in the nav for members.
 	CreateAppURL string
 	Gate         Gate
@@ -926,7 +930,7 @@ func (b *Board) admin(w http.ResponseWriter, r *http.Request) {
 	if b.Mailer != nil {
 		mail = map[string]any{"From": b.Mailer.Mailbox(r)}
 	}
-	b.render(w, r, "admin", "Admin", map[string]any{"Members": members, "Costs": costs, "Traffic": b.Traffic,
+	b.render(w, r, "admin", "Admin", map[string]any{"Members": members, "Hold": b.inviteHold(r.Context()), "Costs": costs, "Traffic": b.Traffic,
 		"Limit": limit, "MemberCosts": byMember, "Stats": []db.RunStats{recent, all}, "Upstream": upstream, "Mail": mail, "HubLimits": b.HubLimits,
 		"Workflows": workflows, "GitHub": b.gitHubSignIn()})
 }
@@ -1037,6 +1041,10 @@ func (b *Board) addMember(w http.ResponseWriter, r *http.Request) {
 			b.fail(w, err)
 			return
 		}
+	}
+	if hold := b.inviteHold(r.Context()); isNew && hold != "" {
+		redirect(w, r, "/admin", "Saved "+login+"; invite them once it's ready: "+hold)
+		return
 	}
 	if isNew && email == "" && b.Welcomer != nil {
 		// No email to invite them by, and GitHub has no DMs: an @-mention notifies them.
@@ -1156,6 +1164,14 @@ func (b *Board) signIns(w http.ResponseWriter, r *http.Request) {
 	b.render(w, r, "signins", "Sign-ins", map[string]any{"SignIns": list, "Who": who, "Slug": b.Slug})
 }
 
+// inviteHold is why invites wait, or "" when they needn't.
+func (b *Board) inviteHold(ctx context.Context) string {
+	if b.InviteHold == nil {
+		return ""
+	}
+	return b.InviteHold(ctx)
+}
+
 // name is the board's name for invitations: b.Name, else BaseURL's host.
 func (b *Board) name() string {
 	if b.Name != "" {
@@ -1204,6 +1220,10 @@ func (b *Board) sendInvite(w http.ResponseWriter, r *http.Request) {
 	}
 	if m.Email == "" {
 		redirect(w, r, "/admin", m.Login+" has no email; use the Invite link")
+		return
+	}
+	if hold := b.inviteHold(r.Context()); hold != "" {
+		redirect(w, r, "/admin", "Not yet: "+hold)
 		return
 	}
 	subject, body := b.inviteMessage(m)

@@ -508,6 +508,20 @@ func (h *hub) tenantFor(ctx context.Context, slug string) (*tenantRT, error) {
 			t, err := h.reg.Tenant(ctx, slug)
 			return err == nil && t.Live()
 		},
+		InviteHold: func(ctx context.Context) string {
+			// An invitee shouldn't meet an app that's still setting up or a certificate error.
+			t, err := h.reg.Tenant(ctx, slug)
+			switch {
+			case err != nil:
+				return "can't tell whether the app is ready"
+			case t.Status == "ready":
+				return ""
+			case t.Status == "securing":
+				return "the app at " + h.appURL(slug) + " isn't reachable yet (its domain and certificate are on the way)"
+			default:
+				return "the app is " + t.Status
+			}
+		},
 		Provisioning: func(ctx context.Context) *board.Provisioning { return h.provisioning(ctx, slug) },
 		Reprovision: func(ctx context.Context) error {
 			if t, err := h.reg.Tenant(ctx, slug); err != nil {

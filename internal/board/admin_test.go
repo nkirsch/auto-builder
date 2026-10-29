@@ -445,3 +445,57 @@ func TestSetMemberEmail(t *testing.T) {
 		t.Errorf("unknown member: %d", code)
 	}
 }
+
+// While a hub's app isn't ready, the admin page offers no invites and
+// neither sending one nor adding a member invites anyone.
+func TestInvitesHeldUntilReady(t *testing.T) {
+	b, _ := dbBoard(t)
+	if err := b.parse(); err != nil {
+		t.Fatal(err)
+	}
+	hold := "the app is provisioning"
+	b.InviteHold = func(context.Context) string { return hold }
+	wel := &stubWelcomer{}
+	mail := &stubMailer{from: "nick@example.org"}
+	b.Welcomer, b.Mailer = wel, mail
+	admin := db.Member{Login: "nkirsch", Role: "admin"}
+	post := func(path string, h http.HandlerFunc, form url.Values) string {
+		r := httptest.NewRequest(http.MethodPost, path, strings.NewReader(form.Encode()))
+		r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		r.SetPathValue("login", "kat")
+		r = r.WithContext(auth.WithMember(r.Context(), admin))
+		w := httptest.NewRecorder()
+		h(w, r)
+		loc, _ := url.Parse(w.Header().Get("Location"))
+		return loc.Query().Get("m")
+	}
+	if got := post("/admin/members", b.addMember, url.Values{"login": {"newbie"}, "role": {"member"}}); got != "Saved newbie; invite them once it's ready: the app is provisioning" {
+		t.Errorf("add flash %q", got)
+	}
+	post("/admin/members", b.addMember, url.Values{"login": {"kat"}, "role": {"member"}, "email": {"kat@example.org"}})
+	if got := post("/admin/members/kat/invite", b.sendInvite, nil); got != "Not yet: the app is provisioning" {
+		t.Errorf("invite flash %q", got)
+	}
+	if len(wel.logins) != 0 || len(mail.to) != 0 {
+		t.Fatalf("invited while held: welcomed %v, mailed %v", wel.logins, mail.to)
+	}
+
+	page := func() string {
+		r := httptest.NewRequest(http.MethodGet, "/admin", nil)
+		r = r.WithContext(auth.WithMember(r.Context(), admin))
+		w := httptest.NewRecorder()
+		b.admin(w, r)
+		return w.Body.String()
+	}
+	html := page()
+	if !strings.Contains(html, "invite once the app is ready") || strings.Contains(html, "Email invite") || strings.Contains(html, "mailto:") {
+		t.Errorf("held admin page offers invites")
+	}
+	hold = ""
+	if html := page(); !strings.Contains(html, "Email invite") || strings.Contains(html, "Invites wait") {
+		t.Errorf("ready admin page doesn't offer invites")
+	}
+	if got := post("/admin/members/kat/invite", b.sendInvite, nil); !strings.HasPrefix(got, "Emailed an invite to kat@example.org") {
+		t.Errorf("invite flash %q", got)
+	}
+}

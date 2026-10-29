@@ -107,7 +107,8 @@ func TestHubTenants(t *testing.T) {
 	check(do(h, srv, "", "GET", "/Bad_Slug/", nil), 404, "", "")
 
 	// Members are per board.
-	check(do(h, srv, "nick@example.org", "POST", "/alpha/admin/members", url.Values{"login": {"bob"}, "role": {"member"}}), 303, "/alpha/admin?m=Saved%20bob", "")
+	check(do(h, srv, "nick@example.org", "POST", "/alpha/admin/members", url.Values{"login": {"bob"}, "role": {"member"}}), 303,
+		"/alpha/admin?m=Saved%20bob%3B%20invite%20them%20once%20it%27s%20ready%3A%20the%20app%20is%20provisioning", "")
 	check(do(h, srv, "bob", "POST", "/alpha/items", url.Values{"title": {"Dark mode"}, "body": {"please"}}), 303, "/alpha/items/1", "")
 	check(do(h, srv, "bob", "GET", "/alpha/items/1", nil), 200, "", "Dark mode")
 	check(do(h, srv, "bob", "GET", "/beta/", nil), 403, "", "not a member")
@@ -403,6 +404,11 @@ func TestHubSecuring(t *testing.T) {
 	if tn, _ := h.reg.Tenant(ctx, "alpha"); tn.Status != "securing" || tn.ProvisionedAt != nil {
 		t.Fatalf("unreachable app %+v", tn)
 	}
+	// Invites wait for the app.
+	if body := do(h, srv, "nick@example.org", "GET", "/alpha/admin", nil).Body.String(); !strings.Contains(body, "Invites wait until the app is ready: the app at http") ||
+		!strings.Contains(body, "isn&#39;t reachable yet") {
+		t.Error("securing board's admin doesn't hold invites")
+	}
 	up = true
 	tick()
 	if tn, _ := h.reg.Tenant(ctx, "alpha"); tn.Status != "ready" || tn.ProvisionedAt == nil || tn.Steps[len(tn.Steps)-1].State != "done" {
@@ -410,6 +416,9 @@ func TestHubSecuring(t *testing.T) {
 	}
 	if body := do(h, srv, "nick@example.org", "GET", "/alpha/", nil).Body.String(); strings.Contains(body, `class="provisioning"`) || strings.Contains(body, "http-equiv") {
 		t.Error("ready board still shows provisioning")
+	}
+	if body := do(h, srv, "nick@example.org", "GET", "/alpha/admin", nil).Body.String(); strings.Contains(body, "Invites wait") {
+		t.Error("ready board's admin holds invites")
 	}
 }
 

@@ -36,7 +36,7 @@
     <td class="num">{{if not .ErrorsKnown}}<span class="muted">–</span>{{else if .Errors24h}}<a class="bad" href="{{.Logs}}">{{.Errors24h}}</a>{{else}}0{{end}}</td>
     <td class="num">{{if .Detail}}{{with .Stats.Attention}}<span class="bad">{{len .}}</span>{{else}}0{{end}}{{else}}<span class="muted">–</span>{{end}}</td>
     <td class="num">{{if .Detail}}{{.Stats.Other}}{{else}}<span class="muted">–</span>{{end}}</td>
-    <td>{{with .Stats.LastRun}}{{.Status}} <span class="muted">{{when .At}}</span>{{else}}<span class="muted">–</span>{{end}}{{with .Stats.Failed7d}} · <span class="bad">{{.}} failed in 7d</span>{{end}}</td>
+    <td class="wrap">{{with .Stats.LastRun}}{{.Status}} <span class="muted">{{when .At}}</span>{{else}}<span class="muted">–</span>{{end}}{{with .Stats.Failed7d}} · <span class="bad">{{.}} failed in 7d</span>{{end}}</td>
     <td>{{with .Logs}}<a href="{{.}}">Traffic</a>{{end}}</td>
   </tr>
   {{end}}

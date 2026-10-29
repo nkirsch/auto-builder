@@ -551,6 +551,14 @@ func (b *Board) reply(w http.ResponseWriter, r *http.Request) {
 		}
 		reopened = true
 	}
+	// A merged item reopens once it ships, so the ship-checker keeps its merge.
+	reopensOnShip := me.IsAdmin() && it.Status == "merged"
+	if reopensOnShip {
+		if err := b.Store.ReopenOnShip(r.Context(), id); err != nil {
+			b.fail(w, err)
+			return
+		}
+	}
 	if body != "" {
 		if _, err := b.Store.AddResponse(r.Context(), id, me.Login, body, true); err != nil {
 			b.fail(w, err)
@@ -566,6 +574,8 @@ func (b *Board) reply(w http.ResponseWriter, r *http.Request) {
 	msg := ""
 	if reopened {
 		msg = "Reopened"
+	} else if reopensOnShip {
+		msg = "Reopens once shipped"
 	}
 	redirect(w, r, fmt.Sprintf("/items/%d#end", id), msg)
 }

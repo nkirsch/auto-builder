@@ -581,7 +581,25 @@ func (s *Store) CloseItem(ctx context.Context, id int, note string, human bool) 
 
 func (s *Store) ReopenItem(ctx context.Context, id int) error {
 	return s.execOne(ctx, `UPDATE items SET status = 'open', close_note = '', closed_at = NULL, pr_number = NULL,
-		merge_sha = '', updated_at = now(), human_activity_at = now() WHERE id = $1`, id)
+		merge_sha = '', reopen_on_ship = false, updated_at = now(), human_activity_at = now() WHERE id = $1`, id)
+}
+
+// ReopenOnShip has a merged item reopen once it ships (ReopenShipped), so
+// the ship-checker still sees its merge.
+func (s *Store) ReopenOnShip(ctx context.Context, id int) error {
+	return s.execOne(ctx, `UPDATE items SET reopen_on_ship = true WHERE id = $1 AND status = 'merged'`, id)
+}
+
+// ReopenShipped reopens a shipped item marked ReopenOnShip, reporting
+// whether it did. The admin's reply that marked it is the human activity.
+func (s *Store) ReopenShipped(ctx context.Context, id int) (bool, error) {
+	err := s.execOne(ctx, `UPDATE items SET status = 'open', close_note = '', closed_at = NULL, pr_number = NULL,
+		merge_sha = '', reopen_on_ship = false, updated_at = now(), human_activity_at = now()
+		WHERE id = $1 AND status = 'shipped' AND reopen_on_ship`, id)
+	if errors.Is(err, ErrNotFound) {
+		return false, nil
+	}
+	return err == nil, err
 }
 
 // SetPR marks an item as building on a PR.

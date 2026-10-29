@@ -98,7 +98,10 @@ non-bot change (create, reply, approve) and drives the gate.
   show as links that filter the board (`/?tag=bug`). The agent tags untagged
   items with its guess via `set_tags`.
 - An admin reply on a `closed` or `shipped` item reopens it (approval kept),
-  so the agent picks it up again; member replies only notify.
+  so the agent picks it up again; member replies only notify. On a `merged`
+  item it sets `reopen_on_ship`, and the ship-checker reopens it right after
+  marking it shipped, so the merge is still tracked. Comments imported by
+  issue sync don't reopen items.
 - New items, replies and approvals Pushover the admin when
   `PUSHOVER_TOKEN` / `PUSHOVER_USER` are set (otherwise log only), except
   those by `PUSHOVER_QUIET` (default `nkirsch`), the person receiving them.

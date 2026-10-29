@@ -73,6 +73,9 @@ type Board struct {
 	// GitHub and Releases enable the runs page's Release button.
 	GitHub   *github.Client
 	Releases bool
+	// Ready, when set (a hub's tenant board), reports whether the app is
+	// provisioned; until it is, the runs page skips the GitHub lookups.
+	Ready func(ctx context.Context) bool
 	// CreateAppURL, when set, is a hub's New app page, linked in the nav for members.
 	CreateAppURL string
 	Gate         Gate

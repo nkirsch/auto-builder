@@ -1,13 +1,17 @@
 package board
 
 import (
+	"context"
 	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"slices"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/nkirsch/auto-builder/internal/db"
+	"github.com/nkirsch/auto-builder/internal/github"
 )
 
 func TestIndexRunNowAdminOnly(t *testing.T) {
@@ -322,7 +326,36 @@ func TestRunsReleaseSection(t *testing.T) {
 	if out := render(&releaseInfo{Latest: "v26.10.24"}); !strings.Contains(out, "<button disabled>Release now</button>") {
 		t.Errorf("Release now not disabled with nothing to release")
 	}
+	out = render(&releaseInfo{NoRepo: true})
+	if !strings.Contains(out, "The repo isn't set up yet.") || !strings.Contains(out, "<button disabled>Release now</button>") || strings.Contains(out, "Can't read releases") {
+		t.Errorf("no-commits release section wrong:\n%s", out)
+	}
 	if out := render(nil); strings.Contains(out, "Release now") {
 		t.Errorf("Release section shown without release info")
+	}
+}
+
+func TestReleaseInfoNoCommits(t *testing.T) {
+	var calls int
+	gh := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		http.Error(w, `{"message":"Not Found"}`, http.StatusNotFound) // no release, no commits/HEAD
+	}))
+	defer gh.Close()
+	b := &Board{GitHub: github.New(gh.URL, "t"), Repo: "o/r", Releases: true}
+	if ri := b.releaseInfo(context.Background()); ri == nil || !ri.NoRepo || ri.Err != "" {
+		t.Fatalf("releaseInfo = %+v, want NoRepo", ri)
+	}
+	if calls != 2 {
+		t.Fatalf("GitHub calls = %d, want 2", calls)
+	}
+
+	calls = 0
+	b.Ready = func(context.Context) bool { return false }
+	if ri := b.releaseInfo(context.Background()); ri == nil || !ri.NoRepo {
+		t.Fatalf("releaseInfo while provisioning = %+v, want NoRepo", ri)
+	}
+	if calls != 0 {
+		t.Fatalf("GitHub called %d times while provisioning", calls)
 	}
 }

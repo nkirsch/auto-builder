@@ -208,8 +208,22 @@ func (s *IssueSync) importIssue(ctx context.Context, is github.Issue) error {
 	id, created, err := s.Store.ImportIssue(ctx, is.Number, title, body, author)
 	if created {
 		slog.Info("imported issue", "issue", is.Number, "item", id, "author", author)
+		// An auto-approving admin's issue starts approved, but only when GitHub
+		// vouches the author can write to the repo: a board login need not be
+		// its owner's GitHub account.
+		if m, merr := s.Store.Member(ctx, author); merr == nil && m.IsAdmin() && m.AutoApprove && writer(is.AuthorAssociation) {
+			err = s.Store.SetApproved(ctx, id, true, author)
+		}
 	}
 	return err
+}
+
+func writer(association string) bool {
+	switch association {
+	case "OWNER", "MEMBER", "COLLABORATOR":
+		return true
+	}
+	return false
 }
 
 func (s *IssueSync) importComment(ctx context.Context, c github.IssueComment) error {

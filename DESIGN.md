@@ -102,8 +102,11 @@ non-bot change (create, reply, approve) and drives the gate.
 - New items, replies and approvals Pushover the admin when
   `PUSHOVER_TOKEN` / `PUSHOVER_USER` are set (otherwise log only), except
   those by `PUSHOVER_QUIET` (default `nkirsch`), the person receiving them.
-- Admins can turn on auto-approve for themselves on `/admin`
-  (`members.auto_approve`): their new asks start approved by them, and an
+- Auto-approve (`members.auto_approve`) is on by default; admins can turn it
+  off for themselves on `/admin`. An auto-approving admin's new asks start
+  approved by them, as do GitHub issues they open when GitHub reports them
+  as OWNER, MEMBER or COLLABORATOR (a board login need not be its owner's
+  GitHub account), and an
   item the agent files with `file_item(..., from_item)` starts approved when
   `from_item` is approved and its latest post by an auto-approving admin
   names who approved it (not human activity).

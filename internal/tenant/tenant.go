@@ -29,7 +29,13 @@ var (
 	repoRE = regexp.MustCompile(`^[A-Za-z0-9-]+/[A-Za-z0-9._-]+$`)
 	// reserved are hub paths a slug would shadow, and hub, the hub's own
 	// host. www is free: the hub is the apex, so www.<domain> can be an app.
-	reserved = []string{"api", "auth", "admin", "mcp", "static", "health", "x", "new", "hub"}
+	reserved = []string{"api", "auth", "admin", "mcp", "static", "health", "x", "new", "hub",
+		// names an app could pass off as the platform's own: infrastructure,
+		// environments, branches, mail and DNS hosts, and account pages
+		"prod", "production", "staging", "stage", "dev", "test", "master", "main",
+		"ns", "ns1", "ns2", "ns3", "ns4", "dns", "mail", "email", "smtp", "imap", "pop", "mx", "ftp",
+		"cdn", "assets", "status", "root", "system", "internal",
+		"login", "signin", "signup", "account", "accounts", "billing", "security", "support", "help", "docs"}
 )
 
 // ValidSlug reports why slug can't name a tenant, or nil.

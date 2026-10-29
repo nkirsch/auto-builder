@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"os"
+	"strings"
 	"testing"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -108,8 +109,10 @@ func TestRegistry(t *testing.T) {
 	if _, err := r.Store(ctx, "alpha"); !errors.Is(err, db.ErrNotFound) {
 		t.Errorf("unregistered store: %v", err)
 	}
-	if err := r.Create(ctx, Tenant{Slug: "admin", Repo: "o/r"}); err == nil {
-		t.Error("reserved slug accepted")
+	for _, slug := range []string{"admin", "api", "prod", "master", "ns", "mail", "login"} {
+		if err := r.Create(ctx, Tenant{Slug: slug, Repo: "o/r"}); err == nil || !strings.Contains(err.Error(), "reserved") {
+			t.Errorf("reserved slug %q: %v", slug, err)
+		}
 	}
 	if err := r.Create(ctx, Tenant{Slug: "alpha", Repo: "not a repo"}); err == nil {
 		t.Error("bad repo accepted")

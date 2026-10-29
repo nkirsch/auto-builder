@@ -343,7 +343,7 @@ func TestReleaseInfoNoCommits(t *testing.T) {
 	}))
 	defer gh.Close()
 	b := &Board{GitHub: github.New(gh.URL, "t"), Repo: "o/r", Releases: true}
-	if ri := b.releaseInfo(context.Background()); ri == nil || !ri.NoRepo || ri.Err != "" {
+	if ri := b.releaseInfo(context.Background(), "/runs"); ri == nil || !ri.NoRepo || ri.Err != "" {
 		t.Fatalf("releaseInfo = %+v, want NoRepo", ri)
 	}
 	if calls != 2 {
@@ -352,10 +352,89 @@ func TestReleaseInfoNoCommits(t *testing.T) {
 
 	calls = 0
 	b.Ready = func(context.Context) bool { return false }
-	if ri := b.releaseInfo(context.Background()); ri == nil || !ri.NoRepo {
+	if ri := b.releaseInfo(context.Background(), "/runs"); ri == nil || !ri.NoRepo {
 		t.Fatalf("releaseInfo while provisioning = %+v, want NoRepo", ri)
 	}
 	if calls != 0 {
 		t.Fatalf("GitHub called %d times while provisioning", calls)
+	}
+}
+
+func TestHistoryBadgeAndReleaseForm(t *testing.T) {
+	b := &Board{}
+	if err := b.parse(); err != nil {
+		t.Fatal(err)
+	}
+	render := func(name string, p page) string {
+		var sb strings.Builder
+		if err := b.tmpl[name].ExecuteTemplate(&sb, "layout", p); err != nil {
+			t.Fatal(err)
+		}
+		return sb.String()
+	}
+	admin := db.Member{Login: "x", Role: "admin"}
+	out := render("runs", page{Title: "Runs", Me: admin, Pending: 3, Data: map[string]any{"Runs": []runRow{}}})
+	if !strings.Contains(out, `History <span class="count" title="3 commits since the latest release: a release needs cutting">3</span></a>`) {
+		t.Errorf("nav missing History badge:\n%s", out)
+	}
+	if out := render("runs", page{Title: "Runs", Me: admin, Data: map[string]any{"Runs": []runRow{}}}); !strings.Contains(out, `<a href="/history">History</a>`) {
+		t.Errorf("History badge shown with nothing to release")
+	}
+
+	data := map[string]any{"Repo": "o/r", "Depth": 100, "Release": &releaseInfo{Latest: "v26.10.24", Ahead: 1, Back: "/history"}}
+	out = render("history", page{Title: "History", Me: admin, Data: data})
+	for _, want := range []string{"<h2>Release</h2>", "Latest release <b>v26.10.24</b>; 1 commit since.", `action="/admin/release"`, `<input type="hidden" name="back" value="/history">`, "<button>Release now</button>"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("history page missing %s", want)
+		}
+	}
+	data["Release"] = (*releaseInfo)(nil)
+	if out := render("history", page{Title: "History", Me: db.Member{Login: "y"}, Data: data}); strings.Contains(out, "Release now") {
+		t.Errorf("history page shows Release now without release info")
+	}
+}
+
+func TestPendingReleaseCached(t *testing.T) {
+	var calls, ahead int
+	gh := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		switch r.URL.Path {
+		case "/repos/o/r/releases/latest":
+			w.Write([]byte(`{"tag_name":"v26.10.24-1"}`))
+		case "/repos/o/r/commits/HEAD":
+			w.Write([]byte(`{"sha":"abc"}`))
+		case "/repos/o/r/compare/v26.10.24-1...abc":
+			fmt.Fprintf(w, `{"ahead_by":%d}`, ahead)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer gh.Close()
+	ctx := context.Background()
+	if n := (&Board{GitHub: github.New(gh.URL, "t"), Repo: "o/r"}).pendingRelease(ctx); n != 0 || calls != 0 {
+		t.Fatalf("releases off: pending = %d after %d calls, want 0 and none", n, calls)
+	}
+	b := &Board{GitHub: github.New(gh.URL, "t"), Repo: "o/r", Releases: true}
+	ahead = 2
+	if n := b.pendingRelease(ctx); n != 2 {
+		t.Fatalf("pending = %d, want 2", n)
+	}
+	ahead, calls = 0, 0
+	if n := b.pendingRelease(ctx); n != 2 || calls != 0 {
+		t.Fatalf("cached pending = %d after %d calls, want 2 and none", n, calls)
+	}
+	b.forgetReleases()
+	if n := b.pendingRelease(ctx); n != 0 || calls == 0 {
+		t.Fatalf("pending after release = %d after %d calls, want 0 read afresh", n, calls)
+	}
+}
+
+func TestReleaseBack(t *testing.T) {
+	for back, want := range map[string]string{"/history": "/history", "/runs": "/runs", "": "/runs", "https://evil.example/": "/runs"} {
+		r := httptest.NewRequest(http.MethodPost, "/admin/release", strings.NewReader("back="+back))
+		r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		if got := releaseBack(r); got != want {
+			t.Errorf("releaseBack(%q) = %q, want %q", back, got, want)
+		}
 	}
 }

@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/nkirsch/auto-builder/internal/auth"
 	"github.com/nkirsch/auto-builder/internal/db"
 	"github.com/nkirsch/auto-builder/internal/github"
 )
@@ -109,6 +110,9 @@ func (b *Board) releases(ctx context.Context) ([]release, error) {
 // historyPage shows the PRs merged into the default branch, grouped by the version that first shipped them.
 func (b *Board) historyPage(w http.ResponseWriter, r *http.Request) {
 	data := map[string]any{"Depth": historyDepth, "Repo": b.Repo}
+	if auth.Member(r.Context()).IsAdmin() {
+		data["Release"] = b.releaseInfo(r.Context(), "/history")
+	}
 	if b.GitHub == nil {
 		data["Err"] = "needs the GitHub App"
 	} else if rs, err := b.releases(r.Context()); err != nil {

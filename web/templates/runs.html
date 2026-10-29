@@ -6,14 +6,7 @@
 </div>
 {{with .Data.Release}}
 <h2>Release</h2>
-{{if .Err}}<p class="flash">Can't read releases: {{.Err}}</p>
-{{else if .NoRepo}}<div class="row"><span>The repo isn't set up yet.</span><span class="spacer"></span><button disabled>Release now</button></div>
-{{else}}<form method="post" action="{{base}}/admin/release" class="row">
-  <span>{{if .Latest}}Latest release <b>{{.Latest}}</b>; {{.Ahead}} commit{{if ne .Ahead 1}}s{{end}} since.{{else}}No releases yet.{{end}}</span>
-  <span class="spacer"></span>
-  <button{{if and .Latest (eq .Ahead 0)}} disabled{{end}}>Release now</button>
-</form>
-<p class="hint">Cuts vYY.M.D (or -N) at the head of the default branch; the repo's release workflows deploy from it.</p>{{end}}
+{{template "release-form" .}}
 <h2>Recent runs</h2>
 {{end}}
 {{with .Data.Runs}}

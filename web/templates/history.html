@@ -14,7 +14,7 @@
     </div>
     {{with .PRs}}<ol class="prs">{{range .}}
       <li><a href="{{.URL}}">#{{.Number}}</a> {{.Title}}
-        <span class="muted">{{with .Item}}· <a href="{{base}}/items/{{.ID}}">item #{{.ID}}</a> asked by {{.Author}}{{else}}· by {{.Author}}{{end}} · {{ago .MergedAt}}</span></li>
+        <span class="muted">{{with .Item}}· <a href="{{base}}/items/{{.ID}}">item #{{.ID}}</a> asked by {{who $.Names .Author}}{{else}}· by {{who $.Names .Author}}{{end}} · {{ago .MergedAt}}</span></li>
     {{end}}</ol>{{end}}
   </li>
   {{end}}

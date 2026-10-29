@@ -5,7 +5,7 @@
   {{range .Data.Members}}
   <li class="row">
     {{if .AvatarURL}}<img src="{{.Avatar}}" alt="" class="avatar">{{end}}
-    <b>{{.Login}}</b> <span class="badge">{{.Role}}</span>{{if .Email}} <span class="muted">{{.Email}}{{if and .GitHub $.Data.GitHub}} or GitHub{{end}}</span>{{end}}
+    <b>{{who $.Names .Login}}</b>{{if .Name}} <span class="muted">{{.Login}}</span>{{end}} <span class="badge">{{.Role}}</span>{{if .Email}} <span class="muted">{{.Email}}{{if and .GitHub $.Data.GitHub}} or GitHub{{end}}</span>{{end}}
     <span class="muted">{{if .LastSeen}}seen {{ago .LastSeen}}{{else}}never signed in · {{if and .Email $.Data.Mail $.Data.Mail.From}}<form method="post" action="{{base}}/admin/members/{{.Login}}/invite" class="inline"><button class="link" title="Email them the board's link and how to sign in, from {{$.Data.Mail.From}}">Email invite</button></form>{{else}}<a href="{{invite .}}" title="Email them the board's link and how to sign in">Invite</a>{{end}}{{end}}</span>
     <span class="spacer"></span>
     {{if and .Email $.Data.GitHub}}
@@ -46,7 +46,7 @@
 <h3>Cost by member</h3>
 <p class="hint">Each run's cost is split evenly across the items it acted on and charged to each item's author.</p>
 <ul class="items">
-  {{range .}}<li class="row"><b>{{.Login}}</b> <span class="muted">{{usd .Last30Days}} in the last 30 days, {{usd .Total}} in total</span></li>
+  {{range .}}<li class="row"><b>{{who $.Names .Login}}</b> <span class="muted">{{usd .Last30Days}} in the last 30 days, {{usd .Total}} in total</span></li>
   {{end}}
 </ul>
 {{end}}

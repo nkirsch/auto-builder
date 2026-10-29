@@ -56,6 +56,7 @@ type config struct {
 	FeedbackURL  string // multi mode: FEEDBACK_URL, the hub menu's Feedback link; "off" for none
 
 	StatsToken string       // STATS_TOKEN: bearer for GET /api/stats; the hub sends it to SITES
+	AdminToken string       // multi mode: ADMIN_TOKEN, bearer for the tenant API (/api/tenants); unset leaves it off
 	Sites      []remoteSite // multi mode: SITES, standalone boards on the hub's Apps page
 	Hubs       []remoteSite // multi mode: HUBS, other hubs whose /api/overview /admin/hubs gathers
 	// multi mode: CREATORS_FROM, names in SITES whose members may create an app
@@ -122,6 +123,7 @@ func loadConfig() (config, error) {
 		c.Upstream = ""
 	}
 	c.StatsToken = env("STATS_TOKEN", "")
+	c.AdminToken = env("ADMIN_TOKEN", "")
 	c.LogProject = env("LOG_PROJECT", c.Project)
 	if c.Sites, err = parseSites(env("SITES", "")); err != nil {
 		return c, fmt.Errorf("SITES: %w", err)

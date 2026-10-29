@@ -116,6 +116,14 @@ the provisioner SA is added as an owner in Search Console (manual, once).
 - `/<slug>/…`: the existing board, mounted with a path prefix. Templates use
   a `{{base}}` func; handlers redirect relative to the tenant base.
 - `/admin` (platform admin): tenants, global spend, platform admins.
+- Tenant API (bearer `ADMIN_TOKEN`; unrouted without it), acting as the first
+  `ADMIN_LOGIN`: `POST /api/tenants` takes `/new`'s fields as JSON (`slug`,
+  `name`, `repo`, `owner`, `existing`) and answers 201 with the tenant (400
+  when nothing was created, 502 when a later step failed); `GET
+  /api/tenants/{slug}` is its status and provisioning steps; `POST
+  /api/tenants/{slug}/members` adds a member or changes their role like the
+  board's `/admin` (`login` or `email`, `role` `member`/`admin`, `github`),
+  without inviting or welcoming them.
 - `/admin/traffic` (platform admin): every ready app's last 30 days (visitors, views, a per-day spark, top page) from the same cached reports as each board's `/logs`.
 
 ## Control schema

@@ -351,3 +351,30 @@ func TestAdminLinksTraffic(t *testing.T) {
 		}
 	}
 }
+
+// With GitHub sign-in off, the admin page drops GitHub choices and requires an email.
+func TestAdminGitHubSignInOff(t *testing.T) {
+	b := &Board{BaseURL: "https://builder.example"}
+	if err := b.parse(); err != nil {
+		t.Fatal(err)
+	}
+	for _, on := range []bool{true, false} {
+		var sb strings.Builder
+		p := page{Title: "Admin", Me: db.Member{Login: "x", Role: "admin"}, Data: map[string]any{
+			"Members": []db.Member{{Login: "g", Role: "member", Email: "g@example.org", GitHub: true}},
+			"Costs":   db.RunCosts{}, "Limit": 20.0, "GitHub": on,
+		}}
+		if err := b.tmpl["admin"].ExecuteTemplate(&sb, "layout", p); err != nil {
+			t.Fatal(err)
+		}
+		html := sb.String()
+		for _, s := range []string{"GitHub too", " or GitHub", "Google only"} {
+			if strings.Contains(html, s) != on {
+				t.Errorf("GitHub sign-in %v: %q shown %v", on, s, !on)
+			}
+		}
+		if strings.Contains(html, `placeholder="Google email" required`) == on {
+			t.Errorf("GitHub sign-in %v: email required %v", on, on)
+		}
+	}
+}

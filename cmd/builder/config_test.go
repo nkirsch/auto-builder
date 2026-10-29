@@ -39,3 +39,19 @@ func TestLoadConfigFeedbackURL(t *testing.T) {
 		t.Errorf("FEEDBACK_URL=off left %q", cfg.FeedbackURL)
 	}
 }
+
+func TestLoadConfigGitHubSignIn(t *testing.T) {
+	t.Setenv("DATABASE_URL", "postgres://x")
+	t.Setenv("GITHUB_CLIENT_ID", "gh")
+	if cfg, _ := loadConfig(); cfg.ClientID != "gh" {
+		t.Error("off without Google configured dropped GitHub, the only sign-in")
+	}
+	t.Setenv("GOOGLE_CLIENT_ID", "g")
+	if cfg, _ := loadConfig(); cfg.ClientID != "" {
+		t.Errorf("GitHub sign-in on by default: %q", cfg.ClientID)
+	}
+	t.Setenv("GITHUB_SIGN_IN", "on")
+	if cfg, _ := loadConfig(); cfg.ClientID != "gh" {
+		t.Error("GITHUB_SIGN_IN=on dropped GitHub")
+	}
+}

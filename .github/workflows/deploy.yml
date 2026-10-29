@@ -20,6 +20,7 @@ jobs:
       SERVE_SITE: ${{ steps.app.outputs.SERVE_SITE }}
       DEPLOY_ON: ${{ steps.app.outputs.DEPLOY_ON }}
       ISSUE_SYNC: ${{ steps.app.outputs.ISSUE_SYNC }}
+      GITHUB_SIGN_IN: ${{ steps.app.outputs.GITHUB_SIGN_IN }}
       TENANCY: ${{ steps.app.outputs.TENANCY }}
       UPSTREAM: ${{ steps.app.outputs.UPSTREAM }}
       CREATE_APP_URL: ${{ steps.app.outputs.CREATE_APP_URL }}
@@ -148,12 +149,13 @@ jobs:
           SERVE_SITE: ${{ needs.config.outputs.SERVE_SITE }}
           DEPLOY_ON: ${{ needs.config.outputs.DEPLOY_ON }}
           ISSUE_SYNC: ${{ needs.config.outputs.ISSUE_SYNC }}
+          GITHUB_SIGN_IN: ${{ needs.config.outputs.GITHUB_SIGN_IN }}
           UPSTREAM: ${{ needs.config.outputs.UPSTREAM }}
           CREATE_APP_URL: ${{ needs.config.outputs.CREATE_APP_URL }}
         run: |
           site=$([ "$SERVE_SITE" = true ] && echo /site || true)
           releases=$([ "$DEPLOY_ON" = release ] && echo true || echo false)
-          echo "vars=SITE_DIR=$site,RELEASES=$releases,ISSUE_SYNC=$ISSUE_SYNC,UPSTREAM=$UPSTREAM,CREATE_APP_URL=$CREATE_APP_URL" >> "$GITHUB_OUTPUT"
+          echo "vars=SITE_DIR=$site,RELEASES=$releases,ISSUE_SYNC=$ISSUE_SYNC,GITHUB_SIGN_IN=$GITHUB_SIGN_IN,UPSTREAM=$UPSTREAM,CREATE_APP_URL=$CREATE_APP_URL" >> "$GITHUB_OUTPUT"
       - uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3
         with:
           workload_identity_provider: ${{ vars.GCP_WIF_PROVIDER }}

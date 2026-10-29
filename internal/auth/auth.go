@@ -287,6 +287,10 @@ func (a *Auth) login(r *http.Request) string {
 	if !ok {
 		return ""
 	}
+	// A multi-mode GitHub session ends once GitHub sign-in is off.
+	if a.cfg.Multi && !a.GitHub() && !strings.Contains(login, "@") {
+		return ""
+	}
 	return login
 }
 

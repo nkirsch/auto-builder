@@ -101,6 +101,14 @@ func loadConfig() (config, error) {
 	}
 	c.AdminEmail = env("ADMIN_EMAIL", "")
 	c.GoogleClientID, c.GoogleClientSecret = env("GOOGLE_CLIENT_ID", ""), env("GOOGLE_CLIENT_SECRET", "")
+	// GITHUB_SIGN_IN=off leaves Google as the only sign-in, once Google is configured.
+	if env("GITHUB_SIGN_IN", "off") == "off" {
+		if c.GoogleClientID != "" {
+			c.ClientID, c.ClientSecret = "", ""
+		} else {
+			slog.Warn("GITHUB_SIGN_IN=off ignored: Google sign-in isn't configured")
+		}
+	}
 	c.Tenancy = env("TENANCY", "off") == "on"
 	c.TenantOrg = env("TENANT_ORG", "")
 	c.ProvisionJob = env("PROVISION_JOB", "")

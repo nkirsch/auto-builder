@@ -125,6 +125,7 @@ type Board struct {
 	tmpl    map[string]*template.Template
 	version atomic.Pointer[string]
 	history historyCache
+	pending pendingCache
 }
 
 // SetVersion sets the release name shown next to the brand, e.g. "v26.10.25-2".
@@ -299,6 +300,7 @@ type page struct {
 	SiteURL string            // the app's site, linked from the nav
 	NewApp  string            // a hub's New app page, for members to make their own app
 	Refresh int               // seconds until the page reloads itself; 0 never
+	Pending int               // commits awaiting a release, for an admin's History badge; 0 none
 	Names   map[string]string // member logins to names, for who
 	Data    any
 }
@@ -329,6 +331,9 @@ func (b *Board) renderRefresh(w http.ResponseWriter, r *http.Request, name, titl
 		BotName: b.BotLogin, Theme: theme(r), Path: r.URL.RequestURI(), BaseURL: strings.TrimSuffix(b.BaseURL, "/"),
 		AppName: b.Name, SiteURL: b.SiteURL, NewApp: b.CreateAppURL, Refresh: refresh, Names: names, Data: data}
 	p.Version = b.Version()
+	if me.IsAdmin() {
+		p.Pending = b.pendingRelease(r.Context())
+	}
 	if err := t.ExecuteTemplate(w, "layout", p); err != nil {
 		slog.Error("render", "page", name, "err", err)
 	}
@@ -866,7 +871,7 @@ func (b *Board) runs(w http.ResponseWriter, r *http.Request) {
 	}
 	var rel *releaseInfo
 	if auth.Member(r.Context()).IsAdmin() {
-		rel = b.releaseInfo(r.Context())
+		rel = b.releaseInfo(r.Context(), "/runs")
 	}
 	b.render(w, r, "runs", "Runs", map[string]any{"Runs": rows, "Release": rel})
 }

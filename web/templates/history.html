@@ -1,6 +1,8 @@
 {{define "content"}}
 <h1>History</h1>
 <p class="hint">PRs merged into the default branch, under the version that first shipped them, from the last {{.Data.Depth}} commits.</p>
+{{with .Data.Release}}<h2>Release</h2>
+{{template "release-form" .}}{{end}}
 {{with .Data.Err}}<p class="flash">Can't read history: {{.}}</p>{{end}}
 {{$repo := .Data.Repo}}
 {{with .Data.Releases}}

@@ -241,6 +241,7 @@ func (h *hub) routes() http.Handler {
 	mux.HandleFunc("GET /admin/urgent", h.platformAdmin(h.urgent))
 	mux.HandleFunc("GET /admin/hubs", h.platformAdmin(h.hubs))
 	mux.Handle("GET /api/overview", auth.Bearer(h.cfg.StatsToken, http.HandlerFunc(h.apiOverview))) // other hubs' /admin/hubs
+	h.apiRoutes(mux)
 	mux.HandleFunc("GET /admin/traffic", h.platformAdmin(h.trafficAll))
 	mux.HandleFunc("GET /admin/signins", h.platformAdmin(h.signIns))
 	mux.HandleFunc("POST /admin/tenants/{slug}/items/{id}/reassign", h.platformAdmin(h.reassign))
@@ -919,24 +920,57 @@ func (h *hub) newApp(w http.ResponseWriter, r *http.Request) {
 		"Org":        h.cfg.TenantOrg, "Host": h.host})
 }
 
-// create registers the app, makes its creator the board's admin and starts
-// provisioning; an existing repo is ready at once and never provisioned.
+// create is /new's form: it registers the app as the signed-in user, then
+// sends them to its board, or back to the form with what went wrong.
 func (h *hub) create(w http.ResponseWriter, r *http.Request) {
-	ctx := r.Context()
-	slug := strings.TrimSpace(r.FormValue("slug"))
-	name := strings.TrimSpace(r.FormValue("name"))
-	repo := strings.TrimSpace(r.FormValue("repo"))
+	n := newTenant{
+		Slug: r.FormValue("slug"), Name: r.FormValue("name"), Repo: r.FormValue("repo"),
+		Owner: r.FormValue("owner"), Existing: r.FormValue("existing") == "on",
+	}
+	done, err := h.createTenant(r.Context(), h.auth.SignedIn(r), n)
+	if err != nil {
+		v := url.Values{"slug": {n.Slug}, "name": {n.Name}, "repo": {n.Repo}, "flash": {err.Error()}}
+		if n.Owner != "" {
+			v.Set("owner", n.Owner)
+		}
+		if n.Existing || h.cfg.ProvisionJob == "" {
+			v.Set("existing", "on")
+		}
+		http.Redirect(w, r, "/new?"+v.Encode(), http.StatusSeeOther)
+		return
+	}
+	http.Redirect(w, r, done, http.StatusSeeOther)
+}
+
+// newTenant is one app to create, from /new or POST /api/tenants.
+type newTenant struct {
+	Slug     string `json:"slug"`
+	Name     string `json:"name"`
+	Repo     string `json:"repo"`     // existing repos and platform admins only; default <TENANT_ORG>/<slug>
+	Owner    string `json:"owner"`    // a GitHub login or an address: the board's admin, whose one app it is
+	Existing bool   `json:"existing"` // a repo that deploys itself: ready at once, never provisioned
+}
+
+// errPartial wraps a failure after the app was registered.
+type errPartial struct{ error }
+
+// createTenant registers the app as identity, makes its creator (and
+// owner) the board's admins and starts provisioning; an existing repo is
+// ready at once and never provisioned. It returns the board path, with a
+// flash for an owner.
+func (h *hub) createTenant(ctx context.Context, identity string, n newTenant) (string, error) {
+	slug := strings.TrimSpace(n.Slug)
+	name := strings.TrimSpace(n.Name)
+	repo := strings.TrimSpace(n.Repo)
 	// Without a provision job, every app is an existing repo.
-	existing := r.FormValue("existing") == "on" || h.cfg.ProvisionJob == ""
-	identity := h.auth.SignedIn(r)
+	existing := n.Existing || h.cfg.ProvisionJob == ""
 	me, err := h.reg.PlatformAdmin(ctx, identity)
 	createdBy := me.Login
 	if err != nil {
 		// A creator gets a new repo in the org, provisioned; only platform
 		// admins name a repo or bring an existing one.
 		if h.cfg.ProvisionJob == "" || h.cfg.TenantOrg == "" {
-			http.Error(w, "this hub doesn't provision apps", http.StatusForbidden)
-			return
+			return "", errors.New("this hub doesn't provision apps")
 		}
 		existing, repo = false, ""
 		// created_by is the creator's identity, which CanCreate counts.
@@ -946,25 +980,14 @@ func (h *hub) create(w http.ResponseWriter, r *http.Request) {
 	// its board's admin and it counts as their one app; the platform admin
 	// stays an admin too.
 	var owner tenant.Admin
-	if o := strings.TrimPrefix(strings.TrimSpace(r.FormValue("owner")), "@"); o != "" && err == nil {
+	if o := strings.TrimPrefix(strings.TrimSpace(n.Owner), "@"); o != "" && err == nil {
 		createdBy, owner = ownerOf(o)
 	}
 	if repo == "" && h.cfg.TenantOrg != "" && !existing {
 		repo = h.cfg.TenantOrg + "/" + slug
 	}
-	back := func(msg string) {
-		v := url.Values{"slug": {slug}, "name": {name}, "repo": {r.FormValue("repo")}, "flash": {msg}}
-		if o := r.FormValue("owner"); o != "" {
-			v.Set("owner", o)
-		}
-		if existing {
-			v.Set("existing", "on")
-		}
-		http.Redirect(w, r, "/new?"+v.Encode(), http.StatusSeeOther)
-	}
 	if err := h.reg.Create(ctx, tenant.Tenant{Slug: slug, Name: name, Repo: repo, CreatedBy: createdBy, Existing: existing}); err != nil {
-		back(err.Error())
-		return
+		return "", err
 	}
 	st, err := h.reg.Store(ctx, slug)
 	for _, a := range []tenant.Admin{me, owner} {
@@ -977,8 +1000,7 @@ func (h *hub) create(w http.ResponseWriter, r *http.Request) {
 	}
 	if err != nil {
 		slog.Error("seed tenant admin", "tenant", slug, "err", err)
-		back("created, but adding its admins failed: " + err.Error())
-		return
+		return "", errPartial{errors.New("created, but adding its admins failed: " + err.Error())}
 	}
 	if !existing {
 		// The first run turns the starter template into the app's own site.
@@ -995,14 +1017,12 @@ func (h *hub) create(w http.ResponseWriter, r *http.Request) {
 		done += "?flash=" + url.QueryEscape(createdBy+" is its admin: they sign in at "+h.cfg.BaseURL+"/ and find it under Apps")
 	}
 	if existing {
-		http.Redirect(w, r, done, http.StatusSeeOther)
-		return
+		return done, nil
 	}
 	if err := h.provision(ctx, slug, "create"); err != nil {
-		back("created, but provisioning didn't start: " + err.Error())
-		return
+		return "", errPartial{errors.New("created, but provisioning didn't start: " + err.Error())}
 	}
-	http.Redirect(w, r, done, http.StatusSeeOther)
+	return done, nil
 }
 
 // starterItem files a new app's first item, approved by its admin, so its

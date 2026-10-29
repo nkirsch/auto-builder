@@ -25,7 +25,7 @@
       <b>Run {{.ID}}</b>
       {{with .GitSHA}}{{$v := or $run.Version (short .)}}{{if $.Repo}}<a class="version" href="https://github.com/{{$.Repo}}/commit/{{.}}" title="{{.}}">{{$v}}</a>{{else}}<span class="version" title="{{.}}">{{$v}}</span>{{end}}{{end}}
       <span class="status r-{{.Status}}">{{.Status}}</span>
-      <span class="muted">{{.Trigger}}{{with .RequestedBy}} by {{.}}{{end}} · {{ago .CreatedAt}}{{if .StartedAt}} · {{if .FinishedAt}}ran{{else}}running{{end}} {{dur .Runtime}}{{end}}{{with .CostUSD}} · {{usd .}}{{end}}</span>
+      <span class="muted">{{.Trigger}}{{with .RequestedBy}} by {{who $.Names .}}{{end}} · {{ago .CreatedAt}}{{if .StartedAt}} · {{if .FinishedAt}}ran{{else}}running{{end}} {{dur .Runtime}}{{end}}{{with .CostUSD}} · {{usd .}}{{end}}</span>
       <span class="spacer"></span>
       {{if .LogObject}}<a href="{{base}}/runs/{{.ID}}/log">log</a>{{end}}
       {{if and $.Me.IsAdmin (not .FinishedAt)}}<form method="post" action="{{base}}/runs/{{.ID}}/cancel"><button class="secondary">Cancel</button></form>{{end}}

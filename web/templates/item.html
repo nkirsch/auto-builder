@@ -4,7 +4,7 @@
 <h1>{{$it.Title}} <span class="muted">#{{$it.ID}}</span></h1>
 <div class="meta">
   <span class="status s-{{$it.Status}}">{{$it.Status}}</span>
-  {{if $it.Approved}}<span class="badge approved">approved by {{$it.ApprovedBy}}</span>{{else}}<span class="badge">not approved</span>{{end}}
+  {{if $it.Approved}}<span class="badge approved">approved by {{who $.Names $it.ApprovedBy}}</span>{{else}}<span class="badge">not approved</span>{{end}}
   {{if $it.Blocked}}<span class="badge blocked">blocked</span>{{end}}
   {{template "escalation" $it}}
   {{range $it.Tags}}<a class="tag" href="{{base}}/?tag={{.}}">#{{.}}</a>{{end}}
@@ -27,7 +27,7 @@
 {{end}}
 
 <article class="post">
-  <div class="by"><b>{{$it.Author}}</b> <time datetime="{{stamp $it.CreatedAt}}">{{ago $it.CreatedAt}}</time></div>
+  <div class="by"><b>{{who $.Names $it.Author}}</b> <time datetime="{{stamp $it.CreatedAt}}">{{ago $it.CreatedAt}}</time></div>
   <div class="body">{{md $it.Body}}</div>
 </article>
 
@@ -39,7 +39,7 @@
 
 {{range .Responses}}
 <article class="post{{if eq .Author $bot}} bot{{end}}">
-  <div class="by"><b>{{.Author}}</b> <time datetime="{{stamp .CreatedAt}}">{{ago .CreatedAt}}</time></div>
+  <div class="by"><b>{{who $.Names .Author}}</b> <time datetime="{{stamp .CreatedAt}}">{{ago .CreatedAt}}</time></div>
   <div class="body">{{md .Body}}</div>
 </article>
 {{end}}

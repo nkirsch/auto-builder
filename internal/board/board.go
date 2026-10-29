@@ -211,6 +211,7 @@ var funcs = template.FuncMap{
 			return fmt.Sprintf("%d B", n)
 		}
 	},
+	"who": who,
 	"deref": func(p *int) int {
 		if p == nil {
 			return 0
@@ -235,6 +236,31 @@ func (b *Board) parse() error {
 	return nil
 }
 
+// who shows a login as its member's first name, with the full name and login
+// on hover; a login without a name shows as itself.
+func who(names map[string]string, login string) template.HTML {
+	name := names[login]
+	first, _, _ := strings.Cut(strings.TrimSpace(name), " ")
+	if first == "" {
+		return template.HTML(template.HTMLEscapeString(login))
+	}
+	return template.HTML(`<span title="` + template.HTMLEscapeString(name+" ("+login+")") + `">` + template.HTMLEscapeString(first) + `</span>`)
+}
+
+// names maps each member's login to their name, for who.
+func (b *Board) names(ctx context.Context) map[string]string {
+	ms, err := b.Store.Members(ctx)
+	if err != nil {
+		slog.Warn("member names", "err", err)
+		return nil
+	}
+	names := make(map[string]string, len(ms))
+	for _, m := range ms {
+		names[m.Login] = m.Name
+	}
+	return names
+}
+
 // page is the data every template gets.
 type page struct {
 	Me      db.Member
@@ -245,13 +271,14 @@ type page struct {
 	Version string // "vYY.MM.DD-N", or "" until known
 	Flash   string
 	BotName string
-	Theme   string // "light", "dark" or "" (system)
-	Path    string // current page, for forms that return here
-	BaseURL string // absolute links for link previews
-	AppName string // a multi-tenant app's name, shown instead of the brand's
-	SiteURL string // the app's site, linked from the nav
-	NewApp  string // a hub's New app page, for members to make their own app
-	Refresh int    // seconds until the page reloads itself; 0 never
+	Theme   string            // "light", "dark" or "" (system)
+	Path    string            // current page, for forms that return here
+	BaseURL string            // absolute links for link previews
+	AppName string            // a multi-tenant app's name, shown instead of the brand's
+	SiteURL string            // the app's site, linked from the nav
+	NewApp  string            // a hub's New app page, for members to make their own app
+	Refresh int               // seconds until the page reloads itself; 0 never
+	Names   map[string]string // member logins to names, for who
 	Data    any
 }
 
@@ -263,11 +290,13 @@ func (b *Board) render(w http.ResponseWriter, r *http.Request, name, title strin
 func (b *Board) renderRefresh(w http.ResponseWriter, r *http.Request, name, title string, data any, refresh int) {
 	me := auth.Member(r.Context())
 	var unread int
+	var names map[string]string
 	if me.Login != "" {
 		var err error
 		if unread, err = b.Store.UnreadCount(r.Context(), me.Login); err != nil {
 			slog.Warn("unread count", "err", err)
 		}
+		names = b.names(r.Context())
 	}
 	t, ok := b.tmpl[name]
 	if !ok {
@@ -277,7 +306,7 @@ func (b *Board) renderRefresh(w http.ResponseWriter, r *http.Request, name, titl
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	p := page{Me: me, Unread: unread, Title: title, GitSHA: b.GitSHA, Repo: cmp.Or(b.CodeRepo, b.Repo), Flash: r.URL.Query().Get("m"),
 		BotName: b.BotLogin, Theme: theme(r), Path: r.URL.RequestURI(), BaseURL: strings.TrimSuffix(b.BaseURL, "/"),
-		AppName: b.Name, SiteURL: b.SiteURL, NewApp: b.CreateAppURL, Refresh: refresh, Data: data}
+		AppName: b.Name, SiteURL: b.SiteURL, NewApp: b.CreateAppURL, Refresh: refresh, Names: names, Data: data}
 	p.Version = b.Version()
 	if err := t.ExecuteTemplate(w, "layout", p); err != nil {
 		slog.Error("render", "page", name, "err", err)

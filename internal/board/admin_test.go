@@ -378,3 +378,17 @@ func TestAdminGitHubSignInOff(t *testing.T) {
 		}
 	}
 }
+
+func TestWho(t *testing.T) {
+	names := map[string]string{"nkirsch": "Nick Kirsch", "kat": "", "x": `<b>"Al"</b> Smith`}
+	for login, want := range map[string]string{
+		"nkirsch":  `<span title="Nick Kirsch (nkirsch)">Nick</span>`,
+		"kat":      "kat",
+		"stranger": "stranger",
+		"x":        `<span title="&lt;b&gt;&#34;Al&#34;&lt;/b&gt; Smith (x)">&lt;b&gt;&#34;Al&#34;&lt;/b&gt;</span>`,
+	} {
+		if got := string(who(names, login)); got != want {
+			t.Errorf("who(%q) = %s, want %s", login, got, want)
+		}
+	}
+}

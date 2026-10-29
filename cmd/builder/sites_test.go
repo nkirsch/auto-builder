@@ -117,7 +117,7 @@ func TestHubSites(t *testing.T) {
 	body := w.Body.String()
 	for _, want := range []string{
 		`<a href="/alpha/"><b>alpha</b></a> <span class="muted">Alpha</span> · <a href="` + app.URL + `/alpha">site</a> <span class="badge">admin</span>`,
-		"aaa1111", `<td class="num">1</td>`,
+		"aaa1111", `<td class="num">2</td>`, // the starter item and Dark mode
 		`<a href="` + remote.URL + `/"><b>momo</b></a> <span class="muted">standalone</span>`, "v26.10.20-1", `<td class="num">4</td>`, "$2.25", "<b>$2.25</b>",
 	} {
 		if !strings.Contains(body, want) {

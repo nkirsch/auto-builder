@@ -110,8 +110,15 @@ func TestHubTenants(t *testing.T) {
 	// Members are per board.
 	check(do(h, srv, "nick@example.org", "POST", "/alpha/admin/members", url.Values{"login": {"bob"}, "role": {"member"}}), 303,
 		"/alpha/admin?m=Saved%20bob%3B%20invite%20them%20once%20it%27s%20ready%3A%20the%20app%20is%20provisioning", "")
-	check(do(h, srv, "bob", "POST", "/alpha/items", url.Values{"title": {"Dark mode"}, "body": {"please"}}), 303, "/alpha/items/1", "")
-	check(do(h, srv, "bob", "GET", "/alpha/items/1", nil), 200, "", "Dark mode")
+	// A new app's board starts with an approved item building a basic site.
+	check(do(h, srv, "bob", "GET", "/alpha/items/1", nil), 200, "", "Turn the starter app into a basic site for Alpha")
+	if st, _ := h.reg.Store(context.Background(), "alpha"); st != nil {
+		if it, _ := st.Item(context.Background(), 1); !it.Approved || it.Author != "nkirsch" || it.Title != "Build a basic site" {
+			t.Errorf("starter item %+v", it)
+		}
+	}
+	check(do(h, srv, "bob", "POST", "/alpha/items", url.Values{"title": {"Dark mode"}, "body": {"please"}}), 303, "/alpha/items/2", "")
+	check(do(h, srv, "bob", "GET", "/alpha/items/2", nil), 200, "", "Dark mode")
 	check(do(h, srv, "bob", "GET", "/beta/", nil), 403, "", "not a member")
 	// The app's traffic is for board admins; the test hub has no log project.
 	check(do(h, srv, "bob", "GET", "/alpha/logs", nil), 403, "", "")
@@ -120,8 +127,8 @@ func TestHubTenants(t *testing.T) {
 		t.Error("admin links traffic without LOG_PROJECT")
 	}
 	beta, _ := h.reg.Store(ctx, "beta")
-	if items, _ := beta.Items(ctx); len(items) != 0 {
-		t.Errorf("beta has alpha's item: %+v", items)
+	if items, _ := beta.Items(ctx); len(items) != 1 || items[0].Title != "Build a basic site" || !strings.Contains(items[0].Body, "site for beta:") {
+		t.Errorf("beta has alpha's items: %+v", items)
 	}
 
 	// The hub lists a member's apps; platform admins see every app.

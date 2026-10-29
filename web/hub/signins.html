@@ -1,0 +1,30 @@
+{{define "content"}}
+<h1>Sign-ins</h1>
+<p class="hint">Sign-in attempts at every board in the last 30 days, newest first; kept 90 days. A board records whether a fresh session is a member, so sign-ins at the hub's own pages show only failures.</p>
+<form method="get" action="/admin/signins" class="row">
+  <select name="board" aria-label="Board">
+    <option value="">All boards</option>
+    <option value="-"{{if eq .Data.Board "-"}} selected{{end}}>No board</option>
+    {{range .Data.Tenants}}<option value="{{.Slug}}"{{if eq $.Data.Board .Slug}} selected{{end}}>{{.Slug}}</option>{{end}}
+  </select>
+  <input name="who" value="{{.Data.Who}}" placeholder="Login or email" aria-label="Login or email">
+  <button class="secondary">Filter</button>
+</form>
+{{with .Data.SignIns}}
+<div class="table-wrap"><table class="sites signins">
+  <thead><tr><th>When</th><th>With</th><th>As</th><th>Result</th><th>Board</th><th>From</th></tr></thead>
+  <tbody>
+  {{range .}}
+  <tr{{if .Failed}} class="failed"{{end}}>
+    <td>{{when .At}}</td>
+    <td>{{if eq .Provider "google"}}Google{{else}}GitHub{{end}}</td>
+    <td>{{with .Identity}}<a href="/admin/signins?who={{.}}">{{.}}</a>{{else}}<span class="muted">unknown</span>{{end}}</td>
+    <td>{{.Result}}</td>
+    <td>{{with .Board}}<a href="/{{.}}/">{{.}}</a>{{else}}<span class="muted">none</span>{{end}}</td>
+    <td class="muted" title="{{.UserAgent}}">{{.IP}}</td>
+  </tr>
+  {{end}}
+  </tbody>
+</table></div>
+{{else}}<p class="muted">No sign-in attempts{{if or .Data.Board .Data.Who}} match{{end}} in the last 30 days.</p>{{end}}
+{{end}}

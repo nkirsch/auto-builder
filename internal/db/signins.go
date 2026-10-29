@@ -96,6 +96,32 @@ func SignIns(ctx context.Context, pool *pgxpool.Pool, board string, identities [
 	return out, rows.Err()
 }
 
+// AllSignIns lists attempts since, newest first, at every board or, with
+// board set, one ("-" for none); identity, when set, narrows to it.
+func AllSignIns(ctx context.Context, pool *pgxpool.Pool, board, identity string, since time.Time) ([]SignIn, error) {
+	if board == "-" {
+		board = ""
+	} else if board == "" {
+		board = "*"
+	}
+	rows, err := pool.Query(ctx, `SELECT at, provider, identity, result, board, ip, user_agent FROM signins
+		WHERE at > $3 AND ($1 = '*' OR board = $1) AND ($2 = '' OR lower(identity) = lower($2))
+		ORDER BY at DESC, id DESC LIMIT 1000`, board, identity, since)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []SignIn
+	for rows.Next() {
+		var s SignIn
+		if err := rows.Scan(&s.At, &s.Provider, &s.Identity, &s.Result, &s.Board, &s.IP, &s.UserAgent); err != nil {
+			return nil, err
+		}
+		out = append(out, s)
+	}
+	return out, rows.Err()
+}
+
 func PruneSignIns(ctx context.Context, pool *pgxpool.Pool, before time.Time) error {
 	_, err := pool.Exec(ctx, `DELETE FROM signins WHERE at < $1`, before)
 	return err

@@ -181,7 +181,7 @@ func newHub(ctx context.Context, cfg config, reg *tenant.Registry, storage store
 
 func (h *hub) parse() error {
 	h.tmpl = map[string]*template.Template{}
-	for _, p := range []string{"login", "index", "new", "admin", "urgent", "traffic"} {
+	for _, p := range []string{"login", "index", "new", "admin", "urgent", "traffic", "signins"} {
 		t, err := template.New("").Funcs(template.FuncMap{
 			"short": func(s string) string { return s[:min(7, len(s))] },
 			"ago":   func(t time.Time) string { return t.Format("Jan 2, 2006") },
@@ -222,6 +222,7 @@ func (h *hub) routes() http.Handler {
 	mux.HandleFunc("POST /admin/tenants/{slug}/spend-limit", h.platformAdmin(h.setTenantLimit))
 	mux.HandleFunc("GET /admin/urgent", h.platformAdmin(h.urgent))
 	mux.HandleFunc("GET /admin/traffic", h.platformAdmin(h.trafficAll))
+	mux.HandleFunc("GET /admin/signins", h.platformAdmin(h.signIns))
 	mux.HandleFunc("POST /admin/tenants/{slug}/items/{id}/reassign", h.platformAdmin(h.reassign))
 	mux.HandleFunc("GET /{slug}", func(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/"+r.PathValue("slug")+"/", http.StatusMovedPermanently)
@@ -1105,6 +1106,26 @@ func (h *hub) admin(w http.ResponseWriter, r *http.Request) {
 	}
 	h.render(w, r, "admin", "Admin", map[string]any{"Apps": apps, "Admins": admins, "Upstream": up, "Creators": creators,
 		"Settings": set, "Spent": total, "Pct": totalPct, "Level": totalLevel})
+}
+
+// signIns lists the last 30 days' sign-in attempts at every board, or one
+// (?board=<slug>, "-" for none) or identity (?who=).
+func (h *hub) signIns(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	board, who := r.URL.Query().Get("board"), strings.TrimSpace(r.URL.Query().Get("who"))
+	list, err := h.reg.AllSignIns(ctx, board, who, time.Now().Add(-30*24*time.Hour))
+	if err != nil {
+		slog.Error("sign-ins", "err", err)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	tenants, err := h.reg.Tenants(ctx)
+	if err != nil {
+		slog.Error("tenants", "err", err)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	h.render(w, r, "signins", "Sign-ins", map[string]any{"SignIns": list, "Board": board, "Who": who, "Tenants": tenants})
 }
 
 func (h *hub) addAdmin(w http.ResponseWriter, r *http.Request) {

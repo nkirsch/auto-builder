@@ -334,6 +334,54 @@ func TestHubRuns(t *testing.T) {
 	}
 }
 
+// A provisioned app is securing until it answers on its domain: its board
+// runs, and the tick makes it ready once the app responds.
+func TestHubSecuring(t *testing.T) {
+	ctx := context.Background()
+	h := testHub(t)
+	job := &fakeJob{}
+	h.launcher, h.provisioner = job, &fakeJob{}
+	up := false
+	app := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !up { // no certificate yet: the connection fails
+			if c, _, err := w.(http.Hijacker).Hijack(); err == nil {
+				c.Close()
+			}
+			return
+		}
+		w.Write([]byte("hello"))
+	}))
+	defer app.Close()
+	h.appBase = func(slug string) string { return app.URL + "/" + slug }
+	srv := h.routes()
+	if w := do(h, srv, "nkirsch", "POST", "/new", url.Values{"slug": {"alpha"}}); w.Code != 303 {
+		t.Fatalf("create: %d", w.Code)
+	}
+	h.reg.SetStatus(ctx, "alpha", "securing", "")
+	if w := do(h, srv, "nick@example.org", "POST", "/alpha/admin/run", url.Values{}); !strings.Contains(w.Header().Get("Location"), "Started") {
+		t.Fatalf("run now while securing: %q", w.Header().Get("Location"))
+	}
+	tick := func() {
+		t.Helper()
+		r := httptest.NewRequest("POST", "/api/gate/tick", nil)
+		r.Header.Set("Authorization", "Bearer tick")
+		w := httptest.NewRecorder()
+		srv.ServeHTTP(w, r)
+		if w.Code != 200 {
+			t.Fatalf("tick: %d %s", w.Code, w.Body.String())
+		}
+	}
+	tick()
+	if tn, _ := h.reg.Tenant(ctx, "alpha"); tn.Status != "securing" || tn.ProvisionedAt != nil {
+		t.Fatalf("unreachable app %+v", tn)
+	}
+	up = true
+	tick()
+	if tn, _ := h.reg.Tenant(ctx, "alpha"); tn.Status != "ready" || tn.ProvisionedAt == nil {
+		t.Fatalf("reachable app %+v", tn)
+	}
+}
+
 func TestHubAliasAndAppDomain(t *testing.T) {
 	ctx := context.Background()
 	h := testHub(t)

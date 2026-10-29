@@ -94,8 +94,10 @@ func run() error {
 		}
 		return err
 	}
+	// The hub's tick makes it ready once the app answers on its domain,
+	// which waits on DNS and the certificate (up to an hour).
 	slog.Info("provisioned", "tenant", slug)
-	return reg.SetStatus(ctx, slug, "ready", "")
+	return reg.SetStatus(ctx, slug, "securing", "")
 }
 
 // mergePlatform merges UPSTREAM into an upstream-<sha> branch of

@@ -124,7 +124,7 @@ func TestRegistry(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if tn.Name != "alpha" || tn.Status != "provisioning" || tn.ProvisionedAt != nil || tn.Existing {
+	if tn.Name != "alpha" || tn.Status != "provisioning" || tn.ProvisionedAt != nil || tn.Existing || tn.Live() {
 		t.Errorf("new tenant %+v", tn)
 	}
 	if err := r.Create(ctx, Tenant{Slug: "www", Repo: "o/www", CreatedBy: "nkirsch", Existing: true}); err != nil {
@@ -133,10 +133,16 @@ func TestRegistry(t *testing.T) {
 	if tn, err := r.Tenant(ctx, "www"); err != nil || tn.Status != "ready" || tn.ProvisionedAt == nil || !tn.Existing {
 		t.Errorf("existing tenant %+v, %v", tn, err)
 	}
+	if err := r.SetStatus(ctx, "alpha", "securing", ""); err != nil {
+		t.Fatal(err)
+	}
+	if tn, _ = r.Tenant(ctx, "alpha"); tn.Status != "securing" || tn.ProvisionedAt != nil || !tn.Live() {
+		t.Errorf("securing tenant %+v", tn)
+	}
 	if err := r.SetStatus(ctx, "alpha", "ready", ""); err != nil {
 		t.Fatal(err)
 	}
-	if tn, _ = r.Tenant(ctx, "alpha"); tn.Status != "ready" || tn.ProvisionedAt == nil {
+	if tn, _ = r.Tenant(ctx, "alpha"); tn.Status != "ready" || tn.ProvisionedAt == nil || !tn.Live() {
 		t.Errorf("ready tenant %+v", tn)
 	}
 	if err := r.SetStatus(ctx, "nobody", "ready", ""); !errors.Is(err, db.ErrNotFound) {

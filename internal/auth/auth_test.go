@@ -20,21 +20,21 @@ func TestSessionRoundTrip(t *testing.T) {
 	a := testAuth(t)
 	now := time.Now()
 	v := a.sign("octocat", now.Add(time.Hour))
-	if login, ok := a.verify(v, now); !ok || login != "octocat" {
+	if login, _, ok := a.verify(v, now); !ok || login != "octocat" {
 		t.Fatalf("verify = %q, %v", login, ok)
 	}
-	if _, ok := a.verify(v, now.Add(2*time.Hour)); ok {
+	if _, _, ok := a.verify(v, now.Add(2*time.Hour)); ok {
 		t.Fatal("expired session accepted")
 	}
 	forged := a.sign("admin", now.Add(time.Hour))
 	payload, _, _ := strings.Cut(forged, ".")
 	_, sig, _ := strings.Cut(v, ".")
-	if _, ok := a.verify(payload+"."+sig, now); ok {
+	if _, _, ok := a.verify(payload+"."+sig, now); ok {
 		t.Fatal("payload with another session's signature accepted")
 	}
 	other := testAuth(t)
 	other.cfg.SessionKey = []byte("another-key-another-key")
-	if _, ok := other.verify(v, now); ok {
+	if _, _, ok := other.verify(v, now); ok {
 		t.Fatal("session from another key accepted")
 	}
 }

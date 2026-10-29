@@ -26,7 +26,7 @@ func dbAuth(t *testing.T) (*Auth, *db.Store) {
 		t.Fatal(err)
 	}
 	t.Cleanup(pool.Close)
-	if _, err := pool.Exec(ctx, `TRUNCATE members CASCADE`); err != nil {
+	if _, err := pool.Exec(ctx, `TRUNCATE members, signins CASCADE`); err != nil {
 		t.Fatal(err)
 	}
 	st := &db.Store{Pool: pool}
@@ -68,7 +68,7 @@ func callback(h http.HandlerFunc, path string) *httptest.ResponseRecorder {
 func sessionLogin(a *Auth, w *httptest.ResponseRecorder) string {
 	for _, c := range w.Result().Cookies() {
 		if c.Name == sessionCookie {
-			login, _ := a.verify(c.Value, time.Now())
+			login, _, _ := a.verify(c.Value, time.Now())
 			return login
 		}
 	}

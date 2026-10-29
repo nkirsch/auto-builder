@@ -724,3 +724,11 @@ func TestHubSpendLimits(t *testing.T) {
 		t.Errorf("spendLevel(12, 10) = %d %q", pct, lvl)
 	}
 }
+
+func TestBoardOf(t *testing.T) {
+	for next, want := range map[string]string{"/alpha/items/3": "alpha", "/alpha": "alpha", "/": "", "/admin": "", "/Bad_Slug/x": ""} {
+		if got := boardOf(next); got != want {
+			t.Errorf("boardOf(%q) = %q, want %q", next, got, want)
+		}
+	}
+}

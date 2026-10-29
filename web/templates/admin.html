@@ -6,7 +6,7 @@
   <li class="row">
     {{if .AvatarURL}}<img src="{{.Avatar}}" alt="" class="avatar">{{end}}
     <b>{{who $.Names .Login}}</b>{{if .Name}} <span class="muted">{{.Login}}</span>{{end}} <span class="badge">{{.Role}}</span>{{if .Email}} <span class="muted">{{.Email}}{{if and .GitHub $.Data.GitHub}} or GitHub{{end}}</span>{{end}}
-    <span class="muted">{{if .LastSeen}}seen {{ago .LastSeen}}{{else}}never signed in · {{if and .Email $.Data.Mail $.Data.Mail.From}}<form method="post" action="{{base}}/admin/members/{{.Login}}/invite" class="inline"><button class="link" title="Email them the board's link and how to sign in, from {{$.Data.Mail.From}}">Email invite</button></form>{{else}}<a href="{{invite .}}" title="Email them the board's link and how to sign in">Invite</a>{{end}}{{end}}</span>
+    <span class="muted"><a href="{{base}}/admin/signins?who={{.Login}}" title="{{.Login}}'s sign-in attempts">{{with .LastSeen}}seen {{ago .}}{{else}}never signed in{{end}}</a>{{if not .LastSeen}} · {{if and .Email $.Data.Mail $.Data.Mail.From}}<form method="post" action="{{base}}/admin/members/{{.Login}}/invite" class="inline"><button class="link" title="Email them the board's link and how to sign in, from {{$.Data.Mail.From}}">Email invite</button></form>{{else}}<a href="{{invite .}}" title="Email them the board's link and how to sign in">Invite</a>{{end}}{{end}}</span>
     <span class="spacer"></span>
     <form method="post" action="{{base}}/admin/members/{{.Login}}/email" class="row" title="The Google address {{.Login}} signs in with{{if $.Data.GitHub}}; empty for GitHub only{{end}}">
       <input name="email" type="email" value="{{.Email}}" placeholder="Google email" aria-label="{{.Login}}'s Google email"><button class="secondary small">Set email</button>
@@ -24,6 +24,7 @@
   {{end}}
 </ul>
 {{with .Data.Mail}}<p class="hint">{{if .From}}Invites go from {{.From}} via Gmail · <a href="{{base}}/auth/gmail?next=/admin">Reconnect</a>{{else}}<a href="{{base}}/auth/gmail?next=/admin">Connect Gmail</a> to email invites from here instead of your mail client.{{end}}</p>{{end}}
+<p class="hint"><a href="{{base}}/admin/signins">Sign-ins</a>: who tried to sign in in the last 30 days, and why it failed.</p>
 <h2>Add or change a member</h2>
 <form method="post" action="{{base}}/admin/members" class="row">
   <input name="login" placeholder="Login (GitHub, or any handle)" required>

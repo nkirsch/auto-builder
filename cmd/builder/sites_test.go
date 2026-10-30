@@ -31,6 +31,10 @@ func TestFetchSite(t *testing.T) {
 		switch r.URL.Path {
 		case "/iterate/health":
 			json.NewEncoder(w).Encode(map[string]string{"status": "ok", "sha": "abc1234def"})
+		case "/health/health": // the version in /health, as most apps report it
+			json.NewEncoder(w).Encode(map[string]string{"status": "ok", "sha": "abc1234def", "version": "v26.10.30-1"})
+		case "/commit/health": // the commit as its version, as apps deployed on push do
+			json.NewEncoder(w).Encode(map[string]string{"status": "ok", "sha": "abc1234def", "version": "abc1234def"})
 		case "/iterate/version":
 			json.NewEncoder(w).Encode(map[string]string{"version": "v26.10.25-5"})
 		case "/iterate/api/stats":
@@ -53,6 +57,12 @@ func TestFetchSite(t *testing.T) {
 	row = fetchSite(context.Background(), srv.Client(), s, "wrong")
 	if row.Detail || row.Stats.Version != "v26.10.25-5" || row.Stats.GitSHA != "abc1234def" || row.Health != "ok" {
 		t.Fatalf("bad token: %+v", row)
+	}
+	if row = fetchSite(context.Background(), srv.Client(), remoteSite{URL: srv.URL + "/health"}, ""); row.Stats.Version != "v26.10.30-1" {
+		t.Fatalf("version from /health: %+v", row)
+	}
+	if row = fetchSite(context.Background(), srv.Client(), remoteSite{URL: srv.URL + "/commit"}, ""); row.Stats.Version != "" || row.Stats.GitSHA != "abc1234def" {
+		t.Fatalf("commit as version: %+v", row)
 	}
 	row = fetchSite(context.Background(), srv.Client(), remoteSite{Name: "gone", URL: srv.URL + "/missing"}, "")
 	if row.Health != "HTTP 404" {
@@ -91,8 +101,9 @@ func TestHubSites(t *testing.T) {
 	defer remote.Close()
 	h.cfg.Sites, h.cfg.StatsToken = []remoteSite{{Name: "momo", URL: remote.URL}}, "tok"
 	app := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/alpha/health" {
-			json.NewEncoder(w).Encode(map[string]string{"status": "ok", "sha": "aaa1111bbb"})
+		switch r.URL.Path {
+		case "/alpha/health":
+			json.NewEncoder(w).Encode(map[string]string{"status": "ok", "sha": "aaa1111bbb", "version": "v26.10.30-2"})
 		}
 	}))
 	defer app.Close()
@@ -120,7 +131,7 @@ func TestHubSites(t *testing.T) {
     <td>Alpha</td>
     <td><a href="` + app.URL + `/alpha">` + strings.TrimPrefix(app.URL, "http://") + `/alpha</a></td>
     <td><span class="badge">admin</span></td>`,
-		"aaa1111", `<td class="num">2</td>`, // the starter item and Dark mode
+		"v26.10.30-2", `<td class="num">2</td>`, // the starter item and Dark mode
 		`<td><a href="` + remote.URL + `/"><b>momo</b></a></td>`, `<td><span class="badge">standalone</span></td>`, "v26.10.20-1", `<td class="num">4</td>`, "$2.25", "<b>$2.25</b>",
 	} {
 		if !strings.Contains(body, want) {

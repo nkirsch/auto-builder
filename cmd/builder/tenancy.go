@@ -243,6 +243,7 @@ func (h *hub) routes() http.Handler {
 	mux.HandleFunc("POST /admin/tenants/{slug}/spend-limit", h.platformAdmin(h.setTenantLimit))
 	mux.HandleFunc("GET /admin/urgent", h.platformAdmin(h.urgent))
 	mux.HandleFunc("GET /admin/hubs", h.platformAdmin(h.hubs))
+	mux.HandleFunc("POST /admin/hubs/release", h.platformAdmin(h.releaseAll))
 	mux.Handle("GET /api/overview", auth.Bearer(h.cfg.StatsToken, http.HandlerFunc(h.apiOverview))) // other hubs' /admin/hubs
 	h.apiRoutes(mux)
 	mux.HandleFunc("GET /admin/traffic", h.platformAdmin(h.trafficAll))

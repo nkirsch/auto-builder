@@ -627,6 +627,9 @@ func (h *hub) shipper(t tenant.Tenant, st *db.Store, gh *github.Client,
 	default:
 		return nil
 	}
+	if h.cfg.Releases {
+		s.Release = releaser(gh, t.Repo)
+	}
 	return s
 }
 

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"slices"
 
 	"github.com/nkirsch/auto-builder/internal/db"
 	"github.com/nkirsch/auto-builder/internal/github"
@@ -22,7 +23,15 @@ type Shipper struct {
 	Deployed func(ctx context.Context) (string, error)
 	// Reply posts a bot reply on an item.
 	Reply func(ctx context.Context, it db.Item, body string) error
+	// Release, when set (a repo that deploys on release), cuts a release of
+	// the default branch's head; an UrgentTag item's merge calls it so the
+	// fix deploys without waiting for Release now.
+	Release func(ctx context.Context) error
 }
+
+// UrgentTag marks an item whose merge cuts a release on a repo that deploys
+// on release. The agent can't set it (mcp's set_tags refuses it).
+const UrgentTag = "urgent"
 
 func (s *Shipper) Check(ctx context.Context) error {
 	items, err := s.Store.Items(ctx, "building", "merged")
@@ -55,6 +64,12 @@ func (s *Shipper) checkItem(ctx context.Context, it db.Item) error {
 			}
 			slog.Info("item merged", "item", it.ID, "pr", pr.Number, "sha", pr.MergeCommitSHA)
 			it.Status, it.MergeSHA = "merged", pr.MergeCommitSHA
+			if s.Release != nil && slices.Contains(it.Tags, UrgentTag) {
+				if err := s.Release(ctx); err != nil {
+					return fmt.Errorf("release urgent PR %d: %w", pr.Number, err)
+				}
+				slog.Info("urgent item released", "item", it.ID, "pr", pr.Number)
+			}
 			return s.ship(ctx, it)
 		case pr.State == "closed":
 			if err := s.Store.PRClosed(ctx, it.ID); err != nil {

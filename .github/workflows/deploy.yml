@@ -188,24 +188,10 @@ jobs:
     if: always() && needs.config.outputs.deploy == 'true'
     runs-on: ubuntu-latest
     steps:
-      - name: Notify (Pushover)
-        env:
-          PUSHOVER_TOKEN: ${{ secrets.PUSHOVER_TOKEN }}
-          PUSHOVER_USER: ${{ secrets.PUSHOVER_USER }}
-          STATUS: ${{ needs.deploy.result }}
-          VERSION: ${{ needs.deploy.outputs.version }}
-          SITE: ${{ needs.config.outputs.SITE_NAME }}
-          URL: ${{ needs.config.outputs.SITE_URL }}
-          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-        run: |
-          [ -n "$PUSHOVER_TOKEN" ] || exit 0
-          VERSION=${VERSION:-${GITHUB_SHA::7}}
-          # Priorities from config.nick.org/notify.json; defaults if unreachable.
-          cfg=$(curl -fsS --max-time 5 https://config.nick.org/notify.json || true)
-          pri() { echo "$cfg" | jq -er ".pushover.deployments.$1" 2>/dev/null || echo "$2"; }
-          title=$SITE url=$URL priority=$(pri success -1)
-          [ "$STATUS" = success ] || { title="$SITE FAILED"; url=$RUN_URL; priority=$(pri failure 1); }
-          curl -fsS https://api.pushover.net/1/messages.json \
-            --form-string "token=$PUSHOVER_TOKEN" --form-string "user=$PUSHOVER_USER" \
-            --form-string "title=$title" --form-string "message=$VERSION" \
-            --form-string "priority=$priority" --form-string "url=$url" >/dev/null || true
+      - name: Notify
+        uses: nkirsch/signal@v1
+        with:
+          event: deploy.${{ needs.deploy.result }}
+          title: ${{ needs.config.outputs.SITE_NAME }}
+          message: "${{ needs.deploy.outputs.version || github.sha }}"
+          url: ${{ needs.config.outputs.SITE_URL }}

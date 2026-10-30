@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"slices"
 	"strings"
 	"sync"
@@ -25,6 +26,7 @@ type hubOverview struct {
 	More     bool           `json:"behind_more,omitempty"`
 	Sites    []overviewSite `json:"sites"`
 	Err      string         `json:"-"` // fetching it failed
+	Local    bool           `json:"-"` // this hub, which can release its own apps
 	// Unreleased counts the commits on the platform repo's master that the
 	// hub's live GIT_SHA lacks; ReleaseKnown says it was counted (older hubs
 	// and ones without the App leave both out).
@@ -98,6 +100,57 @@ func (h *hub) overview(ctx context.Context) (hubOverview, error) {
 	}
 	wg.Wait()
 	return o, nil
+}
+
+// AppsUnreleased is how many of the hub's apps have unreleased commits.
+func (o hubOverview) AppsUnreleased() (n int) {
+	for _, s := range o.Sites {
+		if s.App && s.Releases && s.Unreleased > 0 {
+			n++
+		}
+	}
+	return n
+}
+
+// releaseAll releases every ready app on this hub with unreleased commits.
+func (h *hub) releaseAll(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	tenants, err := h.reg.Tenants(ctx)
+	if err != nil {
+		http.Redirect(w, r, "/admin/hubs?flash="+url.QueryEscape("Release all failed: "+err.Error()), http.StatusSeeOther)
+		return
+	}
+	var released, failed []string
+	for _, t := range tenants {
+		if t.Status != "ready" {
+			continue
+		}
+		rt, err := h.tenantFor(ctx, t.Slug)
+		if err != nil {
+			failed = append(failed, t.Slug)
+			continue
+		}
+		if ahead, ok := rt.b.PendingRelease(ctx); !ok || ahead == 0 {
+			continue
+		}
+		tag, ahead, err := rt.b.Release(ctx)
+		switch {
+		case err != nil:
+			slog.Error("release all", "slug", t.Slug, "err", err)
+			failed = append(failed, t.Slug)
+		case tag != "":
+			slog.Info("release", "slug", t.Slug, "tag", tag, "commits", ahead, "by", h.auth.SignedIn(r))
+			released = append(released, t.Slug+" "+tag)
+		}
+	}
+	msg := "Nothing to release"
+	if len(released) > 0 {
+		msg = "Released " + strings.Join(released, ", ") + "; deploying"
+	}
+	if len(failed) > 0 {
+		msg += ". Failed: " + strings.Join(failed, ", ")
+	}
+	http.Redirect(w, r, "/admin/hubs?flash="+url.QueryEscape(msg), http.StatusSeeOther)
 }
 
 // unreleased counts the commits on the platform repo's master that this
@@ -248,6 +301,7 @@ func (h *hub) hubs(w http.ResponseWriter, r *http.Request) {
 		slog.Error("overview", "err", err)
 		all[0] = hubOverview{Name: h.host, URL: h.cfg.BaseURL, Err: err.Error()}
 	}
+	all[0].Local = true
 	wg.Wait()
 	var rows []attentionRow
 	other := 0

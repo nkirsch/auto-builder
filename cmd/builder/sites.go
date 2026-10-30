@@ -1,6 +1,7 @@
 package main
 
 import (
+	"cmp"
 	"context"
 	"crypto/tls"
 	"encoding/json"
@@ -256,19 +257,25 @@ func fetchSite(ctx context.Context, c *http.Client, s remoteSite, token string) 
 		}
 		return nil
 	}
-	var health struct{ Status, SHA string }
+	var health struct{ Status, SHA, Version string }
 	if err := get("/health", "", &health); err != nil && health.Status == "" {
 		row.Health, row.HealthErr = shortErr(err), err.Error()
 	} else {
 		row.Health, row.Stats.GitSHA = health.Status, health.SHA
+		if health.Version != health.SHA { // some apps report the commit as their version
+			row.Stats.Version = health.Version
+		}
 	}
 	var v struct{ Version string }
-	if get("/version", "", &v) == nil {
+	if row.Stats.Version == "" && get("/version", "", &v) == nil {
 		row.Stats.Version = v.Version
 	}
 	if token != "" {
 		var st siteStats
 		if err := get("/api/stats", token, &st); err == nil {
+			if st.Version == "" { // keep what /health reported
+				st.Version, st.GitSHA = row.Stats.Version, cmp.Or(st.GitSHA, row.Stats.GitSHA)
+			}
 			row.Stats, row.Detail = st, true
 		}
 	}
@@ -341,7 +348,8 @@ func (h *hub) siteRows(ctx context.Context) ([]siteRow, error) {
 		go func() {
 			defer wg.Done()
 			live := fetchSite(ctx, client, remoteSite{URL: rows[i].Site}, "")
-			rows[i].Health, rows[i].HealthErr, rows[i].Stats.GitSHA = live.Health, live.HealthErr, live.Stats.GitSHA
+			rows[i].Health, rows[i].HealthErr = live.Health, live.HealthErr
+			rows[i].Stats.GitSHA, rows[i].Stats.Version = live.Stats.GitSHA, live.Stats.Version
 		}()
 	}
 	wg.Wait()

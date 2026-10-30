@@ -119,7 +119,7 @@ func (b *Board) release(w http.ResponseWriter, r *http.Request) {
 		redirect(w, r, back, "The repo isn't set up yet")
 		return
 	}
-	tag, ahead, err := b.GitHub.ReleaseHead(ctx, b.Repo, time.Now())
+	tag, ahead, err := b.Release(ctx)
 	if github.IsNotFound(err) {
 		redirect(w, r, back, "The repo isn't set up yet")
 		return
@@ -132,7 +132,16 @@ func (b *Board) release(w http.ResponseWriter, r *http.Request) {
 		redirect(w, r, back, "Nothing to release")
 		return
 	}
-	b.forgetReleases()
 	slog.Info("release", "tag", tag, "by", auth.Member(ctx).Login)
 	redirect(w, r, back, fmt.Sprintf("Released %s (%d commits); deploying", tag, ahead))
+}
+
+// Release cuts vYY.M.D[-N] at the default branch's head, if it has unreleased
+// commits; tag is "" when there were none.
+func (b *Board) Release(ctx context.Context) (tag string, ahead int, err error) {
+	tag, ahead, err = b.GitHub.ReleaseHead(ctx, b.Repo, time.Now())
+	if err == nil && tag != "" {
+		b.forgetReleases()
+	}
+	return tag, ahead, err
 }

@@ -127,6 +127,7 @@ func TestHubOverview(t *testing.T) {
 		`<span class="behind">4 unreleased</span>`,
 		`<a class="bad" href="https://hub.example/alpha/logs">5</a>`,
 		`<span class="bad">2 failed in 7d</span>`,
+		`<a href="` + other.URL + `/admin/hubs">Release all (1) →</a>`, // another hub releases its own apps
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("hubs page missing %s", want)
@@ -146,6 +147,24 @@ func TestHubOverview(t *testing.T) {
 	}
 	if w := do(h, srv, "katrina", "GET", "/admin/hubs", nil); w.Code != http.StatusForbidden {
 		t.Errorf("hubs page for a non-platform-admin: %d", w.Code)
+	}
+	// alpha doesn't deploy on release: no button here, and Release all skips it.
+	if strings.Contains(body, `action="/admin/hubs/release"`) {
+		t.Errorf("Release all offered with nothing to release")
+	}
+	if w := do(h, srv, "nkirsch", "POST", "/admin/hubs/release", nil); w.Code != 303 || w.Header().Get("Location") != "/admin/hubs?flash=Nothing+to+release" {
+		t.Errorf("release all: %d %q", w.Code, w.Header().Get("Location"))
+	}
+	if w := do(h, srv, "katrina", "POST", "/admin/hubs/release", nil); w.Code != http.StatusForbidden {
+		t.Errorf("release all by a non-platform-admin: %d", w.Code)
+	}
+}
+
+// AppsUnreleased counts the hub's own apps with unreleased commits.
+func TestAppsUnreleased(t *testing.T) {
+	o := hubOverview{Local: true, Sites: []overviewSite{{App: true, Releases: true, Unreleased: 3}, {App: true, Releases: true}, {Unreleased: 2}}}
+	if n := o.AppsUnreleased(); n != 1 {
+		t.Errorf("AppsUnreleased = %d, want 1", n)
 	}
 }
 

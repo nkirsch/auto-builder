@@ -189,7 +189,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Notify
-        uses: nkirsch/signal@v1
+        uses: nkirsch/signal-action@v1
         with:
           event: deploy.${{ needs.deploy.result }}
           title: ${{ needs.config.outputs.SITE_NAME }}

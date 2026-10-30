@@ -296,6 +296,9 @@ func (b *Board) setTags(ctx context.Context, _ *mcp.CallToolRequest, in SetTagsI
 		if !tagRE.MatchString(t) {
 			return nil, OK{}, fmt.Errorf("bad tag %q: use a letter then letters, digits, - or _", t)
 		}
+		if t == "urgent" { // gate.UrgentTag: its merge cuts a release, a person's call
+			return nil, OK{}, fmt.Errorf("only people tag items %q", t)
+		}
 		if !slices.Contains(tags, t) {
 			tags = append(tags, t)
 		}

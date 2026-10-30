@@ -96,7 +96,7 @@ non-bot change (create, reply, approve) and drives the gate.
 - `#N` in rendered markdown (not in code or links, not after "PR ") links to item N.
 - `#tag` in a new item's title or body tags it (lower-cased, up to 5); tags
   show as links that filter the board (`/?tag=bug`). The agent tags untagged
-  items with its guess via `set_tags`.
+  items with its guess via `set_tags`, never `urgent` (see Shipping).
 - An ask's author links to the board filtered to their asks (`/?by=login`,
   combinable with `tag` and `show`) from the board, Runs (beside each item a
   run acted on) and History.
@@ -162,7 +162,10 @@ instead (local dev). Server SA needs `roles/run.developer` on the job
 
 The tick also walks items in `building`/`merged`:
 - `building` + PR merged (GitHub API) → `merged`, record `merge_sha`, clear
-  any blocked note.
+  any blocked note. On a repo that deploys on release (`RELEASES=true`, App
+  configured), an item tagged `urgent` then cuts a `vYY.M.D-N` release of the
+  head, as Release now does, so a critical fix deploys without waiting for an
+  admin; a failed release is logged and left to Release now.
 - `building` + a failed or timed-out check run on the PR head, item not
   already blocked → blocked "CI failed on PR #N." (no reply).
 - `merged` + `merge_sha` reachable from the server's own `GIT_SHA`

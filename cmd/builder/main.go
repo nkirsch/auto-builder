@@ -261,6 +261,9 @@ func run() error {
 		b.Mailer = a
 	}
 	g.Ship = &gate.Shipper{Store: st, GitHub: gh, Repo: cfg.Repo, GitSHA: cfg.GitSHA, Reply: b.BotReply}
+	if app != nil && cfg.Releases {
+		g.Ship.Release = releaser(gh, cfg.Repo)
+	}
 	if app != nil && cfg.IssueSync {
 		g.Issues = &gate.IssueSync{Store: st, GitHub: gh, Repo: cfg.Repo, BaseURL: cfg.BaseURL, Notified: b.Notified}
 		b.Filer, b.Welcomer = g.Issues, g.Issues

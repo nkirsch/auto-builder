@@ -62,3 +62,19 @@ func TestDeployStatusDeployed(t *testing.T) {
 		t.Fatalf("unreadable: %+v %v", out, err)
 	}
 }
+
+// The agent can't tag an item urgent: that tag's merge cuts a release.
+func TestSetTagsRefusesUrgent(t *testing.T) {
+	ctx := context.Background()
+	b := testBoard(t)
+	id, _ := b.Store.CreateItem(ctx, "Fix", "", "alice")
+	if _, _, err := b.setTags(ctx, nil, SetTagsIn{ID: id, Tags: []string{"bug", "#Urgent"}}); err == nil {
+		t.Fatal("urgent tag accepted")
+	}
+	if it, _ := b.Store.Item(ctx, id); len(it.Tags) != 0 {
+		t.Fatalf("tags = %v", it.Tags)
+	}
+	if _, _, err := b.setTags(ctx, nil, SetTagsIn{ID: id, Tags: []string{"bug"}}); err != nil {
+		t.Fatal(err)
+	}
+}

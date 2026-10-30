@@ -211,8 +211,13 @@ func (p *Provisioner) Delete(ctx context.Context, t tenant.Tenant) error {
 		{"run", "services", "delete", svc, "--region", p.Region},
 		{"artifacts", "repositories", "delete", svc, "--location", p.Region},
 		{"logging", "views", "delete", t.Slug + "-requests", "--bucket", "_Default", "--location", "global"},
-		{"iam", "service-accounts", "delete", p.sa("deploy-" + t.Slug)},
-		{"iam", "service-accounts", "delete", p.sa("app-" + t.Slug)},
+	}
+	// Deleting a missing account reads as PERMISSION_DENIED, so list first.
+	for _, sa := range []string{p.sa("deploy-" + t.Slug), p.sa("app-" + t.Slug)} {
+		got, err := p.gcloud(ctx, "iam", "service-accounts", "list", "--filter", "email="+sa, "--format=value(email)")
+		if err != nil || strings.TrimSpace(got) != "" {
+			steps = append(steps, []string{"iam", "service-accounts", "delete", sa})
+		}
 	}
 	var errs []error
 	for _, s := range steps {
@@ -229,7 +234,8 @@ func (p *Provisioner) Delete(ctx context.Context, t tenant.Tenant) error {
 // notFound is a gcloud error for something already gone.
 func notFound(err error) bool {
 	m := err.Error()
-	return strings.Contains(m, "NOT_FOUND") || strings.Contains(m, "not found") || strings.Contains(m, "does not exist")
+	return strings.Contains(m, "NOT_FOUND") || strings.Contains(m, "not found") || strings.Contains(m, "could not be found") ||
+		strings.Contains(m, "does not exist")
 }
 
 // cname points host at Cloud Run's domain-mapping front end, replacing a

@@ -90,10 +90,10 @@ func TestSyncSoon(t *testing.T) {
 			t.Fatal(err)
 		}
 		mu.Lock()
-		replied := len(replies) > 0
+		replied, mirrored := len(replies) > 0, len(comments) > 0
 		mu.Unlock()
-		// The reply lands just after the status; wait for both.
-		if it.Status == "shipped" && replied {
+		// The reply lands just after the status, and the issue sync runs last; wait for all.
+		if it.Status == "shipped" && replied && mirrored {
 			break
 		}
 		if time.Now().After(deadline) {

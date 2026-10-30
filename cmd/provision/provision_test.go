@@ -165,14 +165,40 @@ func TestDelete(t *testing.T) {
 	}
 }
 
-// goneShell reports the DNS record as already deleted.
-type goneShell struct{ cmds []string }
+// A tenant whose service and accounts are already gone still deletes cleanly.
+func TestDeleteAlreadyGone(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer srv.Close()
+	sh := &goneShell{noAccounts: true}
+	p := &Provisioner{Project: "proj", Region: "us-central1", Domain: "extreme.org", Zone: "extreme-org",
+		GitHub: github.New(srv.URL, "t"), Shell: sh}
+	if err := p.Delete(context.Background(), tenant.Tenant{Slug: "alpha", Repo: "extreme-dot-org/alpha"}); err != nil {
+		t.Fatal(err)
+	}
+	if all := strings.Join(sh.cmds, "\n"); strings.Contains(all, "service-accounts delete") {
+		t.Errorf("deleted a missing account:\n%s", all)
+	}
+}
+
+// goneShell reports the DNS record and Cloud Run service as already deleted;
+// with noAccounts, the service accounts too.
+type goneShell struct {
+	cmds       []string
+	noAccounts bool
+}
 
 func (g *goneShell) Run(_ context.Context, _ []string, args ...string) (string, error) {
 	cmd := strings.Join(args, " ")
 	g.cmds = append(g.cmds, cmd)
-	if strings.Contains(cmd, "record-sets delete") {
+	switch {
+	case strings.Contains(cmd, "record-sets delete"):
 		return "", errors.New("HTTPError 404: does not exist")
+	case strings.Contains(cmd, "run services delete"):
+		return "", errors.New("ERROR: (gcloud.run.services.delete) Service [x-alpha] could not be found.")
+	case strings.Contains(cmd, "service-accounts list") && !g.noAccounts:
+		return strings.TrimPrefix(args[len(args)-2], "email=") + "\n", nil
 	}
 	return "", nil
 }

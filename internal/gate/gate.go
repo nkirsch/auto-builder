@@ -182,20 +182,21 @@ func (g *Gate) SyncSoon() {
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 		defer cancel()
-		if g.Issues != nil {
-			if err := g.Issues.Sync(ctx); err != nil {
-				slog.Error("issues soon", "err", err)
-			}
-		}
+		// Ship first, so the sync closes the issues of what just shipped.
 		if g.Ship != nil {
 			if err := g.Ship.Check(ctx); err != nil {
 				slog.Error("ship soon", "err", err)
 			}
 		}
+		if g.Issues != nil {
+			if err := g.Issues.Sync(ctx); err != nil {
+				slog.Error("issues soon", "err", err)
+			}
+		}
 	}()
 }
 
-// Tick runs the periodic duties: fail stale runs, sync issues, check shipping, evaluate.
+// Tick runs the periodic duties: fail stale runs, check shipping, sync issues, evaluate.
 func (g *Gate) Tick(ctx context.Context) error {
 	var errs []error
 	if n, err := g.Store.FailStale(ctx, staleRunning, staleRequest); err != nil {
@@ -203,14 +204,15 @@ func (g *Gate) Tick(ctx context.Context) error {
 	} else if n > 0 {
 		slog.Warn("failed stale runs", "count", n)
 	}
-	if g.Issues != nil {
-		if err := g.Issues.Sync(ctx); err != nil {
-			errs = append(errs, fmt.Errorf("issues: %w", err))
-		}
-	}
+	// Ship first, so the sync closes the issues of what just shipped.
 	if g.Ship != nil {
 		if err := g.Ship.Check(ctx); err != nil {
 			errs = append(errs, fmt.Errorf("ship: %w", err))
+		}
+	}
+	if g.Issues != nil {
+		if err := g.Issues.Sync(ctx); err != nil {
+			errs = append(errs, fmt.Errorf("issues: %w", err))
 		}
 	}
 	if _, err := g.Check(ctx, "tick"); err != nil {

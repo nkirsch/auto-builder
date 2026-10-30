@@ -27,6 +27,7 @@ CI; the server marks items shipped once its own `GIT_SHA` contains the merge.
 - `board.mk` — board make targets; a site's `Makefile` includes it
 - `infra/bootstrap.sh` — idempotent GCP + GitHub setup; `infra/tenancy.sh` — the same for multi-tenant mode's platform
 - `TENANCY.md` — multi-tenant mode (design only; off unless `TENANCY=on`), deployed by `extreme-dot-org/extreme`
+- `docs/hub.dot` (rendered `docs/hub.png`) — a multi-tenant hub and the services it talks to
 
 ## Develop
 

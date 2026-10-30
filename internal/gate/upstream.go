@@ -91,18 +91,23 @@ func (u *Upstream) land(ctx context.Context, n int) error {
 	if err != nil {
 		return err
 	}
-	if pr.Merged || pr.State == "closed" {
-		slog.Info("upstream PR done", "repo", u.Repo, "pr", n, "merged", pr.Merged)
+	switch {
+	case pr.State == "closed" && !pr.Merged:
+		slog.Info("upstream PR closed", "repo", u.Repo, "pr", n)
 		return u.State.SetUpstreamPR(ctx, 0)
+	case pr.Merged:
+		// Merged by hand: it still needs the release that deploys it.
+		slog.Info("upstream PR merged elsewhere", "repo", u.Repo, "pr", n)
+	default:
+		ok, err := u.GitHub.ChecksPassed(ctx, u.Repo, pr.Head.SHA)
+		if err != nil || !ok {
+			return err
+		}
+		if err := u.GitHub.MergePR(ctx, u.Repo, n, fmt.Sprintf("Merge %s upstream (#%d)", u.Upstream, n)); err != nil {
+			return fmt.Errorf("merge upstream PR %d: %w", n, err)
+		}
+		slog.Info("upstream PR merged", "repo", u.Repo, "pr", n)
 	}
-	ok, err := u.GitHub.ChecksPassed(ctx, u.Repo, pr.Head.SHA)
-	if err != nil || !ok {
-		return err
-	}
-	if err := u.GitHub.MergePR(ctx, u.Repo, n, fmt.Sprintf("Merge %s upstream (#%d)", u.Upstream, n)); err != nil {
-		return fmt.Errorf("merge upstream PR %d: %w", n, err)
-	}
-	slog.Info("upstream PR merged", "repo", u.Repo, "pr", n)
 	if err := u.State.SetUpstreamPR(ctx, 0); err != nil {
 		return err
 	}

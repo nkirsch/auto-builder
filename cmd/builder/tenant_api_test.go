@@ -89,4 +89,34 @@ func TestTenantAPI(t *testing.T) {
 	if code, _ := call("adm", "POST", "/api/tenants/nope/members", `{"login":"x","role":"member"}`); code != 404 {
 		t.Errorf("missing tenant: %d", code)
 	}
+
+	job := &fakeJob{}
+	h.launcher = job
+	// Items: filed as the first ADMIN_LOGIN, approved when asked, tagged.
+	code, v = call("adm", "POST", "/api/tenants/alpha/items", `{"title":"Group by hub #feature","body":"On the status page.","approve":true}`)
+	if code != 201 || v["id"] != float64(1) || v["url"] != "https://hub.example/alpha/items/1" {
+		t.Fatalf("file: %d %v", code, v)
+	}
+	if it, err := st.Item(ctx, 1); err != nil || it.Author != "nkirsch" || !it.Approved || it.ApprovedBy != "nkirsch" || len(it.Tags) != 1 {
+		t.Errorf("filed item: %+v %v", it, err)
+	}
+	if code, _ := call("adm", "POST", "/api/tenants/alpha/items", `{"title":"Unapproved"}`); code != 201 {
+		t.Errorf("file unapproved: %d", code)
+	} else if it, _ := st.Item(ctx, 2); it.Approved {
+		t.Errorf("approved without asking")
+	}
+	if code, v := call("adm", "POST", "/api/tenants/alpha/items", `{"title":"  "}`); code != 400 || v["error"] == "" {
+		t.Errorf("no title: %d %v", code, v)
+	}
+	if code, _ := call("adm", "POST", "/api/tenants/nope/items", `{"title":"x"}`); code != 404 {
+		t.Errorf("file on missing tenant: %d", code)
+	}
+
+	// Run now: launches the runner, then 409 while that run is active.
+	if code, v := call("adm", "POST", "/api/tenants/alpha/run", ""); code != 201 || v["run"] != float64(1) || v["runs"] != "https://hub.example/alpha/runs" || len(job.launches) != 1 {
+		t.Fatalf("run: %d %v %v", code, v, job.launches)
+	}
+	if code, v := call("adm", "POST", "/api/tenants/alpha/run", ""); code != 409 || v["error"] == "" {
+		t.Errorf("second run: %d %v", code, v)
+	}
 }

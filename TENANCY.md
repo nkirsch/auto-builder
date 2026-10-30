@@ -124,6 +124,12 @@ the provisioner SA is added as an owner in Search Console (manual, once).
   /api/tenants/{slug}/members` adds a member or changes their role like the
   board's `/admin` (`login` or `email`, `role` `member`/`admin`, `github`),
   without inviting or welcoming them.
+  `POST /api/tenants/{slug}/items` files an ask like the board's form
+  (`title`, `body`, `approve`) and answers 201 with its `id` and `url`; `POST
+  /api/tenants/{slug}/run` is the board's Run now (201 with the `run`, 409
+  when a run is active, held or over the spend limit); `GET /api/hubs` is
+  `/admin/hubs` as JSON. `cmd/hub` is a CLI over these (`hub`, `hub add -run
+  BOARD TITLE`, `hub run BOARD`).
 - `/admin/traffic` (platform admin): every ready app's last 30 days (visitors, views, a per-day spark, top page) from the same cached reports as each board's `/logs`.
 - `/visitors` (`visitors.<APP_DOMAIN>` redirects there; `infra/tenancy.sh` maps it): each visitor and the version they were served, from the same cached log reads as `/logs`. Platform admins see every ready app (`?app=` for one); a board admin sees only their own app at `/<slug>/visitors` (`/visitors` sends them there, or lets them pick). Each page view carries its Cloud Run revision; the revision's `GIT_SHA` names the version (its `v*` tag, else the short SHA) and the PRs merged since the previous revision (the hub's `run.viewer`, the App for history). Pseudonymous: a visitor is an HMAC (key from `SESSION_KEY`) of IP + user agent, scoped to the board (`*` on the platform view) so IDs don't match across boards; the page shows a browser·OS label, paths without queries, and external referrer hosts, minus the hub's and apps' own domain. No IPs, user agents, sign-ins or member names. Left out: bots, browsers that never loaded CSS/JS, 10+ pages a minute, `HOME_HOST`'s IPs (a secret; the operator's dynamic DNS name), and every IP a platform admin or that board's admin signed in from in the last 90 days.
 

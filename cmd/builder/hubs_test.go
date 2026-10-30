@@ -106,7 +106,7 @@ func TestHubOverview(t *testing.T) {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 	}))
 	defer locked.Close()
-	h.cfg.Hubs = []remoteSite{{Name: "kirsch", URL: other.URL}, {Name: "nick", URL: locked.URL}, {Name: "self", URL: "https://hub.example"}}
+	h.cfg.Hubs = []remoteSite{{Name: "family", URL: other.URL}, {Name: "blog", URL: locked.URL}, {Name: "self", URL: "https://hub.example"}}
 
 	body := do(h, srv, "nkirsch", "GET", "/admin/hubs", nil).Body.String()
 	iu, ie, ib, ifl := strings.Index(body, "Site down"), strings.Index(body, "Escalated thing"), strings.Index(body, "Needs a secret"),
@@ -119,7 +119,7 @@ func TestHubOverview(t *testing.T) {
 		`<a href="https://hub.example.net/maple/items/7">`,
 		"Add the FOO secret.",
 		"5 other unfinished items",
-		`<a href="` + other.URL + `/">kirsch</a>`,
+		`<a href="` + other.URL + `/">family</a>`,
 		"3 commits behind nkirsch/auto-builder",
 		`<span class="behind">2 unreleased</span>`,
 		"HTTP 401: does it have this hub&#39;s STATS_TOKEN?",
@@ -136,11 +136,11 @@ func TestHubOverview(t *testing.T) {
 	if strings.Contains(body, "Closed thing") || strings.Count(body, `<a href="https://hub.example/">hub.example</a>`) != 1 {
 		t.Errorf("hubs page shows a shipped item or this hub twice: %s", body)
 	}
-	// kirsch's hub predates these fields: its release lag and 5xx show as –.
-	kirsch := body[strings.Index(body, `">kirsch</a>`):]
-	kirsch = kirsch[:strings.Index(kirsch, "</table>")]
-	if !strings.Contains(kirsch, `</a> <span class="muted">–</span></h2>`) || strings.Count(kirsch, `<td class="num"><span class="muted">–</span></td>`) != 1 {
-		t.Errorf("an older hub's missing fields aren't –: %s", kirsch)
+	// family's hub predates these fields: its release lag and 5xx show as –.
+	family := body[strings.Index(body, `">family</a>`):]
+	family = family[:strings.Index(family, "</table>")]
+	if !strings.Contains(family, `</a> <span class="muted">–</span></h2>`) || strings.Count(family, `<td class="num"><span class="muted">–</span></td>`) != 1 {
+		t.Errorf("an older hub's missing fields aren't –: %s", family)
 	}
 	if len(views) != 1 {
 		t.Errorf("5xx count not cached: read %d times", len(views))
@@ -157,6 +157,35 @@ func TestHubOverview(t *testing.T) {
 	}
 	if w := do(h, srv, "juniper", "POST", "/admin/hubs/release", nil); w.Code != http.StatusForbidden {
 		t.Errorf("release all by a non-platform-admin: %d", w.Code)
+	}
+
+	// The same view as JSON for the CLI, behind ADMIN_TOKEN.
+	h.cfg.AdminToken = "adm"
+	srv = h.routes()
+	r = httptest.NewRequest("GET", "/api/hubs", nil)
+	r.Header.Set("Authorization", "Bearer adm")
+	w = httptest.NewRecorder()
+	srv.ServeHTTP(w, r)
+	var v struct {
+		Hubs []struct {
+			Name  string         `json:"name"`
+			Error string         `json:"error"`
+			Sites []overviewSite `json:"sites"`
+		} `json:"hubs"`
+		Attention []struct {
+			Kind, Title, Hub, Site, URL string
+		} `json:"attention"`
+		Other int `json:"other"`
+	}
+	if err := json.NewDecoder(w.Body).Decode(&v); err != nil || w.Code != 200 {
+		t.Fatalf("api hubs: %d %v", w.Code, err)
+	}
+	if len(v.Hubs) != 3 || v.Hubs[0].Name != "hub.example" || len(v.Hubs[1].Sites) != 1 || !strings.Contains(v.Hubs[2].Error, "HTTP 401") || v.Other != 5 {
+		t.Errorf("api hubs: %+v", v.Hubs)
+	}
+	if len(v.Attention) != 4 || v.Attention[0].Title != "Site down" || v.Attention[0].Kind != "urgent" || v.Attention[1].Site != "Maple" ||
+		v.Attention[3].URL != "https://hub.example/alpha/runs" {
+		t.Errorf("api hubs attention: %+v", v.Attention)
 	}
 }
 

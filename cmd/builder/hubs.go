@@ -275,10 +275,19 @@ var kindRank = map[string]int{"urgent": 0, "escalated": 1, "blocked": 2, "failin
 // failingAfter is how many runs in a row must fail to list a board as failing.
 const failingAfter = 2
 
-// hubs is the multi-hub view: what needs attention on every hub's boards
-// first, then each hub's boards with their health and release state.
-func (h *hub) hubs(w http.ResponseWriter, r *http.Request) {
-	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
+// hubsView is what the multi-hub view shows; /admin/hubs renders it and
+// GET /api/hubs serves it.
+type hubsView struct {
+	Hubs       []hubOverview
+	Attention  []attentionRow
+	Other      int  // unfinished items nobody must act on
+	Configured bool // HUBS names another hub
+}
+
+// gatherHubs reads this hub's overview and every other HUBS hub's, and ranks
+// what needs attention on their boards.
+func (h *hub) gatherHubs(ctx context.Context) hubsView {
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 	var remote []remoteSite
 	for _, hub := range h.cfg.Hubs {
@@ -303,26 +312,59 @@ func (h *hub) hubs(w http.ResponseWriter, r *http.Request) {
 	}
 	all[0].Local = true
 	wg.Wait()
-	var rows []attentionRow
-	other := 0
+	v := hubsView{Hubs: all, Configured: len(remote) > 0}
 	for _, o := range all {
 		for _, s := range o.Sites {
-			other += s.Stats.Other
+			v.Other += s.Stats.Other
 			for _, a := range s.Stats.Attention {
-				rows = append(rows, attentionRow{attention: a, Hub: o.Name, Site: s.Name, URL: fmt.Sprintf("%sitems/%d", s.Board, a.ID)})
+				v.Attention = append(v.Attention, attentionRow{attention: a, Hub: o.Name, Site: s.Name, URL: fmt.Sprintf("%sitems/%d", s.Board, a.ID)})
 			}
 			if n := s.Stats.FailStreak; n >= failingAfter {
 				a := attention{Kind: "failing", Title: fmt.Sprintf("Last %d runs failed", n)}
 				if s.Stats.LastRun != nil {
 					a.At = s.Stats.LastRun.At
 				}
-				rows = append(rows, attentionRow{attention: a, Hub: o.Name, Site: s.Name, URL: s.Board + "runs"})
+				v.Attention = append(v.Attention, attentionRow{attention: a, Hub: o.Name, Site: s.Name, URL: s.Board + "runs"})
 			}
 		}
 	}
-	slices.SortStableFunc(rows, func(a, b attentionRow) int {
+	slices.SortStableFunc(v.Attention, func(a, b attentionRow) int {
 		return cmp.Or(cmp.Compare(kindRank[a.Kind], kindRank[b.Kind]), a.At.Compare(b.At))
 	})
-	h.render(w, r, "hubs", "Hubs", map[string]any{"Hubs": all, "Attention": rows, "Other": other,
-		"Token": h.cfg.StatsToken != "", "Configured": len(remote) > 0})
+	return v
+}
+
+// hubs is the multi-hub view: what needs attention on every hub's boards
+// first, then each hub's boards with their health and release state.
+func (h *hub) hubs(w http.ResponseWriter, r *http.Request) {
+	v := h.gatherHubs(r.Context())
+	h.render(w, r, "hubs", "Hubs", map[string]any{"Hubs": v.Hubs, "Attention": v.Attention, "Other": v.Other,
+		"Token": h.cfg.StatsToken != "", "Configured": v.Configured})
+}
+
+// apiHubs is the multi-hub view as JSON, with each hub's fetch error.
+func (h *hub) apiHubs(w http.ResponseWriter, r *http.Request) {
+	v := h.gatherHubs(r.Context())
+	type hubOut struct {
+		hubOverview
+		Err string `json:"error,omitempty"`
+	}
+	type rowOut struct {
+		attention
+		Hub  string `json:"hub"`
+		Site string `json:"site"`
+		URL  string `json:"url"`
+	}
+	out := struct {
+		Hubs      []hubOut `json:"hubs"`
+		Attention []rowOut `json:"attention"`
+		Other     int      `json:"other"`
+	}{Hubs: []hubOut{}, Attention: []rowOut{}, Other: v.Other}
+	for _, o := range v.Hubs {
+		out.Hubs = append(out.Hubs, hubOut{o, o.Err})
+	}
+	for _, a := range v.Attention {
+		out.Attention = append(out.Attention, rowOut{a.attention, a.Hub, a.Site, a.URL})
+	}
+	writeJSON(w, http.StatusOK, out)
 }

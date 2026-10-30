@@ -82,6 +82,7 @@ fi
 log "secrets"
 secret "$NAME-SESSION_KEY" "$(openssl rand -hex 32)"
 secret "$NAME-TICK_TOKEN" "$(openssl rand -hex 32)"
+secret "$NAME-ADMIN_TOKEN" "$(openssl rand -hex 32)" # the tenant API, and cmd/hub
 secret "$STATS_SECRET" "$(openssl rand -hex 32)" # STATS_TOKEN: shared with bootstrap.sh and the single-board sites
 # Filled in by hand (TENANCY.md manual steps).
 for s in GITHUB_CLIENT_ID GITHUB_CLIENT_SECRET GOOGLE_CLIENT_ID GOOGLE_CLIENT_SECRET \
@@ -92,7 +93,7 @@ done
 mounts() { for m in $1; do printf '%s:latest,' "$m"; done | sed 's/,$//'; }
 prefixed() { for s in $1; do printf '%s=%s ' "$s" "$NAME-$s"; done; }
 APP_SECRETS="GH_APP_ID GH_APP_INSTALLATION_ID GH_APP_PRIVATE_KEY"
-SERVER_MOUNTS="$(prefixed "DATABASE_URL SESSION_KEY TICK_TOKEN GITHUB_CLIENT_ID GITHUB_CLIENT_SECRET GOOGLE_CLIENT_ID GOOGLE_CLIENT_SECRET $APP_SECRETS") STATS_TOKEN=$STATS_SECRET"
+SERVER_MOUNTS="$(prefixed "DATABASE_URL SESSION_KEY TICK_TOKEN ADMIN_TOKEN GITHUB_CLIENT_ID GITHUB_CLIENT_SECRET GOOGLE_CLIENT_ID GOOGLE_CLIENT_SECRET $APP_SECRETS") STATS_TOKEN=$STATS_SECRET"
 RUNNER_MOUNTS=$(prefixed "$KEY_SECRET")
 if [ -n "$HOME_HOST" ]; then
   if ! g secrets describe "$NAME-HOME_HOST" >/dev/null 2>&1; then

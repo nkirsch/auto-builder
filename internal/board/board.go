@@ -484,46 +484,62 @@ func (b *Board) createItem(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	title := strings.TrimSpace(r.FormValue("title"))
-	body := strings.TrimSpace(r.FormValue("body"))
-	if title == "" {
-		http.Error(w, "title is required", http.StatusBadRequest)
+	id, err := b.File(r.Context(), me.Login, r.FormValue("title"), r.FormValue("body"), me.IsAdmin() && me.AutoApprove)
+	if errors.Is(err, ErrBadItem) {
+		http.Error(w, strings.TrimPrefix(err.Error(), ErrBadItem.Error()+": "), http.StatusBadRequest)
+		return
+	} else if err != nil {
+		b.fail(w, err)
 		return
 	}
+	if err := b.saveUploads(r, id, me.Login); err != nil {
+		slog.Warn("upload", "item", id, "err", err)
+	}
+	redirect(w, r, fmt.Sprintf("/items/%d", id), "")
+}
+
+// ErrBadItem wraps why File refused an ask.
+var ErrBadItem = errors.New("bad item")
+
+// File files an ask as login, approved by them when approve, tagged from its
+// text, with mentions and the new-ask notice; the form and the tenant API share it.
+func (b *Board) File(ctx context.Context, login, title, body string, approve bool) (int, error) {
+	title, body = strings.TrimSpace(title), strings.TrimSpace(body)
+	if title == "" {
+		return 0, fmt.Errorf("%w: title is required", ErrBadItem)
+	}
 	if len(title) > 200 || len(body) > 50_000 {
-		http.Error(w, "title or body too long", http.StatusBadRequest)
-		return
+		return 0, fmt.Errorf("%w: title or body too long", ErrBadItem)
 	}
 	tags := Tags(title + "\n" + body)
 	var id int
 	var err error
 	if b.Filer != nil {
-		id, err = b.Filer.File(r.Context(), title, body, me.Login, false, slices.Contains(tags, "private"))
+		id, err = b.Filer.File(ctx, title, body, login, false, slices.Contains(tags, "private"))
 	} else {
-		id, err = b.Store.CreateItem(r.Context(), title, body, me.Login)
+		id, err = b.Store.CreateItem(ctx, title, body, login)
 	}
 	if err != nil {
-		b.fail(w, err)
-		return
+		return 0, err
 	}
-	if me.IsAdmin() && me.AutoApprove {
-		if err := b.Store.SetApproved(r.Context(), id, true, me.Login); err != nil {
+	if approve {
+		if err := b.Store.SetApproved(ctx, id, true, login); err != nil {
 			slog.Warn("auto-approve", "item", id, "err", err)
 		}
 	}
 	if len(tags) > 0 {
-		if err := b.Store.SetTags(r.Context(), id, tags, false); err != nil {
+		if err := b.Store.SetTags(ctx, id, tags, false); err != nil {
 			slog.Warn("tags", "item", id, "err", err)
 		}
 	}
-	if err := b.saveUploads(r, id, me.Login); err != nil {
-		slog.Warn("upload", "item", id, "err", err)
-	}
-	b.mention(r.Context(), id, me.Login, body)
-	b.pushover(r.Context(), me.Login, "New ask from "+me.Login, title, b.itemURL(id))
+	b.mention(ctx, id, login, body)
+	b.pushover(ctx, login, "New ask from "+login, title, b.itemURL(id))
 	b.Gate.Activity()
-	redirect(w, r, fmt.Sprintf("/items/%d", id), "")
+	return id, nil
 }
+
+// ItemURL is the item's page.
+func (b *Board) ItemURL(id int) string { return b.itemURL(id) }
 
 func (b *Board) item(w http.ResponseWriter, r *http.Request) {
 	id, ok := pathID(r)

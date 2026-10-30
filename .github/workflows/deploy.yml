@@ -200,8 +200,11 @@ jobs:
         run: |
           [ -n "$PUSHOVER_TOKEN" ] || exit 0
           VERSION=${VERSION:-${GITHUB_SHA::7}}
-          title=$SITE url=$URL priority=0
-          [ "$STATUS" = success ] || { title="$SITE FAILED"; url=$RUN_URL; priority=1; }
+          # Priorities from config.nick.org/notify.json; defaults if unreachable.
+          cfg=$(curl -fsS --max-time 5 https://config.nick.org/notify.json || true)
+          pri() { echo "$cfg" | jq -er ".pushover.deployments.$1" 2>/dev/null || echo "$2"; }
+          title=$SITE url=$URL priority=$(pri success -1)
+          [ "$STATUS" = success ] || { title="$SITE FAILED"; url=$RUN_URL; priority=$(pri failure 1); }
           curl -fsS https://api.pushover.net/1/messages.json \
             --form-string "token=$PUSHOVER_TOKEN" --form-string "user=$PUSHOVER_USER" \
             --form-string "title=$title" --form-string "message=$VERSION" \

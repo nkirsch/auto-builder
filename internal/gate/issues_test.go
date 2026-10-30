@@ -41,6 +41,11 @@ func TestIssueSync(t *testing.T) {
 	st := testStore(t)
 	st.UpsertMember(ctx, "nkirsch", "admin", "bootstrap")
 	st.UpsertMember(ctx, "Alice", "member", "nkirsch")
+	st.UpsertMember(ctx, "kat", "admin", "nkirsch") // Google sign-in, GitHub account connected
+	st.SetMemberEmail(ctx, "kat", "kat@example.com")
+	st.LinkGitHub(ctx, "kat", "kat-gh")
+	st.UpsertMember(ctx, "momo", "member", "nkirsch") // a made-up handle, someone else's on GitHub
+	st.SetMemberEmail(ctx, "momo", "momo@example.com")
 
 	var mu sync.Mutex
 	var since []string
@@ -56,7 +61,9 @@ func TestIssueSync(t *testing.T) {
 				{"number":2,"title":"Spam","body":"buy now","user":{"login":"stranger"}},
 				{"number":3,"title":"A PR","user":{"login":"alice"},"pull_request":{}},
 				{"number":4,"title":"Mine","user":{"login":"nkirsch"},"author_association":"OWNER"},
-				{"number":5,"title":"Not mine","user":{"login":"nkirsch"},"author_association":"NONE"}]`))
+				{"number":5,"title":"Not mine","user":{"login":"nkirsch"},"author_association":"NONE"},
+				{"number":6,"title":"Linked","user":{"login":"Kat-GH"},"author_association":"NONE"},
+				{"number":7,"title":"Impostor","user":{"login":"momo"}}]`))
 		case "GET /repos/o/r/issues/comments":
 			w.Write([]byte(`[
 				{"id":10,"body":"me too @nkirsch","user":{"login":"nkirsch"},"issue_url":"https://api.github.com/repos/o/r/issues/1"},
@@ -84,13 +91,19 @@ func TestIssueSync(t *testing.T) {
 		}
 	}
 	items, _ := st.Items(ctx)
-	if len(items) != 3 {
+	if len(items) != 4 {
 		t.Fatalf("items = %+v", items)
 	}
-	// An auto-approving admin's issue starts approved only when GitHub says they can write.
+	// An auto-approving admin's issue starts approved only when GitHub says
+	// they can write or the account is the one they connected.
 	for _, it := range items[1:] {
-		if want := it.Title == "Mine"; it.Approved != want || (want && it.ApprovedBy != "nkirsch") {
+		if want := it.Title == "Mine" || it.Title == "Linked"; it.Approved != want || (want && it.ApprovedBy != it.Author) {
 			t.Errorf("%q approved %v by %q", it.Title, it.Approved, it.ApprovedBy)
+		}
+	}
+	for _, it := range items {
+		if it.Title == "Linked" && it.Author != "kat" {
+			t.Errorf("linked issue author %q", it.Author)
 		}
 	}
 	it := items[0]

@@ -40,6 +40,9 @@
     </form>
     <details class="logout">
       <summary title="Sign out…">{{who .Names .Me.Login}} ⎋</summary>
+      {{if .LinkGitHub}}{{with .Me.GitHubLogin}}<form method="post" action="{{base}}/auth/github/unlink" title="Your GitHub account: issues and comments you write there show up here as you">
+        <input type="hidden" name="next" value="{{$.Path}}"><span class="muted">GitHub @{{.}}</span> <button class="link small">Disconnect</button></form>
+      {{else}}<a href="{{base}}/auth/github/link?next={{$.Path}}" title="So issues and comments you write on GitHub show up here as you">Connect GitHub</a>{{end}}{{end}}
       <form method="post" action="{{base}}/auth/logout"><button class="small">Sign out</button></form>
     </details>
   </nav>{{else}}<nav>{{if .AppName}}<a href="{{base}}/" class="brand">{{.AppName}}</a>{{else}}{{template "brand-signed-out" .}}{{end}}</nav>{{end}}

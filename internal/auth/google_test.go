@@ -147,3 +147,68 @@ func TestProvidersOffered(t *testing.T) {
 		t.Fatalf("%d %q", w.Code, loc)
 	}
 }
+
+// With GitHub sign-in off, the GitHub app still connects a signed-in
+// member's account, and only that.
+func TestLinkGitHub(t *testing.T) {
+	ctx := context.Background()
+	a, st := dbAuth(t)
+	a.cfg.GitHubLinkOnly = true
+	st.UpsertMember(ctx, "katrina", "member", "test")
+	st.SetMemberEmail(ctx, "katrina", "katrina@example.com")
+	srv := fakeProvider(t, map[string]string{"login": "kat-gh"})
+	a.oauth.Endpoint.TokenURL = srv.URL + "/token"
+	a.api = srv.URL
+	if a.GitHub() || !a.CanLinkGitHub() {
+		t.Fatalf("GitHub=%v CanLinkGitHub=%v", a.GitHub(), a.CanLinkGitHub())
+	}
+	w := httptest.NewRecorder()
+	a.handleGitHub(w, httptest.NewRequest(http.MethodGet, "/auth/github", nil))
+	if w.Code != http.StatusServiceUnavailable {
+		t.Errorf("GitHub sign-in start: %d", w.Code)
+	}
+	if w := callback(a.handleCallback, "/auth/callback"); w.Code != http.StatusForbidden || sessionLogin(a, w) != "" {
+		t.Errorf("GitHub sign-in callback: %d", w.Code)
+	}
+
+	// Starting a link needs a session and marks the state.
+	w = httptest.NewRecorder()
+	a.handleLink(w, httptest.NewRequest(http.MethodGet, "/auth/github/link?next=/items/1", nil))
+	if loc := w.Header().Get("Location"); loc != "/auth/login" {
+		t.Errorf("signed-out link went to %q", loc)
+	}
+	r := httptest.NewRequest(http.MethodGet, "/auth/github/link?next=/items/1", nil)
+	r.AddCookie(a.SessionCookie("katrina"))
+	w = httptest.NewRecorder()
+	a.handleLink(w, r)
+	var state string
+	for _, c := range w.Result().Cookies() {
+		if c.Name == stateCookie {
+			state = c.Value
+		}
+	}
+	if _, next, _ := strings.Cut(state, "|"); w.Code != http.StatusFound || next != "link|/items/1" {
+		t.Fatalf("link start: %d state %q", w.Code, state)
+	}
+
+	r = httptest.NewRequest(http.MethodGet, "/auth/callback?state=abc&code=c", nil)
+	r.AddCookie(&http.Cookie{Name: stateCookie, Value: "abc|link|/items/1"})
+	r.AddCookie(a.SessionCookie("katrina"))
+	w = httptest.NewRecorder()
+	a.handleCallback(w, r)
+	if w.Code != http.StatusFound || w.Header().Get("Location") != "/items/1" || sessionLogin(a, w) != "" {
+		t.Fatalf("link callback: %d %q", w.Code, w.Header().Get("Location"))
+	}
+	if m, _ := st.Member(ctx, "katrina"); m.GitHubLogin != "kat-gh" {
+		t.Fatalf("not linked: %+v", m)
+	}
+
+	r = httptest.NewRequest(http.MethodPost, "/auth/github/unlink", strings.NewReader("next=/admin"))
+	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	r.AddCookie(a.SessionCookie("katrina"))
+	w = httptest.NewRecorder()
+	a.handleUnlink(w, r)
+	if m, _ := st.Member(ctx, "katrina"); w.Code != http.StatusSeeOther || w.Header().Get("Location") != "/admin" || m.GitHubLogin != "" {
+		t.Fatalf("unlink: %d %+v", w.Code, m)
+	}
+}

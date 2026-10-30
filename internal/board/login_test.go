@@ -1,12 +1,14 @@
 package board
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 
 	"github.com/nkirsch/auto-builder/internal/auth"
+	"github.com/nkirsch/auto-builder/internal/db"
 )
 
 func loginBoard(t *testing.T, base, devLogin string) *Board {
@@ -79,5 +81,39 @@ func TestLoginPageRedirectsWhenSignedIn(t *testing.T) {
 	b.login(w, httptest.NewRequest(http.MethodGet, "/auth/login?next=/runs", nil))
 	if w.Code != http.StatusFound || w.Header().Get("Location") != "/runs" {
 		t.Fatalf("got %d %q", w.Code, w.Header().Get("Location"))
+	}
+}
+
+// Google members get Connect GitHub in the menu once the GitHub app is
+// configured, or their connected account with Disconnect.
+func TestConnectGitHubMenu(t *testing.T) {
+	b, _ := dbBoard(t)
+	a, err := auth.New(auth.Config{BaseURL: "https://builder.example", SessionKey: []byte("0123456789abcdef"),
+		ClientID: "gh", GoogleClientID: "g", GitHubLinkOnly: true}, b.Store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b.Auth = a
+	if err := b.parse(); err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range []struct {
+		me   db.Member
+		want string
+	}{
+		{db.Member{Login: "kat", Email: "kat@example.com"}, `href="/auth/github/link?next=%2fruns"`},
+		{db.Member{Login: "kat", Email: "kat@example.com", GitHubLogin: "kat-gh"}, `GitHub @kat-gh`},
+		{db.Member{Login: "octocat"}, ""},
+	} {
+		w := httptest.NewRecorder()
+		b.runs(w, httptest.NewRequest(http.MethodGet, "/runs", nil).WithContext(auth.WithMember(context.Background(), c.me)))
+		body := w.Body.String()
+		if c.want == "" {
+			if strings.Contains(body, "/auth/github/") {
+				t.Errorf("%s: GitHub link offered to a GitHub member", c.me.Login)
+			}
+		} else if !strings.Contains(body, c.want) {
+			t.Errorf("%+v: missing %s", c.me, c.want)
+		}
 	}
 }

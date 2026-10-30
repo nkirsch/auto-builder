@@ -47,11 +47,11 @@ func TestLoadConfigGitHubSignIn(t *testing.T) {
 		t.Error("off without Google configured dropped GitHub, the only sign-in")
 	}
 	t.Setenv("GOOGLE_CLIENT_ID", "g")
-	if cfg, _ := loadConfig(); cfg.ClientID != "" {
-		t.Errorf("GitHub sign-in on by default: %q", cfg.ClientID)
+	if cfg, _ := loadConfig(); !cfg.GitHubLinkOnly || cfg.ClientID != "gh" {
+		t.Errorf("GitHub sign-in on by default, or linking dropped: %v %q", cfg.GitHubLinkOnly, cfg.ClientID)
 	}
 	t.Setenv("GITHUB_SIGN_IN", "on")
-	if cfg, _ := loadConfig(); cfg.ClientID != "gh" {
+	if cfg, _ := loadConfig(); cfg.GitHubLinkOnly || cfg.ClientID != "gh" {
 		t.Error("GITHUB_SIGN_IN=on dropped GitHub")
 	}
 }

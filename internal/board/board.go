@@ -327,7 +327,9 @@ type page struct {
 	Refresh int               // seconds until the page reloads itself; 0 never
 	Pending int               // commits awaiting a release, for an admin's History badge; 0 none
 	Names   map[string]string // member logins to names, for who
-	Data    any
+	// LinkGitHub offers Google members connecting their GitHub accounts.
+	LinkGitHub bool
+	Data       any
 }
 
 func (b *Board) render(w http.ResponseWriter, r *http.Request, name, title string, data any) {
@@ -359,6 +361,7 @@ func (b *Board) renderRefresh(w http.ResponseWriter, r *http.Request, name, titl
 	if me.IsAdmin() {
 		p.Pending = b.pendingRelease(r.Context())
 	}
+	p.LinkGitHub = b.Auth != nil && b.Auth.CanLinkGitHub() && me.Email != ""
 	if err := t.ExecuteTemplate(w, "layout", p); err != nil {
 		slog.Error("render", "page", name, "err", err)
 	}

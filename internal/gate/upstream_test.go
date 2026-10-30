@@ -142,3 +142,20 @@ func TestUpstream(t *testing.T) {
 		t.Fatalf("acted while up to date: %v", fake.calls)
 	}
 }
+
+// A PR merged by hand, not by the hub, still gets its release.
+func TestUpstreamMergedByHand(t *testing.T) {
+	fake := &fakeRepos{prOpen: true, merged: true}
+	srv := httptest.NewServer(fake)
+	defer srv.Close()
+	state := &memUpstream{on: true, pr: 9}
+	releases := 0
+	u := &Upstream{State: state, GitHub: github.New(srv.URL, "t"), Repo: "o/fork", Upstream: "u/up", Branch: "master",
+		Start: func(context.Context) error { return nil }, Release: func(context.Context) error { releases++; return nil }}
+	if err := u.Check(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if state.pr != 0 || releases != 1 {
+		t.Fatalf("pr=%d releases=%d, want 0 and 1", state.pr, releases)
+	}
+}

@@ -23,6 +23,7 @@ import (
 	"github.com/nkirsch/auto-builder/internal/github"
 	"github.com/nkirsch/auto-builder/internal/mcp"
 	"github.com/nkirsch/auto-builder/internal/notify"
+	"github.com/nkirsch/auto-builder/internal/pay"
 	"github.com/nkirsch/auto-builder/internal/store"
 )
 
@@ -64,6 +65,8 @@ type config struct {
 	CreatorsFrom []string
 	// single mode: CREATE_APP_URL, a hub's New app page linked for members
 	CreateAppURL string
+	// STRIPE_SECRET_KEY turns payments on; STRIPE_WEBHOOK_SECRET verifies its webhook
+	StripeKey, StripeWebhookSecret string
 }
 
 func loadConfig() (config, error) {
@@ -135,6 +138,7 @@ func loadConfig() (config, error) {
 	}
 	c.CreatorsFrom = strings.FieldsFunc(env("CREATORS_FROM", ""), func(r rune) bool { return r == ',' || r == ' ' })
 	c.CreateAppURL = env("CREATE_APP_URL", "")
+	c.StripeKey, c.StripeWebhookSecret = env("STRIPE_SECRET_KEY", ""), env("STRIPE_WEBHOOK_SECRET", "")
 	for _, h := range strings.Split(env("REDIRECT_HOSTS", ""), ",") {
 		if h = strings.TrimSpace(h); h != "" {
 			c.RedirectHosts = append(c.RedirectHosts, h)
@@ -263,6 +267,9 @@ func run() error {
 	if a.CanMail() {
 		b.Mailer = a
 	}
+	if b.Pay = pay.FromEnv(cfg.StripeKey, cfg.StripeWebhookSecret); b.Pay != nil {
+		b.OnPaid = notifyPaid(push, cfg.BaseURL)
+	}
 	g.Ship = &gate.Shipper{Store: st, GitHub: gh, Repo: cfg.Repo, GitSHA: cfg.GitSHA, Reply: b.BotReply}
 	if app != nil && cfg.Releases {
 		g.Ship.Release = releaser(gh, cfg.Repo)
@@ -306,6 +313,14 @@ func run() error {
 	}
 	s.runnerRoutes(mux, tools.Handler())
 	mux.Handle("POST /api/gate/tick", auth.Bearer(cfg.TickToken, http.HandlerFunc(s.tick)))
+	if b.Pay != nil {
+		mux.Handle("POST /api/pay/webhook", payWebhook(b.Pay, func(_ context.Context, slug string) (*board.Board, error) {
+			if slug != "" {
+				return nil, db.ErrNotFound
+			}
+			return b, nil
+		}))
+	}
 
 	handler, err := site(cfg.BaseURL, cfg.SiteDir, mux, b.Version)
 	if err != nil {

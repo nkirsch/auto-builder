@@ -43,9 +43,10 @@
 </form>
 <h2>Builder</h2>
 {{with .Data.Costs}}<p class="muted">Agent cost: {{usd .Last30Days}} in the last 30 days, {{usd .Total}} in total ({{.Runs}} runs reported a cost).</p>{{end}}
-{{if ge .Data.Costs.Last30Days .Data.Limit}}<p class="flash">Spend limit reached: no runs, Run now included, until the last 30 days' cost drops below it or {{if .Data.HubLimits}}the hub's admins raise it{{else}}you raise it{{end}}.</p>{{end}}
+{{if ge .Data.Costs.Last30Days .Data.Total}}<p class="flash">Spend limit reached: no runs, Run now included, until the last 30 days' cost drops below it or {{if .Data.HubLimits}}the hub's admins raise it{{else}}you raise it{{end}}{{if and .Data.Payments .Data.Payments.On}}, or someone buys <a href="{{base}}/credit">credit</a>{{end}}.</p>{{end}}
+{{if .Data.Credit}}<p class="muted">Paid credit: {{usd .Data.Credit}} in the last 30 days, on top of the limit below ({{usd .Data.Total}} in all). <a href="{{base}}/credit">Payments</a></p>{{end}}
 {{if .Data.HubLimits}}<p>Spend limit: <b>{{usd .Data.Limit}}</b> over 30 days <span class="muted">(set by the hub's admins)</span></p>
-<div class="bar" style="--p: {{pct .Data.Costs.Last30Days .Data.Limit}}"><span></span></div>
+<div class="bar" style="--p: {{pct .Data.Costs.Last30Days .Data.Total}}"><span></span></div>
 {{else}}<form method="post" action="{{base}}/admin/spend-limit" class="row">
   <label for="limit">Spend limit over 30 days ($)</label>
   <input id="limit" name="limit" type="number" min="0.01" step="0.01" value="{{printf "%.2f" .Data.Limit}}" required>
@@ -84,6 +85,12 @@
   {{else}}<input type="hidden" name="on" value="true"><span>Not keeping up with <a href="https://github.com/{{.Repo}}">{{.Repo}}</a> automatically.</span><button class="secondary">Keep up with upstream</button>{{end}}
 </form>
 {{end}}
+<h2>Payments</h2>
+{{with .Data.Payments}}<form method="post" action="{{base}}/admin/payments" class="row">
+  {{if .On}}<input type="hidden" name="on" value="false"><span>Members can buy credit through {{.Processor}} on the <a href="{{base}}/credit">Credit page</a>; each payment raises the spend limit by its amount for 30 days.</span><button class="secondary">Turn off</button>
+  {{else}}<input type="hidden" name="on" value="true"><span>Members can't buy credit.</span><button class="secondary">Accept payments</button>{{end}}
+</form>
+{{else}}<p class="muted">Payments are off: the {{if .Data.HubLimits}}hub{{else}}board{{end}} has no payment processor (<code>STRIPE_SECRET_KEY</code>).</p>{{end}}
 <h2>Workflows</h2>
 <form method="post" action="{{base}}/admin/workflows" class="row">
   {{if .Data.Workflows}}<input type="hidden" name="on" value="false"><span>The agent may change <code>.github/workflows/</code>, which control CI and deploys.</span><button class="secondary">Turn off</button>

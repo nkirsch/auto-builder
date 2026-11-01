@@ -33,6 +33,7 @@ extreme.org verified in Search Console, secrets `extreme-<NAME>`.
 | DNS | Registration stays at Joker; nameservers move to a Cloud DNS zone `extreme-org` in `nkirsch-auto-builder`. Apex = hub (domain mapping A/AAAA); `www` keeps its current record until replaced. |
 | Shipping | `merged` → `shipped` when the app's Cloud Run service's latest ready revision has a `GIT_SHA` env that contains `merge_sha` (compare API), not the server's own SHA. The server SA gets `run.viewer`. The same live SHA is what the agent's `deploy_status` reports and what `/history` marks live; the nav shows no version beside an app's name (the footer's is the hub's). |
 | Spend | Per-tenant `settings.spend_limit_usd` as today, plus `control.settings.spend_limit_usd` across all tenants (default $50/30 days). |
+| Payments | One processor per hub (`<name>-STRIPE_SECRET_KEY`, `<name>-STRIPE_WEBHOOK_SECRET`; `unset` = off), paid to the operator. Each board's admin opts in (`DESIGN.md` → Payments). The webhook is the hub's `POST /api/pay/webhook`, routed by the checkout's board slug. Credit raises the board's limit and the platform-wide one. |
 
 ## Existing repos
 

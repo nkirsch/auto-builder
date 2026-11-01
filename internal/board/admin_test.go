@@ -62,7 +62,7 @@ func TestAdminShowsRunStats(t *testing.T) {
 	}
 	var sb strings.Builder
 	p := page{Title: "Admin", Me: db.Member{Login: "x", Role: "admin"}, Data: map[string]any{
-		"Members": []db.Member{{Login: "x", Role: "admin"}}, "Costs": db.RunCosts{}, "Limit": 20.0, "Stats": stats,
+		"Members": []db.Member{{Login: "x", Role: "admin"}}, "Costs": db.RunCosts{}, "Limit": 20.0, "Total": 20.0, "Stats": stats,
 	}}
 	if err := b.tmpl["admin"].ExecuteTemplate(&sb, "layout", p); err != nil {
 		t.Fatal(err)
@@ -148,7 +148,7 @@ func TestAdminInviteLink(t *testing.T) {
 	p := page{Title: "Admin", Me: db.Member{Login: "x", Role: "admin"}, Data: map[string]any{
 		"Members": []db.Member{{Login: "x", Role: "admin", LastSeen: &seen}, {Login: "newbie", Role: "member"},
 			{Login: "g", Role: "member", Email: "g@example.org"}},
-		"Costs": db.RunCosts{}, "Limit": 20.0,
+		"Costs": db.RunCosts{}, "Limit": 20.0, "Total": 20.0,
 	}}
 	if err := b.tmpl["admin"].ExecuteTemplate(&sb, "layout", p); err != nil {
 		t.Fatal(err)
@@ -183,7 +183,7 @@ func TestAdminMembersTable(t *testing.T) {
 	var sb strings.Builder
 	p := page{Title: "Admin", Me: db.Member{Login: "nk", Role: "admin"}, Names: map[string]string{"nk": "Nick Kirsch"}, Data: map[string]any{
 		"Members": []db.Member{{Login: "nk", Name: "Nick Kirsch", Role: "admin", Email: "nick@example.org"}, {Login: "newbie", Role: "member"}},
-		"Costs":   db.RunCosts{}, "Limit": 20.0,
+		"Costs":   db.RunCosts{}, "Limit": 20.0, "Total": 20.0,
 	}}
 	if err := b.tmpl["admin"].ExecuteTemplate(&sb, "layout", p); err != nil {
 		t.Fatal(err)
@@ -312,7 +312,7 @@ func TestAdminEmailInvite(t *testing.T) {
 		var sb strings.Builder
 		p := page{Title: "Admin", Me: db.Member{Login: "x", Role: "admin"}, Data: map[string]any{
 			"Members": []db.Member{{Login: "newbie", Role: "member"}, {Login: "g", Role: "member", Email: "g@example.org"}},
-			"Costs":   db.RunCosts{}, "Limit": 20.0, "Mail": mail,
+			"Costs":   db.RunCosts{}, "Limit": 20.0, "Total": 20.0, "Mail": mail,
 		}}
 		if err := b.tmpl["admin"].ExecuteTemplate(&sb, "layout", p); err != nil {
 			t.Fatal(err)
@@ -372,7 +372,7 @@ func TestAdminLinksTraffic(t *testing.T) {
 	for _, on := range []bool{false, true} {
 		var sb strings.Builder
 		p := page{Title: "Admin", Me: db.Member{Login: "x", Role: "admin"}, Data: map[string]any{
-			"Members": []db.Member{{Login: "x", Role: "admin"}}, "Costs": db.RunCosts{}, "Limit": 20.0, "Traffic": on,
+			"Members": []db.Member{{Login: "x", Role: "admin"}}, "Costs": db.RunCosts{}, "Limit": 20.0, "Total": 20.0, "Traffic": on,
 		}}
 		if err := b.tmpl["admin"].ExecuteTemplate(&sb, "layout", p); err != nil {
 			t.Fatal(err)
@@ -393,7 +393,7 @@ func TestAdminGitHubSignInOff(t *testing.T) {
 		var sb strings.Builder
 		p := page{Title: "Admin", Me: db.Member{Login: "x", Role: "admin"}, Data: map[string]any{
 			"Members": []db.Member{{Login: "g", Role: "member", Email: "g@example.org", GitHub: true}},
-			"Costs":   db.RunCosts{}, "Limit": 20.0, "GitHub": on,
+			"Costs":   db.RunCosts{}, "Limit": 20.0, "Total": 20.0, "GitHub": on,
 		}}
 		if err := b.tmpl["admin"].ExecuteTemplate(&sb, "layout", p); err != nil {
 			t.Fatal(err)

@@ -70,7 +70,7 @@ secret TICK_TOKEN "$(openssl rand -hex 32)"
 secret STATS_TOKEN "$(openssl rand -hex 32)" # the hub's Apps page reads GET /api/stats with it
 # Filled in by hand (see DESIGN.md manual steps); created empty-less so Cloud Run can mount them.
 for s in GITHUB_CLIENT_ID GITHUB_CLIENT_SECRET GOOGLE_CLIENT_ID GOOGLE_CLIENT_SECRET ANTHROPIC_API_KEY GH_APP_ID \
-  GH_APP_INSTALLATION_ID GH_APP_PRIVATE_KEY PUSHOVER_TOKEN PUSHOVER_USER; do
+  GH_APP_INSTALLATION_ID GH_APP_PRIVATE_KEY PUSHOVER_TOKEN PUSHOVER_USER STRIPE_SECRET_KEY STRIPE_WEBHOOK_SECRET; do
   secret "$s" "unset"
 done
 
@@ -90,7 +90,7 @@ for a in builder-server builder-runner builder-deployer; do
 done
 # Least privilege: each SA gets only the roles and secrets it uses, scoped to
 # the resource where IAM allows it. Older broad grants are removed on re-run.
-SERVER_SECRETS="DATABASE_URL SESSION_KEY TICK_TOKEN STATS_TOKEN GITHUB_CLIENT_ID GITHUB_CLIENT_SECRET GOOGLE_CLIENT_ID GOOGLE_CLIENT_SECRET GH_APP_ID GH_APP_INSTALLATION_ID GH_APP_PRIVATE_KEY PUSHOVER_TOKEN PUSHOVER_USER"
+SERVER_SECRETS="DATABASE_URL SESSION_KEY TICK_TOKEN STATS_TOKEN GITHUB_CLIENT_ID GITHUB_CLIENT_SECRET GOOGLE_CLIENT_ID GOOGLE_CLIENT_SECRET GH_APP_ID GH_APP_INSTALLATION_ID GH_APP_PRIVATE_KEY PUSHOVER_TOKEN PUSHOVER_USER STRIPE_SECRET_KEY STRIPE_WEBHOOK_SECRET"
 # The runner gets GitHub tokens and its RUN_TOKEN from the server: no GH_APP_*
 # secrets, and no RUNNER_TOKEN (a shared bearer older runners used).
 RUNNER_SECRETS="$KEY_SECRET"
@@ -169,6 +169,11 @@ fi
 if ! g run services describe "$SERVICE" --region "$REGION" --format json | grep -q GOOGLE_CLIENT_ID; then
   g run services update "$SERVICE" --region "$REGION" \
     --update-secrets "$(mounts "GOOGLE_CLIENT_ID GOOGLE_CLIENT_SECRET")" >/dev/null
+fi
+# ...boards from before payments lack the Stripe secrets (unset: payments off)...
+if ! g run services describe "$SERVICE" --region "$REGION" --format json | grep -q STRIPE_SECRET_KEY; then
+  g run services update "$SERVICE" --region "$REGION" \
+    --update-secrets "$(mounts "STRIPE_SECRET_KEY STRIPE_WEBHOOK_SECRET")" >/dev/null
 fi
 # ...and boards from before the hub's all-sites page lack STATS_TOKEN.
 if ! g run services describe "$SERVICE" --region "$REGION" --format json | grep -q STATS_TOKEN; then

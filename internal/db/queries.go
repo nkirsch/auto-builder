@@ -987,6 +987,52 @@ func (s *Store) SetSpendLimit(ctx context.Context, usd float64) error {
 	return s.execOne(ctx, `UPDATE settings SET spend_limit_usd = $1`, usd)
 }
 
+// credit30 is the paid credit that raises the spend limit now.
+const credit30 = `SELECT coalesce(sum(amount_usd), 0)::float8 FROM payments WHERE created_at > now() - interval '30 days'`
+
+// Credit30 is what members paid in the last 30 days; it adds to the spend limit.
+func (s *Store) Credit30(ctx context.Context) (float64, error) {
+	var v float64
+	err := s.Pool.QueryRow(ctx, credit30).Scan(&v)
+	return v, err
+}
+
+// Payment is credit a member bought.
+type Payment struct {
+	ID        string
+	Login     string
+	USD       float64
+	CreatedAt time.Time
+}
+
+// RecordPayment stores a paid checkout once; new is false when it was already recorded.
+func (s *Store) RecordPayment(ctx context.Context, id, login string, usd float64) (bool, error) {
+	tag, err := s.Pool.Exec(ctx, `INSERT INTO payments (id, login, amount_usd) VALUES ($1, $2, $3)
+		ON CONFLICT (id) DO NOTHING`, id, login, usd)
+	return tag.RowsAffected() == 1, err
+}
+
+// Payments lists the newest payments, at most n.
+func (s *Store) Payments(ctx context.Context, n int) ([]Payment, error) {
+	rows, err := s.Pool.Query(ctx, `SELECT id, login, amount_usd::float8, created_at FROM payments
+		ORDER BY created_at DESC, id LIMIT $1`, n)
+	if err != nil {
+		return nil, err
+	}
+	return pgx.CollectRows(rows, pgx.RowToStructByPos[Payment])
+}
+
+// PaymentsOn reports whether the board's admins accept payments for credit.
+func (s *Store) PaymentsOn(ctx context.Context) (bool, error) {
+	var on bool
+	err := s.Pool.QueryRow(ctx, `SELECT payments FROM settings`).Scan(&on)
+	return on, err
+}
+
+func (s *Store) SetPaymentsOn(ctx context.Context, on bool) error {
+	return s.execOne(ctx, `UPDATE settings SET payments = $1`, on)
+}
+
 // FailStale fails runs stuck running longer than running, or never claimed within requested.
 func (s *Store) FailStale(ctx context.Context, running, requested time.Duration) (int64, error) {
 	tag, err := s.Pool.Exec(ctx, `UPDATE runs SET status = 'failed', finished_at = now(),
@@ -1004,7 +1050,7 @@ type GateState struct {
 	NewActivity  bool       // an open/building item has human activity after LastSuccess
 	ApprovedOpen bool       // an approved open item exists, not blocked unless a human acted since
 	Spend30      float64    // reported agent cost over the last 30 days
-	SpendLimit   float64    // cap on Spend30
+	SpendLimit   float64    // cap on Spend30, paid credit included
 }
 
 func (s *Store) GateState(ctx context.Context) (GateState, error) {
@@ -1021,7 +1067,7 @@ func (s *Store) GateState(ctx context.Context) (GateState, error) {
 			EXISTS (SELECT 1 FROM items WHERE status = 'open' AND approved
 				AND (blocked = '' OR human_activity_at > blocked_at)),
 			(SELECT coalesce(sum(cost_usd), 0)::float8 FROM runs WHERE created_at > now() - interval '30 days'),
-			(SELECT spend_limit_usd::float8 FROM settings)`).
+			(SELECT spend_limit_usd::float8 FROM settings) + (`+credit30+`)`).
 		Scan(&g.Active, &g.LastSuccess, &g.LastFailure, &g.NewActivity, &g.ApprovedOpen, &g.Spend30, &g.SpendLimit)
 	return g, err
 }

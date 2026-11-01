@@ -145,8 +145,8 @@ tick (`POST /api/gate/tick` every 10 min, bearer `TICK_TOKEN`):
    on it after `blocked_at`).
 
 Held off when the reported agent cost over the last 30 days has reached the
-admin-set spend limit (`settings.spend_limit_usd`, default $20; Run now
-doesn't override it, and a run in flight can go over since its cost lands
+admin-set spend limit (`settings.spend_limit_usd`, default $20, plus credit
+paid in the last 30 days, below; Run now doesn't override it, and a run in flight can go over since its cost lands
 at finish). Also held off when: a run is `requested`/`running` (the tick fails a `running`
 row older than 70 min and a `requested` row never claimed within 15 min), or
 the last run failed < 30 min ago (activity triggers only; Run now overrides).
@@ -157,6 +157,32 @@ Launch = insert `runs` row, then Cloud Run Admin API
 `POST .../jobs/{job}:run` with an env override `RUN_ID`. `LAUNCHER=none` logs
 instead (local dev). Server SA needs `roles/run.developer` on the job
 (`run.jobs.runWithOverrides`).
+
+## Payments (optional, per board)
+
+A board can let its members buy agent credit. The server's processor is
+chosen by its secrets: `STRIPE_SECRET_KEY` set (not `unset`) means Stripe
+Checkout (`internal/pay`); none means payments are off and the board's admin
+page says so. Money goes to the account behind that key: the board's own on
+a single board, the operator's on a hub.
+
+- The board admin turns it on at Admin → Payments (`settings.payments`,
+  default off). The nav then shows **Credit** to every member.
+- `/credit` shows the 30-day spend against the limit plus credit, a buy form
+  (whole dollars, $5–$1000) and payments (a member sees their own; admins
+  see all). Buying POSTs to `/credit`, which creates a hosted checkout
+  (metadata: board slug, login) and 303s to it. No card data touches the server.
+- A payment is recorded once in `payments` (id = the checkout's id), either
+  by the return page `/credit/done?session=` or by the webhook
+  `POST /api/pay/webhook` (signature checked with `STRIPE_WEBHOOK_SECRET`;
+  without that secret only the return page records). Both ask the processor
+  for the checkout, so neither trusts the browser, and a checkout for
+  another board is refused. Recording Pushovers the operator and wakes the gate.
+- Each payment adds its amount to the board's spend limit for 30 days from
+  when it's recorded, and so drops out the same way spend does. On a hub it
+  raises the platform-wide limit by the same amount.
+- Refunds aren't handled: refund in Stripe's dashboard, then lower the
+  limit if needed.
 
 ## Shipping (deterministic, no agent)
 
@@ -362,7 +388,8 @@ are filled with `gcloud secrets versions add`.
 
 `DATABASE_URL`, `SESSION_KEY`, `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET`,
 `TICK_TOKEN`, `ANTHROPIC_API_KEY`, `GH_APP_ID`, `GH_APP_INSTALLATION_ID`,
-`GH_APP_PRIVATE_KEY`, optional `PUSHOVER_TOKEN` / `PUSHOVER_USER`.
+`GH_APP_PRIVATE_KEY`, optional `PUSHOVER_TOKEN` / `PUSHOVER_USER`, optional
+`STRIPE_SECRET_KEY` / `STRIPE_WEBHOOK_SECRET` (payments).
 
 ## GCP resources (`infra/bootstrap.sh`, idempotent)
 

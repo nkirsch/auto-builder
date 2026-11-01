@@ -63,14 +63,14 @@ secret "$NAME-TICK_TOKEN" "$(openssl rand -hex 32)"
 secret STATS_TOKEN "$(openssl rand -hex 32)" # shared with bootstrap.sh and the single-board sites
 # Filled in by hand (TENANCY.md manual steps).
 for s in GITHUB_CLIENT_ID GITHUB_CLIENT_SECRET GOOGLE_CLIENT_ID GOOGLE_CLIENT_SECRET \
-  GH_APP_ID GH_APP_INSTALLATION_ID GH_APP_PRIVATE_KEY $KEY_SECRET; do
+  GH_APP_ID GH_APP_INSTALLATION_ID GH_APP_PRIVATE_KEY $KEY_SECRET STRIPE_SECRET_KEY STRIPE_WEBHOOK_SECRET; do
   secret "$NAME-$s" unset
 done
 # mounts "ENV=SECRET ..." → ENV=SECRET:latest,...
 mounts() { for m in $1; do printf '%s:latest,' "$m"; done | sed 's/,$//'; }
 prefixed() { for s in $1; do printf '%s=%s ' "$s" "$NAME-$s"; done; }
 APP_SECRETS="GH_APP_ID GH_APP_INSTALLATION_ID GH_APP_PRIVATE_KEY"
-SERVER_MOUNTS="$(prefixed "DATABASE_URL SESSION_KEY TICK_TOKEN GITHUB_CLIENT_ID GITHUB_CLIENT_SECRET GOOGLE_CLIENT_ID GOOGLE_CLIENT_SECRET $APP_SECRETS") PUSHOVER_TOKEN=PUSHOVER_TOKEN PUSHOVER_USER=PUSHOVER_USER STATS_TOKEN=STATS_TOKEN"
+SERVER_MOUNTS="$(prefixed "DATABASE_URL SESSION_KEY TICK_TOKEN GITHUB_CLIENT_ID GITHUB_CLIENT_SECRET GOOGLE_CLIENT_ID GOOGLE_CLIENT_SECRET $APP_SECRETS STRIPE_SECRET_KEY STRIPE_WEBHOOK_SECRET") PUSHOVER_TOKEN=PUSHOVER_TOKEN PUSHOVER_USER=PUSHOVER_USER STATS_TOKEN=STATS_TOKEN"
 RUNNER_MOUNTS=$(prefixed "$KEY_SECRET")
 PROVISION_MOUNTS="$(prefixed "DATABASE_URL $APP_SECRETS")"
 
@@ -159,7 +159,7 @@ fi
 aliases=$(echo $HUB_ALIASES | tr ' ' ,)
 g run services update "$NAME" --region "$REGION" \
   --update-env-vars "^;^SITES=$SITES;CREATORS_FROM=$CREATORS_FROM;APP_DOMAIN=$DOMAIN;REDIRECT_HOSTS=$aliases${HUBS:+;HUBS=$HUBS}" \
-  --update-secrets "STATS_TOKEN=STATS_TOKEN:latest" >/dev/null
+  --update-secrets "STATS_TOKEN=STATS_TOKEN:latest,$(mounts "$(prefixed "STRIPE_SECRET_KEY STRIPE_WEBHOOK_SECRET")")" >/dev/null
 retry g run services add-iam-policy-binding "$NAME" --region "$REGION" \
   --member "serviceAccount:$(sa deployer)" --role roles/run.developer >/dev/null
 

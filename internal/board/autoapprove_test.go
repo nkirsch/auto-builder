@@ -60,7 +60,7 @@ func TestAdminShowsAutoApprove(t *testing.T) {
 	for on, want := range map[bool]string{true: "Turn off", false: "Auto-approve my asks"} {
 		var sb strings.Builder
 		p := page{Title: "Admin", Me: db.Member{Login: "x", Role: "admin", AutoApprove: on}, Data: map[string]any{
-			"Members": []db.Member{{Login: "x", Role: "admin"}}, "Costs": db.RunCosts{}, "Limit": 20.0,
+			"Members": []db.Member{{Login: "x", Role: "admin"}}, "Costs": db.RunCosts{}, "Limit": 20.0, "Total": 20.0,
 		}}
 		if err := b.tmpl["admin"].ExecuteTemplate(&sb, "layout", p); err != nil {
 			t.Fatal(err)

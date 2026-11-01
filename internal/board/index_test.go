@@ -126,9 +126,9 @@ func TestRunsAndAdminShowCost(t *testing.T) {
 
 	sb.Reset()
 	p = page{Title: "Admin", Me: db.Member{Login: "x", Role: "admin"}, Data: map[string]any{
-		"Members":     []db.Member{{Login: "x", Role: "admin"}},
-		"Costs":       db.RunCosts{Total: 12.5, Last30Days: 3, Runs: 4},
-		"Limit":       20.0,
+		"Members": []db.Member{{Login: "x", Role: "admin"}},
+		"Costs":   db.RunCosts{Total: 12.5, Last30Days: 3, Runs: 4},
+		"Limit":   20.0, "Total": 20.0,
 		"MemberCosts": []db.MemberCost{{Login: "alice", Total: 2.5, Last30Days: 1}},
 	}}
 	if err := b.tmpl["admin"].ExecuteTemplate(&sb, "layout", p); err != nil {

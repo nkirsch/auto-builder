@@ -22,6 +22,7 @@ import (
 	"github.com/nkirsch/auto-builder/internal/github"
 	"github.com/nkirsch/auto-builder/internal/mcp"
 	"github.com/nkirsch/auto-builder/internal/notify"
+	"github.com/nkirsch/auto-builder/internal/pay"
 	"github.com/nkirsch/auto-builder/internal/store"
 	"github.com/nkirsch/auto-builder/internal/tenant"
 	"github.com/nkirsch/auto-builder/web"
@@ -85,6 +86,7 @@ func runTenancy(ctx context.Context, cfg config) error {
 		}
 	}
 	h.notify = notify.NewPushover(cfg.PushoverToken, cfg.PushoverUser)
+	h.pay = pay.FromEnv(cfg.StripeKey, cfg.StripeWebhookSecret)
 	srv := &http.Server{Addr: ":" + cfg.Port, Handler: logRequests(h.routes()), ReadHeaderTimeout: 10 * time.Second}
 	go func() {
 		<-ctx.Done()
@@ -115,6 +117,7 @@ type hub struct {
 	appBase     func(slug string) string // tests: where apps are served instead of <slug>.<host>
 	app         *github.App              // nil when the GitHub App isn't configured
 	notify      *notify.Pushover
+	pay         pay.Processor // nil when payments are off
 
 	mu      sync.Mutex
 	tenants map[string]*tenantRT
@@ -282,6 +285,18 @@ func (h *hub) routes() http.Handler {
 		rt.srv.attachment(w, r)
 	}))
 	mux.Handle("POST /api/gate/tick", auth.Bearer(h.cfg.TickToken, http.HandlerFunc(h.tick)))
+	if h.pay != nil {
+		mux.Handle("POST /api/pay/webhook", payWebhook(h.pay, func(ctx context.Context, slug string) (*board.Board, error) {
+			if tenant.ValidSlug(slug) != nil {
+				return nil, db.ErrNotFound
+			}
+			rt, err := h.tenantFor(ctx, slug)
+			if err != nil {
+				return nil, err
+			}
+			return rt.b, nil
+		}))
+	}
 	// Aliases (e.g. hub.<domain>) 308 to BASE_URL's host, where the session
 	// cookie and the OAuth callbacks live.
 	return redirectHosts(h.cfg.BaseURL, h.cfg.RedirectHosts, mux)
@@ -417,7 +432,7 @@ func (h *hub) hold(ctx context.Context) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	var spent float64
+	var spent, paid float64
 	for _, t := range tenants {
 		st, err := h.reg.Store(ctx, t.Slug)
 		if err != nil {
@@ -428,9 +443,15 @@ func (h *hub) hold(ctx context.Context) (string, error) {
 			return "", err
 		}
 		spent += c.Last30Days
+		credit, err := st.Credit30(ctx)
+		if err != nil {
+			return "", err
+		}
+		paid += credit
 	}
-	if spent >= set.SpendLimit {
-		return fmt.Sprintf("all apps spent $%.2f in 30 days (the limit is $%.2f)", spent, set.SpendLimit), nil
+	// Credit an app bought raises the platform's limit as well as the app's.
+	if limit := set.SpendLimit + paid; spent >= limit {
+		return fmt.Sprintf("all apps spent $%.2f in 30 days (the limit is $%.2f)", spent, limit), nil
 	}
 	return "", nil
 }
@@ -564,6 +585,9 @@ func (h *hub) tenantFor(ctx context.Context, slug string) (*tenantRT, error) {
 	}
 	if ta.CanMail() {
 		b.Mailer = ta
+	}
+	if h.pay != nil {
+		b.Pay, b.OnPaid = h.pay, notifyPaid(h.notify, slug)
 	}
 	if h.cfg.Version != "" {
 		b.SetVersion(h.cfg.Version)
@@ -1121,8 +1145,9 @@ func (h *hub) reprovision(w http.ResponseWriter, r *http.Request) {
 type appSpend struct {
 	tenant.Tenant
 	Spent, Limit float64
-	Pct          int    // of Limit, capped at 100
-	Level        string // "near" from 80%, "over" at the limit
+	Credit       float64 // paid in the last 30 days, on top of Limit
+	Pct          int     // of Limit plus Credit, capped at 100
+	Level        string  // "near" from 80%, "over" at the limit
 }
 
 // spends lists every app's spend, nearest its limit first.
@@ -1141,9 +1166,12 @@ func (h *hub) spends(ctx context.Context, tenants []tenant.Tenant) (rows []appSp
 					slog.Warn("spend limit", "tenant", t.Slug, "err", err)
 				}
 				row.Spent = c.Last30Days
+				if row.Credit, err = st.Credit30(ctx); err != nil {
+					slog.Warn("credit", "tenant", t.Slug, "err", err)
+				}
 			}
 		}
-		row.Pct, row.Level = spendLevel(row.Spent, row.Limit)
+		row.Pct, row.Level = spendLevel(row.Spent, row.Limit+row.Credit)
 		total += row.Spent
 		rows = append(rows, row)
 	}

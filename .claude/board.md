@@ -19,7 +19,7 @@ CI; the server marks items shipped once its own `GIT_SHA` contains the merge.
 - `internal/board` — page handlers, markdown (goldmark, raw HTML escaped), mentions; templates link via `{{base}}`
 - `internal/gate` — `Decide` policy, Cloud Run Job launcher, ship-checker
 - `internal/mcp` — agent tools (`list_items`, `get_item`, `reply`, `set_pr`, `set_tags`, `close_item`, `file_item`, `deploy_status`)
-- `internal/github` — App JWT/installation tokens, PR, compare; `internal/store` — GCS (JSON API) or local dir; `internal/notify` — Pushover
+- `internal/github` — App JWT/installation tokens, PR, compare; `internal/store` — GCS (JSON API) or local dir; `internal/notify` — Pushover; `internal/pay` — hosted checkout for members' credit (Stripe), off without `STRIPE_SECRET_KEY`
 - `web/` — embedded templates + CSS (no JS build); branding only in `templates/brand.html` + `static/brand.css`
 - `.claude/commands/build-board.md` — the agent's instructions; `.claude/site.md` — the per-site part
 - `config.toml`, `layouts/`, … — the Hugo site served at `/` when `BASE_URL` has a path

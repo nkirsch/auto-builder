@@ -21,8 +21,8 @@
     <td><a href="/{{.Slug}}/"><b>{{.Name}}</b></a>{{if ne .Name .Slug}} <span class="muted">{{.Slug}}</span>{{end}}<br>
       <a class="muted" href="https://github.com/{{.Repo}}">{{.Repo}}</a> <span class="muted">· {{who $.Names .CreatedBy}} · {{ago .CreatedAt}}</span></td>
     <td><span class="badge">{{.Status}}</span>{{if .Existing}} <span class="badge">existing</span>{{end}}{{with .Error}}<br><span class="bad">{{.}}</span>{{end}}</td>
-    <td class="num">{{if eq .Status "deleted"}}<span class="muted">–</span>{{else}}<span{{if .Level}} class="bad"{{end}}>${{printf "%.2f" .Spent}}</span>{{end}}</td>
-    <td>{{if ne .Status "deleted"}}<div class="bar {{.Level}}" style="--p: {{.Pct}}" title="{{.Pct}}% of its limit"><span></span></div>{{end}}</td>
+    <td class="num">{{if eq .Status "deleted"}}<span class="muted">–</span>{{else}}<span{{if .Level}} class="bad"{{end}}>${{printf "%.2f" .Spent}}</span>{{if .Credit}}<br><span class="muted" title="Paid by its members in the last 30 days; raises its limit and the platform's">+${{printf "%.2f" .Credit}} paid</span>{{end}}{{end}}</td>
+    <td>{{if ne .Status "deleted"}}<div class="bar {{.Level}}" style="--p: {{.Pct}}" title="{{.Pct}}% of its limit{{if .Credit}} and paid credit{{end}}"><span></span></div>{{end}}</td>
     <td>{{if ne .Status "deleted"}}<form method="post" action="/admin/tenants/{{.Slug}}/spend-limit">
       <input name="limit" type="number" min="0.01" step="0.01" value="{{printf "%.2f" .Limit}}" aria-label="{{.Slug}} spend limit ($)" required>
       <button class="secondary small">Set</button></form>{{end}}</td>

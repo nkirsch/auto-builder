@@ -1,0 +1,20 @@
+{{define "content"}}
+<h1>Credit</h1>
+<p>The agent spent <b>{{usd .Data.Spent}}</b> of <b>{{usd .Data.Total}}</b> in the last 30 days: the spend limit, {{usd .Data.Limit}}, plus {{usd .Data.Credit}} paid in that time.</p>
+<div class="bar" style="--p: {{pct .Data.Spent .Data.Total}}"><span></span></div>
+{{if ge .Data.Spent .Data.Total}}<p class="flash">The limit is reached: no runs until credit is added or older spend drops out of the 30 days.</p>{{end}}
+<h2>Buy credit</h2>
+<form method="post" action="{{base}}/credit" class="row">
+  <label for="amount">Amount ($)</label>
+  <input id="amount" name="amount" type="number" min="{{.Data.Min}}" max="{{.Data.Max}}" step="1" value="20" required>
+  <button>Pay with {{.Data.Processor}}</button>
+</form>
+<p class="hint">Each payment adds its amount to the spend limit for 30 days, then drops out like spend does. Whole dollars, ${{.Data.Min}} to ${{.Data.Max}}. Checkout happens on {{.Data.Processor}}'s page.</p>
+{{with .Data.Payments}}
+<h2>{{if $.Me.IsAdmin}}Payments{{else}}Your payments{{end}}</h2>
+<ul class="items">
+  {{range .}}<li class="row"><b>{{usd .USD}}</b>{{if $.Me.IsAdmin}} {{who $.Names .Login}}{{end}} <span class="muted" title="{{stamp .CreatedAt}}">{{ago .CreatedAt}}</span></li>
+  {{end}}
+</ul>
+{{end}}
+{{end}}

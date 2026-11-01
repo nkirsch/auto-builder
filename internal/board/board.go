@@ -27,6 +27,7 @@ import (
 	"github.com/nkirsch/auto-builder/internal/db"
 	"github.com/nkirsch/auto-builder/internal/github"
 	"github.com/nkirsch/auto-builder/internal/notify"
+	"github.com/nkirsch/auto-builder/internal/pay"
 	"github.com/nkirsch/auto-builder/internal/store"
 	"github.com/nkirsch/auto-builder/web"
 )
@@ -121,6 +122,11 @@ type Board struct {
 	// every board, this one's under Slug; else the board's store has them.
 	SignIns db.SignInLog
 	Slug    string
+	// Pay, when set, is the hub's payment processor; admins then choose
+	// whether members may buy credit that raises the spend limit.
+	Pay pay.Processor
+	// OnPaid, when set, hears of each payment recorded.
+	OnPaid func(ctx context.Context, login string, usd float64)
 
 	tmpl    map[string]*template.Template
 	version atomic.Pointer[string]
@@ -186,6 +192,10 @@ func (b *Board) Routes(mux *http.ServeMux) error {
 	mux.Handle("POST /admin/auto-approve", admin(b.setAutoApprove))
 	mux.Handle("POST /admin/upstream", admin(b.setUpstreamSync))
 	mux.Handle("POST /admin/workflows", admin(b.setAgentWorkflows))
+	mux.Handle("POST /admin/payments", admin(b.setPayments))
+	mux.Handle("GET /credit", member(b.credit))
+	mux.Handle("POST /credit", member(b.buyCredit))
+	mux.Handle("GET /credit/done", member(b.creditDone))
 	mux.Handle("POST /theme", member(b.setTheme))
 	return nil
 }
@@ -329,6 +339,7 @@ type page struct {
 	Names   map[string]string // member logins to names, for who
 	// LinkGitHub offers Google members connecting their GitHub accounts.
 	LinkGitHub bool
+	Credit     bool // members may buy credit: the nav links the Credit page
 	Data       any
 }
 
@@ -362,6 +373,7 @@ func (b *Board) renderRefresh(w http.ResponseWriter, r *http.Request, name, titl
 		p.Pending = b.pendingRelease(r.Context())
 	}
 	p.LinkGitHub = b.Auth != nil && b.Auth.CanLinkGitHub() && me.Email != ""
+	p.Credit = me.Login != "" && b.payments(r.Context())
 	if err := t.ExecuteTemplate(w, "layout", p); err != nil {
 		slog.Error("render", "page", name, "err", err)
 	}
@@ -982,9 +994,23 @@ func (b *Board) admin(w http.ResponseWriter, r *http.Request) {
 	if b.Mailer != nil {
 		mail = map[string]any{"From": b.Mailer.Mailbox(r)}
 	}
+	credit, err := b.Store.Credit30(r.Context())
+	if err != nil {
+		b.fail(w, err)
+		return
+	}
+	var payments map[string]any
+	if b.Pay != nil {
+		on, err := b.Store.PaymentsOn(r.Context())
+		if err != nil {
+			b.fail(w, err)
+			return
+		}
+		payments = map[string]any{"On": on, "Processor": b.Pay.Name()}
+	}
 	b.render(w, r, "admin", "Admin", map[string]any{"Members": members, "Stuck": stuck, "Hold": b.inviteHold(r.Context()), "Costs": costs, "Traffic": b.Traffic,
 		"Limit": limit, "MemberCosts": byMember, "Stats": []db.RunStats{recent, all}, "Upstream": upstream, "Mail": mail, "HubLimits": b.HubLimits,
-		"Workflows": workflows, "GitHub": b.gitHubSignIn()})
+		"Workflows": workflows, "GitHub": b.gitHubSignIn(), "Credit": credit, "Total": limit + credit, "Payments": payments})
 }
 
 // gitHubSignIn reports whether members may sign in with GitHub at all.

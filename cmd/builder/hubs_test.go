@@ -193,3 +193,39 @@ func TestFailStreak(t *testing.T) {
 		}
 	}
 }
+
+// /api/signins lists successful sign-ins at every board, behind STATS_TOKEN.
+func TestAPISignIns(t *testing.T) {
+	ctx := context.Background()
+	h := testHub(t)
+	h.cfg.StatsToken = "tok"
+	srv := h.routes()
+	for _, s := range []db.SignIn{
+		{Provider: "google", Identity: "pat@example.com", Result: db.SignInOK, Board: "alpha", IP: "1.2.3.4", UserAgent: "Safari"},
+		{Provider: "google", Identity: "eve@example.com", Result: db.SignInNotMember, Board: "alpha", IP: "6.6.6.6", UserAgent: "x"},
+	} {
+		if err := h.reg.RecordSignIn(ctx, s, 0); err != nil {
+			t.Fatal(err)
+		}
+	}
+	get := func(token string) *httptest.ResponseRecorder {
+		r := httptest.NewRequest("GET", "/api/signins?days=7", nil)
+		if token != "" {
+			r.Header.Set("Authorization", "Bearer "+token)
+		}
+		w := httptest.NewRecorder()
+		srv.ServeHTTP(w, r)
+		return w
+	}
+	if w := get(""); w.Code != http.StatusUnauthorized {
+		t.Errorf("no token: %d", w.Code)
+	}
+	w := get("tok")
+	var out []struct{ Identity, Board, IP, UA string }
+	if err := json.NewDecoder(w.Body).Decode(&out); err != nil || w.Code != http.StatusOK {
+		t.Fatalf("%d %v", w.Code, err)
+	}
+	if len(out) != 1 || out[0].Identity != "pat@example.com" || out[0].Board != "alpha" || out[0].IP != "1.2.3.4" || out[0].UA != "Safari" {
+		t.Errorf("signins: %+v", out)
+	}
+}

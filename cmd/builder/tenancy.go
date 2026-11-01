@@ -245,6 +245,7 @@ func (h *hub) routes() http.Handler {
 	mux.HandleFunc("GET /admin/hubs", h.platformAdmin(h.hubs))
 	mux.HandleFunc("POST /admin/hubs/release", h.platformAdmin(h.releaseAll))
 	mux.Handle("GET /api/overview", auth.Bearer(h.cfg.StatsToken, http.HandlerFunc(h.apiOverview))) // other hubs' /admin/hubs
+	mux.Handle("GET /api/signins", auth.Bearer(h.cfg.StatsToken, http.HandlerFunc(h.apiSignIns)))   // visitors.nick.org names visitors
 	h.apiRoutes(mux)
 	mux.HandleFunc("GET /admin/traffic", h.platformAdmin(h.trafficAll))
 	mux.HandleFunc("GET /admin/signins", h.platformAdmin(h.signIns))

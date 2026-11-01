@@ -9,9 +9,12 @@ import (
 	"net/http"
 	"net/url"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/nkirsch/auto-builder/internal/db"
 )
 
 // hubOverview is one hub's state for the multi-hub view: every board it
@@ -231,6 +234,36 @@ func (h *hub) apiOverview(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, o)
+}
+
+// apiSignIns lists successful sign-ins at every board over the last
+// ?days=N (default 7, at most db.SignInKeep), newest first, so a visitor
+// report can name the IP + browser they came from.
+func (h *hub) apiSignIns(w http.ResponseWriter, r *http.Request) {
+	days := 7
+	if d, err := strconv.Atoi(r.URL.Query().Get("days")); err == nil && d >= 1 && d <= int(db.SignInKeep.Hours()/24) {
+		days = d
+	}
+	all, err := h.reg.AllSignIns(r.Context(), "", "", time.Now().Add(-time.Duration(days)*24*time.Hour))
+	if err != nil {
+		slog.Error("signins", "err", err)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	type signIn struct {
+		At        time.Time `json:"at"`
+		Identity  string    `json:"identity"`
+		Board     string    `json:"board,omitempty"`
+		IP        string    `json:"ip"`
+		UserAgent string    `json:"ua"`
+	}
+	out := []signIn{}
+	for _, s := range all {
+		if !s.Failed() && s.Identity != "" {
+			out = append(out, signIn{s.At, s.Identity, s.Board, s.IP, s.UserAgent})
+		}
+	}
+	writeJSON(w, http.StatusOK, out)
 }
 
 // fetchHub reads another hub's /api/overview; a failure lands in Err.

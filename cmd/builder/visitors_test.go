@@ -137,6 +137,27 @@ func TestVisitorsReserved(t *testing.T) {
 	}
 }
 
+// A board created before its slug was reserved still serves under /<slug>/,
+// while /<slug> stays the hub's page.
+func TestSinceReservedBoard(t *testing.T) {
+	h := testHub(t)
+	ctx := context.Background()
+	if _, err := h.reg.Control.Exec(ctx, `INSERT INTO tenants (slug, name, repo, created_by, existing, status, provisioned_at)
+		VALUES ('visitors', 'Visitors', 'o/visitors', 'nkirsch', true, 'ready', now())`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.reg.Store(ctx, "visitors"); err != nil {
+		t.Fatal(err)
+	}
+	srv := h.routes()
+	if w := do(h, srv, "nick@example.org", "GET", "/visitors/", nil); w.Code == http.StatusNotFound {
+		t.Errorf("board: %d %.200s", w.Code, w.Body.String())
+	}
+	if w := do(h, srv, "nick@example.org", "GET", "/visitors", nil); w.Code != http.StatusOK || !strings.Contains(w.Body.String(), "Visitors") {
+		t.Errorf("hub page: %d %.200s", w.Code, w.Body.String())
+	}
+}
+
 // TestHubVisitorsPage: platform admins see every app; a board admin only
 // theirs; nobody sees IPs, user agents, or admins' own visits.
 func TestHubVisitorsPage(t *testing.T) {

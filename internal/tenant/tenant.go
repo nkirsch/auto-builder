@@ -49,6 +49,10 @@ func ValidSlug(slug string) error {
 	return nil
 }
 
+// WellFormed reports whether slug could name an existing tenant: the slug
+// syntax only, since a tenant may hold a slug reserved after it was created.
+func WellFormed(slug string) bool { return slugRE.MatchString(slug) }
+
 // Schema is the Postgres schema holding a tenant's board.
 func Schema(slug string) string { return "t_" + strings.ReplaceAll(slug, "-", "_") }
 
@@ -469,7 +473,7 @@ func (r *Registry) PruneSignIns(ctx context.Context, before time.Time) error {
 // BoardAdmins lists the logins and emails of slug's admins, read through the
 // control pool so a caller walking every board doesn't open each board's pool.
 func (r *Registry) BoardAdmins(ctx context.Context, slug string) ([]string, error) {
-	if !slugRE.MatchString(slug) { // existing tenants may hold a since-reserved slug
+	if !WellFormed(slug) {
 		return nil, fmt.Errorf("slug %q", slug)
 	}
 	rows, err := r.Control.Query(ctx, `SELECT login, email FROM `+pgx.Identifier{Schema(slug), "members"}.Sanitize()+` WHERE role = 'admin'`)

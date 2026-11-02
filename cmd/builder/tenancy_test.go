@@ -33,7 +33,7 @@ func testHub(t *testing.T) *hub {
 		t.Fatal(err)
 	}
 	defer pool.Close()
-	if _, err := pool.Exec(ctx, `DROP SCHEMA IF EXISTS control, t_alpha, t_beta, t_jerrys, t_anns, t_carols, t_daves, t_erins CASCADE`); err != nil {
+	if _, err := pool.Exec(ctx, `DROP SCHEMA IF EXISTS control, t_alpha, t_beta, t_jerrys, t_anns, t_carols, t_daves, t_erins, t_visitors CASCADE`); err != nil {
 		t.Fatal(err)
 	}
 	reg, err := tenant.Open(ctx, u)
@@ -750,8 +750,10 @@ func TestHubSpendLimits(t *testing.T) {
 }
 
 func TestBoardOf(t *testing.T) {
-	for next, want := range map[string]string{"/alpha/items/3": "alpha", "/alpha": "alpha", "/": "", "/admin": "", "/Bad_Slug/x": ""} {
-		if got := boardOf(next); got != want {
+	exists := func(slug string) bool { return slug == "visitors" } // a tenant created before visitors was reserved
+	for next, want := range map[string]string{"/alpha/items/3": "alpha", "/alpha": "alpha", "/": "", "/admin": "", "/Bad_Slug/x": "",
+		"/admin/settings": "", "/visitors": "", "/visitors/items/1": "visitors"} {
+		if got := boardOf(next, exists); got != want {
 			t.Errorf("boardOf(%q) = %q, want %q", next, got, want)
 		}
 	}

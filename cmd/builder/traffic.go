@@ -64,11 +64,22 @@ type trafficReport struct {
 	Max              int // busiest day's views, for the bars
 }
 
-// page is a site page view: not the board, an asset, or a probe.
+// page is a site page view: not the board, an asset, an API call or a
+// probe. A page ends in / or .html, or has no extension (a Go app's /book).
 func page(h hit) bool {
-	return h.Method == http.MethodGet && (h.Status == 200 || h.Status == 304) &&
-		!strings.HasPrefix(h.Path, "/iterate") && !strings.HasPrefix(h.Path, "/.well-known") &&
-		(strings.HasSuffix(h.Path, "/") || strings.HasSuffix(h.Path, ".html"))
+	if h.Method != http.MethodGet || (h.Status != 200 && h.Status != 304) {
+		return false
+	}
+	for _, p := range []string{"/iterate", "/.well-known", "/api/", "/auth/", "/static/", "/mcp"} {
+		if strings.HasPrefix(h.Path, p) {
+			return false
+		}
+	}
+	if h.Path == "/health" || h.Path == "/version" {
+		return false
+	}
+	last := h.Path[strings.LastIndex(h.Path, "/")+1:]
+	return strings.HasSuffix(h.Path, ".html") || !strings.Contains(last, ".")
 }
 
 // buildReport counts real readers: a visitor is an IP+UA that isn't a declared

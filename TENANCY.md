@@ -36,8 +36,8 @@ extreme.org verified in Search Console, secrets `extreme-<NAME>`.
 
 ## Existing repos
 
-A hub can also take apps that already exist and deploy themselves (nick.org's
-hub: www, meet, parties, panic, fifty). `/new` with **Existing repo** creates
+A hub can also take apps that already exist and deploy themselves (a
+personal hub of existing sites). `/new` with **Existing repo** creates
 the tenant `ready`, with `control.tenants.existing` set, and never starts the
 provisioner (which refuses one if asked). Such an app:
 
@@ -171,20 +171,19 @@ All done for extreme.org (2026-10-25):
 3. extreme.org verified in Search Console; `extreme-provisioner@` is an owner.
 4. Secrets `extreme-<NAME>` (`GITHUB_CLIENT_*`, `GOOGLE_CLIENT_*`, `GH_APP_*`);
    unprefixed names are the single board's.
-5. Claude: Workload Identity Federation, no API key. Run kirsch/home
-   `infrastructure/claude-wif/provision.sh gcp extreme-runner
-   extreme-runner@nkirsch-auto-builder.iam.gserviceaccount.com` (`WORKSPACE=extreme.org`)
-   once; `infra/tenancy.sh` defaults `CLAUDE_FEDERATION` to its output (rule
-   `extreme-runner-rule`), sets the IDs on `extreme-runner` and unmounts
-   `ANTHROPIC_API_KEY` (`bootstrap.sh` does the same for `builder-runner`).
-   `CLAUDE_FEDERATION=` (empty) mounts `extreme-ANTHROPIC_API_KEY` instead.
+5. Claude: Workload Identity Federation, no API key. Create a federation
+   rule for `extreme-runner@` once and pass its IDs as `CLAUDE_FEDERATION` on
+   the first `infra/tenancy.sh` run; it sets them on `extreme-runner` and
+   unmounts `ANTHROPIC_API_KEY`, and later runs read them back from the job
+   (`bootstrap.sh` does the same for `builder-runner`). With no IDs anywhere,
+   the job mounts `extreme-ANTHROPIC_API_KEY` instead.
 6. Apps page (`/`): members see their apps; platform admins see every board, the hub reads its apps from
    their schemas and the boards in `SITES` (space-separated `name=board URL`) over
    HTTP — public `/version` and `/health`, plus `GET /api/stats` (open items,
    last run, 30-day spend, live-since) with the shared `STATS_TOKEN`. The secret
-   lives in this project; boards in another project (kirsch-org) need a copy:
+   lives in this project; boards in another project need a copy:
    `gcloud secrets versions access latest --secret STATS_TOKEN | gcloud secrets
-   create STATS_TOKEN --project kirsch-org --data-file=-`, then mount it on each
+   create STATS_TOKEN --project OTHER --data-file=-`, then mount it on each
    service as `STATS_TOKEN`.
 7. Hubs page (`/admin/hubs`, platform admins): every hub's boards in one place.
    Each hub serves `GET /api/overview` behind `STATS_TOKEN`: its Apps rows
@@ -201,8 +200,12 @@ All done for extreme.org (2026-10-25):
    first, then boards whose last two or more runs failed (failing), oldest
    first within each, the count of other unfinished items, then a table per
    hub linking its Admin, Urgent and Traffic. Fields a hub that hasn't merged
-   them yet leaves out show as `–`. Each hub in `HUBS` needs the same
-   `STATS_TOKEN` (copied as above); `infra/tenancy.sh` sets `HUBS` (default: iterate.nick.org and iterate.kirsch.org).
+   them yet leaves out show as `–`. The hub calls each hub in `HUBS` with its
+   own `STATS_TOKEN`, so they must share it (copied as above), and each can
+   then read the other's `/api/overview` and `/api/signins`. For one-way
+   access, give a hub its own secret (`STATS_SECRET` in `infra/tenancy.sh`)
+   and leave the other hubs out of its `HUBS`. `infra/tenancy.sh` sets `HUBS`
+   only when it's passed.
 
 ## Build order
 

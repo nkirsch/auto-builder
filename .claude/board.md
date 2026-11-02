@@ -58,9 +58,8 @@ then Pushover if `PUSHOVER_*` secrets are set.
 ## Forks
 
 The hubs are git-level forks that merge upstream with `make merge-upstream`:
-`extreme-dot-org/extreme` (extreme.org, the multi-tenant example: settings and docs only),
-`nkirsch/iterate` (iterate.nick.org) and `kirsch/iterate` (iterate.kirsch.org). Their
-apps are plain repos (no board code) on the hubs' boards; `builder.extreme.org`
+`extreme-dot-org/extreme` (extreme.org, the multi-tenant example: settings and docs only)
+and a few private hubs. Their apps are plain repos (no board code) on the hubs' boards; `builder.extreme.org`
 (this repo's board) is the one single board left.
 Each hub's `GET /api/overview` (bearer `STATS_TOKEN`) lists its boards with health,
 unreleased commits, failed runs and items needing attention; `/admin/hubs` shows every hub's at once.

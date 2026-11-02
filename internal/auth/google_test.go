@@ -78,8 +78,8 @@ func sessionLogin(a *Auth, w *httptest.ResponseRecorder) string {
 func TestGoogleSignInByEmail(t *testing.T) {
 	ctx := context.Background()
 	a, st := dbAuth(t)
-	st.UpsertMember(ctx, "katrina", "member", "test")
-	if err := st.SetMemberEmail(ctx, "katrina", "Katrina@example.com"); err != nil {
+	st.UpsertMember(ctx, "juniper", "member", "test")
+	if err := st.SetMemberEmail(ctx, "juniper", "Juniper@example.com"); err != nil {
 		t.Fatal(err)
 	}
 	for _, c := range []struct {
@@ -88,12 +88,12 @@ func TestGoogleSignInByEmail(t *testing.T) {
 		code     int
 		login    string
 	}{
-		{"katrina@example.com", true, http.StatusFound, "katrina"},
-		{"katrina@example.com", false, http.StatusBadGateway, ""},
+		{"juniper@example.com", true, http.StatusFound, "juniper"},
+		{"juniper@example.com", false, http.StatusBadGateway, ""},
 		{"stranger@example.com", true, http.StatusForbidden, ""},
 	} {
 		srv := fakeProvider(t, map[string]any{"email": c.email, "email_verified": c.verified,
-			"name": "Katrina", "picture": "https://lh3.googleusercontent.com/a/x=s96-c"})
+			"name": "Juniper", "picture": "https://lh3.googleusercontent.com/a/x=s96-c"})
 		a.google.Endpoint.TokenURL = srv.URL + "/token"
 		a.userinfo = srv.URL + "/userinfo"
 		w := callback(a.handleGoogleCallback, "/auth/google/callback")
@@ -104,8 +104,8 @@ func TestGoogleSignInByEmail(t *testing.T) {
 			t.Errorf("redirect %q", w.Header().Get("Location"))
 		}
 	}
-	m, _ := st.Member(ctx, "katrina")
-	if m.Name != "Katrina" || m.LastSeen == nil {
+	m, _ := st.Member(ctx, "juniper")
+	if m.Name != "Juniper" || m.LastSeen == nil {
 		t.Errorf("member not touched: %+v", m)
 	}
 }
@@ -114,14 +114,14 @@ func TestGoogleSignInByEmail(t *testing.T) {
 func TestGitHubSignInRefusedForEmailMember(t *testing.T) {
 	ctx := context.Background()
 	a, st := dbAuth(t)
-	st.UpsertMember(ctx, "katrina", "member", "test")
-	st.SetMemberEmail(ctx, "katrina", "katrina@example.com")
+	st.UpsertMember(ctx, "juniper", "member", "test")
+	st.SetMemberEmail(ctx, "juniper", "juniper@example.com")
 	st.UpsertMember(ctx, "octocat", "member", "test")
 	// nkirsch's login is his GitHub account too, so either works.
 	st.UpsertMember(ctx, "nkirsch", "admin", "test")
 	st.SetMemberEmail(ctx, "nkirsch", "nick@example.com")
 	st.SetMemberGitHub(ctx, "nkirsch", true)
-	for login, want := range map[string]int{"katrina": http.StatusForbidden, "octocat": http.StatusFound, "nkirsch": http.StatusFound} {
+	for login, want := range map[string]int{"juniper": http.StatusForbidden, "octocat": http.StatusFound, "nkirsch": http.StatusFound} {
 		srv := fakeProvider(t, map[string]string{"login": login})
 		a.oauth.Endpoint.TokenURL = srv.URL + "/token"
 		a.api = srv.URL
@@ -154,8 +154,8 @@ func TestLinkGitHub(t *testing.T) {
 	ctx := context.Background()
 	a, st := dbAuth(t)
 	a.cfg.GitHubLinkOnly = true
-	st.UpsertMember(ctx, "katrina", "member", "test")
-	st.SetMemberEmail(ctx, "katrina", "katrina@example.com")
+	st.UpsertMember(ctx, "juniper", "member", "test")
+	st.SetMemberEmail(ctx, "juniper", "juniper@example.com")
 	srv := fakeProvider(t, map[string]string{"login": "kat-gh"})
 	a.oauth.Endpoint.TokenURL = srv.URL + "/token"
 	a.api = srv.URL
@@ -178,7 +178,7 @@ func TestLinkGitHub(t *testing.T) {
 		t.Errorf("signed-out link went to %q", loc)
 	}
 	r := httptest.NewRequest(http.MethodGet, "/auth/github/link?next=/items/1", nil)
-	r.AddCookie(a.SessionCookie("katrina"))
+	r.AddCookie(a.SessionCookie("juniper"))
 	w = httptest.NewRecorder()
 	a.handleLink(w, r)
 	var state string
@@ -193,22 +193,22 @@ func TestLinkGitHub(t *testing.T) {
 
 	r = httptest.NewRequest(http.MethodGet, "/auth/callback?state=abc&code=c", nil)
 	r.AddCookie(&http.Cookie{Name: stateCookie, Value: "abc|link|/items/1"})
-	r.AddCookie(a.SessionCookie("katrina"))
+	r.AddCookie(a.SessionCookie("juniper"))
 	w = httptest.NewRecorder()
 	a.handleCallback(w, r)
 	if w.Code != http.StatusFound || w.Header().Get("Location") != "/items/1" || sessionLogin(a, w) != "" {
 		t.Fatalf("link callback: %d %q", w.Code, w.Header().Get("Location"))
 	}
-	if m, _ := st.Member(ctx, "katrina"); m.GitHubLogin != "kat-gh" {
+	if m, _ := st.Member(ctx, "juniper"); m.GitHubLogin != "kat-gh" {
 		t.Fatalf("not linked: %+v", m)
 	}
 
 	r = httptest.NewRequest(http.MethodPost, "/auth/github/unlink", strings.NewReader("next=/admin"))
 	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	r.AddCookie(a.SessionCookie("katrina"))
+	r.AddCookie(a.SessionCookie("juniper"))
 	w = httptest.NewRecorder()
 	a.handleUnlink(w, r)
-	if m, _ := st.Member(ctx, "katrina"); w.Code != http.StatusSeeOther || w.Header().Get("Location") != "/admin" || m.GitHubLogin != "" {
+	if m, _ := st.Member(ctx, "juniper"); w.Code != http.StatusSeeOther || w.Header().Get("Location") != "/admin" || m.GitHubLogin != "" {
 		t.Fatalf("unlink: %d %+v", w.Code, m)
 	}
 }

@@ -78,8 +78,8 @@ func TestMultiSignIn(t *testing.T) {
 func TestMultiRequire(t *testing.T) {
 	ctx := context.Background()
 	_, st := dbAuth(t)
-	st.UpsertMember(ctx, "katrina", "member", "test")
-	st.SetMemberEmail(ctx, "katrina", "katrina@example.com")
+	st.UpsertMember(ctx, "juniper", "member", "test")
+	st.SetMemberEmail(ctx, "juniper", "juniper@example.com")
 	st.UpsertMember(ctx, "octocat", "member", "test")
 	st.UpsertMember(ctx, "nkirsch", "admin", "test")
 	st.SetMemberEmail(ctx, "nkirsch", "nick@example.com")
@@ -94,8 +94,8 @@ func TestMultiRequire(t *testing.T) {
 		w.Write([]byte(Member(r.Context()).Login))
 	}))
 	for identity, want := range map[string]string{
-		"katrina@example.com": "200 katrina", "KATRINA@example.com": "200 katrina",
-		"octocat": "200 octocat", "katrina": "403",
+		"juniper@example.com": "200 juniper", "JUNIPER@example.com": "200 juniper",
+		"octocat": "200 octocat", "juniper": "403",
 		"nkirsch": "200 nkirsch", "nick@example.com": "200 nkirsch", "stranger": "403", "": "302",
 	} {
 		r := httptest.NewRequest(http.MethodGet, "/", nil)

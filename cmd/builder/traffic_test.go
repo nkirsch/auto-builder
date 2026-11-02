@@ -60,12 +60,12 @@ func TestTrafficCaches(t *testing.T) {
 }
 
 func TestHubTraffic(t *testing.T) {
-	h := &hub{cfg: config{LogProject: "kirsch-org"}, host: "kirsch.org"}
-	tr := h.traffic("momo")
-	if tr.host != "momo.kirsch.org" || tr.view != "projects/kirsch-org/locations/global/buckets/_Default/views/momo-requests" {
+	h := &hub{cfg: config{LogProject: "family-proj"}, host: "family.example"}
+	tr := h.traffic("maple")
+	if tr.host != "maple.family.example" || tr.view != "projects/family-proj/locations/global/buckets/_Default/views/maple-requests" {
 		t.Errorf("host=%q view=%q", tr.host, tr.view)
 	}
-	if tr := (&hub{host: "kirsch.org"}).traffic("momo"); tr.view != "" {
+	if tr := (&hub{host: "family.example"}).traffic("maple"); tr.view != "" {
 		t.Errorf("no LOG_PROJECT: view=%q", tr.view)
 	}
 }
@@ -112,5 +112,20 @@ func TestLookupHomeUnset(t *testing.T) {
 	}
 	if m := lookupHome("localhost")(context.Background()); !m["127.0.0.1"] && !m["::1"] {
 		t.Errorf("localhost: %v", m)
+	}
+}
+
+func TestPage(t *testing.T) {
+	for path, want := range map[string]bool{
+		"/": true, "/posts/a.html": true, "/posts/": true, "/book": true, "/i/abc123": true,
+		"/css/a.css": false, "/a.png": false, "/iterate/items": false, "/api/slots": false, "/auth/google": false,
+		"/static/x": false, "/health": false, "/version": false, "/.well-known/x": false, "/mcp": false,
+	} {
+		if got := page(hit{Method: "GET", Status: 200, Path: path}); got != want {
+			t.Errorf("%s: page=%v", path, got)
+		}
+	}
+	if page(hit{Method: "POST", Status: 200, Path: "/"}) || page(hit{Method: "GET", Status: 404, Path: "/"}) {
+		t.Error("POST or 404 counted")
 	}
 }

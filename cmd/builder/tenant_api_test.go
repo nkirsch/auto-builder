@@ -69,12 +69,12 @@ func TestTenantAPI(t *testing.T) {
 	}
 
 	// Members: by login, or by email alone (login from the address).
-	code, v = call("adm", "POST", "/api/tenants/alpha/members", `{"login":"@ZackLK","role":"member","email":"zack@example.org"}`)
-	if code != 200 || v["login"] != "ZackLK" || v["github"] != false {
+	code, v = call("adm", "POST", "/api/tenants/alpha/members", `{"login":"@ZephyrLK","role":"member","email":"zephyr@example.org"}`)
+	if code != 200 || v["login"] != "ZephyrLK" || v["github"] != false {
 		t.Fatalf("member: %d %v", code, v)
 	}
 	st, _ = h.reg.Store(ctx, "alpha")
-	if m, err := st.Member(ctx, "ZackLK"); err != nil || m.Role != "member" || m.Email != "zack@example.org" {
+	if m, err := st.Member(ctx, "ZephyrLK"); err != nil || m.Role != "member" || m.Email != "zephyr@example.org" {
 		t.Fatalf("stored member: %+v %v", m, err)
 	}
 	if code, v := call("adm", "POST", "/api/tenants/alpha/members", `{"email":"ann.b@example.org","role":"admin"}`); code != 200 || v["login"] != "annb" {
@@ -83,7 +83,7 @@ func TestTenantAPI(t *testing.T) {
 	if code, _ := call("adm", "POST", "/api/tenants/alpha/members", `{"login":"x","role":"owner"}`); code != 400 {
 		t.Errorf("bad role: %d", code)
 	}
-	if code, _ := call("adm", "POST", "/api/tenants/alpha/members", `{"login":"y","role":"member","email":"zack@example.org"}`); code != 409 {
+	if code, _ := call("adm", "POST", "/api/tenants/alpha/members", `{"login":"y","role":"member","email":"zephyr@example.org"}`); code != 409 {
 		t.Errorf("taken email: %d", code)
 	}
 	if code, _ := call("adm", "POST", "/api/tenants/nope/members", `{"login":"x","role":"member"}`); code != 404 {

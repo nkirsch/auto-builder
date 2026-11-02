@@ -61,8 +61,8 @@ func TestBuildVisitors(t *testing.T) {
 	hits = append(hits,
 		get("1.1.1.1", chrome, "/", "https://www.google.com/", "r1", 0),
 		get("1.1.1.1", chrome, "/a.css", "", "r1", 1),
-		get("1.1.1.1", chrome, "/", "https://extreme.org/danielle/", "r2", 3600),
-		get("1.1.1.1", chrome, "/", "https://jane.extreme.org/", "r2", 3700),
+		get("1.1.1.1", chrome, "/", "https://extreme.org/delta/", "r2", 3600),
+		get("1.1.1.1", chrome, "/", "https://echo.extreme.org/", "r2", 3700),
 		get("2.2.2.2", chrome, "/", "", "r1", 0), // no CSS/JS
 		get("3.3.3.3", "GPTBot/1.0", "/", "", "r1", 0),
 		get("4.4.4.4", chrome, "/", "", "r1", 0), // an admin
@@ -73,15 +73,15 @@ func TestBuildVisitors(t *testing.T) {
 		hits = append(hits, get("5.5.5.5", chrome, "/p/", "", "r1", i))
 	}
 	labels := map[string]version{"r1": {Label: "v26.10.20-1", Changes: []string{"Halloween theme"}}, "r2": {Label: "v26.11.1-1"}}
-	apps := []appHits{{App: "danielle", Host: "danielle.extreme.org", Hits: hits, Exclude: map[string]bool{"4.4.4.4": true}, Labels: labels}}
+	apps := []appHits{{App: "delta", Host: "delta.extreme.org", Hits: hits, Exclude: map[string]bool{"4.4.4.4": true}, Labels: labels}}
 	h := &hub{host: "extreme.org", cfg: config{BaseURL: "https://extreme.org"}}
 	key := []byte("k")
-	r := buildVisitors(apps, key, "danielle", h.hiddenReferrer)
+	r := buildVisitors(apps, key, "delta", h.hiddenReferrer)
 	if r.Total != 1 || r.Views != 3 || r.Dropped != 3+visitorBurst {
 		t.Fatalf("total=%d views=%d dropped=%d", r.Total, r.Views, r.Dropped)
 	}
 	x := r.Rows[0]
-	if x.ID != pseudonym(key, "danielle", "1.1.1.1", chrome) || x.Browser != "Chrome" {
+	if x.ID != pseudonym(key, "delta", "1.1.1.1", chrome) || x.Browser != "Chrome" {
 		t.Errorf("row %+v", x)
 	}
 	if strings.Join(x.Versions, ",") != "v26.10.20-1,v26.11.1-1" || strings.Join(x.Referrers, ",") != "www.google.com" {
@@ -91,8 +91,8 @@ func TestBuildVisitors(t *testing.T) {
 		t.Errorf("versions %+v", r.Versions)
 	}
 	// IDs are scoped: the same browser differs per board and on the platform view.
-	if pseudonym(key, "danielle", "1.1.1.1", chrome) == pseudonym(key, "jane", "1.1.1.1", chrome) ||
-		pseudonym(key, "danielle", "1.1.1.1", chrome) == pseudonym(key, "*", "1.1.1.1", chrome) {
+	if pseudonym(key, "delta", "1.1.1.1", chrome) == pseudonym(key, "echo", "1.1.1.1", chrome) ||
+		pseudonym(key, "delta", "1.1.1.1", chrome) == pseudonym(key, "*", "1.1.1.1", chrome) {
 		t.Error("pseudonyms not scoped")
 	}
 }
@@ -100,7 +100,7 @@ func TestBuildVisitors(t *testing.T) {
 func TestHiddenReferrer(t *testing.T) {
 	h := &hub{host: "extreme.org", cfg: config{BaseURL: "https://extreme.org"}}
 	for host, hidden := range map[string]bool{
-		"extreme.org": true, "jane.extreme.org": true, "www.google.com": false, "notextreme.org": false, "extreme.org.evil.com": false,
+		"extreme.org": true, "echo.extreme.org": true, "www.google.com": false, "notextreme.org": false, "extreme.org.evil.com": false,
 	} {
 		if got := h.hiddenReferrer(host); got != hidden {
 			t.Errorf("%s: hidden=%v", host, got)

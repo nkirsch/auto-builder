@@ -29,7 +29,7 @@ import (
 // user agent, scoped to the board (or the platform) so IDs can't be matched
 // across boards; no IP, user agent, sign-in or member data reaches the page.
 // Admins' own visits (any IP a platform admin or the board's admin signed in
-// from) and the operator's home network (homeHost) are left out.
+// from) and HOME_HOST's IPs are left out.
 
 const (
 	visitorBurst    = 10 // this many page views within a minute is a crawler

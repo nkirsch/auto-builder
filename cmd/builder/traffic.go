@@ -24,7 +24,6 @@ import (
 const (
 	trafficDays  = 30
 	trafficCache = time.Hour
-	homeHost     = "home.kirsch.org" // Nick's dynamic DNS; his own visits are dropped
 )
 
 var (
@@ -59,7 +58,7 @@ type trafficReport struct {
 	Host             string // the site, for the heading
 	From, To         time.Time
 	Views, Visitors  int
-	Dropped          int // requests from bots, scrapers and Nick
+	Dropped          int // requests from bots, scrapers and HOME_HOST
 	Days             []count
 	Pages, Referrers []count
 	Max              int // busiest day's views, for the bars
@@ -316,17 +315,17 @@ func (t *traffic) load(ctx context.Context, refresh bool) error {
 	return nil
 }
 
-func newTraffic(baseURL, project, service string) *traffic {
+func newTraffic(baseURL, project, service, home string) *traffic {
 	u, _ := url.Parse(baseURL)
 	if project == "" || service == "" {
-		return trafficFrom(u.Host, "")
+		return trafficFrom(u.Host, "", home)
 	}
-	return trafficFrom(u.Host, logViewName(project, service+"-requests"))
+	return trafficFrom(u.Host, logViewName(project, service+"-requests"), home)
 }
 
 // trafficFrom reads hits through the named log view; "" when there's none.
-func trafficFrom(host, view string) *traffic {
-	t := &traffic{host: host, view: view, now: time.Now, home: lookupHome}
+func trafficFrom(host, view, home string) *traffic {
+	t := &traffic{host: host, view: view, now: time.Now, home: lookupHome(home)}
 	t.hits = logView{name: view, client: &http.Client{Timeout: 30 * time.Second}}.hits
 	if view == "" {
 		t.hits = func(context.Context, time.Time) ([]hit, error) {
@@ -345,9 +344,9 @@ func (h *hub) traffic(slug string) *traffic {
 		return t
 	}
 	u, _ := url.Parse(h.appURL(slug))
-	t := trafficFrom(u.Host, "")
+	t := trafficFrom(u.Host, "", h.cfg.HomeHost)
 	if h.cfg.LogProject != "" {
-		t = trafficFrom(u.Host, logViewName(h.cfg.LogProject, slug+"-requests"))
+		t = trafficFrom(u.Host, logViewName(h.cfg.LogProject, slug+"-requests"), h.cfg.HomeHost)
 	}
 	if h.traffics == nil {
 		h.traffics = map[string]*traffic{}
@@ -418,13 +417,20 @@ func logViewName(project, view string) string {
 	return fmt.Sprintf("projects/%s/locations/global/buckets/_Default/views/%s", project, view)
 }
 
-func lookupHome(ctx context.Context) map[string]bool {
-	ips, _ := net.DefaultResolver.LookupHost(ctx, homeHost)
-	m := map[string]bool{}
-	for _, ip := range ips {
-		m[ip] = true
+// lookupHome resolves HOME_HOST (the operator's dynamic DNS name) to the IPs
+// whose visits are dropped; none without one.
+func lookupHome(host string) func(context.Context) map[string]bool {
+	return func(ctx context.Context) map[string]bool {
+		m := map[string]bool{}
+		if host == "" {
+			return m
+		}
+		ips, _ := net.DefaultResolver.LookupHost(ctx, host)
+		for _, ip := range ips {
+			m[ip] = true
+		}
+		return m
 	}
-	return m
 }
 
 func (t *traffic) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -464,7 +470,7 @@ td.n,th.n{text-align:right;font-variant-numeric:tabular-nums;width:5rem}td.k{wor
 .bar{height:.7rem;background:#e89ab4;border-radius:2px;min-width:1px}
 </style></head><body>
 <h1>{{with .Host}}{{.}} · {{end}}Traffic</h1>
-<p class="sub">{{.From.Format "Jan 2"}} – {{.To.Format "Jan 2, 3:04 PM MST"}} · browsers only; bots, scrapers and Nick's home are left out ({{.Dropped}} requests) · cached for an hour, <a href="?refresh">refresh</a></p>
+<p class="sub">{{.From.Format "Jan 2"}} – {{.To.Format "Jan 2, 3:04 PM MST"}} · browsers only; bots, scrapers and the operator's home network are left out ({{.Dropped}} requests) · cached for an hour, <a href="?refresh">refresh</a></p>
 <div class="tot"><div><b>{{.Visitors}}</b>visitors</div><div><b>{{.Views}}</b>page views</div></div>
 <h2>By day</h2>
 <table><tr><th>Day</th><th class="n">Visitors</th><th class="n">Views</th><th></th></tr>

@@ -32,6 +32,7 @@ type config struct {
 	Port, DatabaseURL, BaseURL, GitSHA, Repo string
 	AdminLogin, BotLogin, DevLogin           string
 	SessionKey, ClientID, ClientSecret       string
+	HomeHost                                 string // HOME_HOST (a secret): a DNS name whose IPs' visits /logs and /visitors leave out
 	TickToken                                string
 	Bucket, DataDir, SiteDir                 string
 	Launcher, Project, Region, Job           string
@@ -82,6 +83,7 @@ func loadConfig() (config, error) {
 		BotLogin:        env("BOT_LOGIN", "builder-bot"),
 		DevLogin:        env("DEV_LOGIN", ""),
 		SessionKey:      env("SESSION_KEY", ""),
+		HomeHost:        env("HOME_HOST", ""),
 		ClientID:        env("GITHUB_CLIENT_ID", ""),
 		ClientSecret:    env("GITHUB_CLIENT_SECRET", ""),
 		TickToken:       env("TICK_TOKEN", ""),
@@ -302,7 +304,7 @@ func run() error {
 	mux.Handle("GET /api/stats", auth.Bearer(cfg.StatsToken, http.HandlerFunc(s.stats)))   // the hub's Apps page
 	mux.Handle("GET /api/member", auth.Bearer(cfg.StatsToken, http.HandlerFunc(s.member))) // the hub's creator check
 	if cfg.SiteDir != "" {
-		mux.Handle("GET /logs", a.RequireAdmin(newTraffic(cfg.BaseURL, cfg.Project, os.Getenv("K_SERVICE")))) // site traffic
+		mux.Handle("GET /logs", a.RequireAdmin(newTraffic(cfg.BaseURL, cfg.Project, os.Getenv("K_SERVICE"), cfg.HomeHost))) // site traffic
 	}
 	s.runnerRoutes(mux, tools.Handler())
 	mux.Handle("POST /api/gate/tick", auth.Bearer(cfg.TickToken, http.HandlerFunc(s.tick)))

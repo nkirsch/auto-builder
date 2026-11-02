@@ -105,3 +105,12 @@ func TestHubTrafficPage(t *testing.T) {
 		t.Error("traffic not cached per app")
 	}
 }
+
+func TestLookupHomeUnset(t *testing.T) {
+	if m := lookupHome("")(context.Background()); len(m) != 0 {
+		t.Errorf("no HOME_HOST: %v", m)
+	}
+	if m := lookupHome("localhost")(context.Background()); !m["127.0.0.1"] && !m["::1"] {
+		t.Errorf("localhost: %v", m)
+	}
+}

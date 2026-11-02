@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
-# Idempotent GCP setup for auto-builder. Safe to re-run.
+# Idempotent GCP setup for auto-builder. Safe to re-run. Personal settings
+# (Claude IDs, home host) aren't in code: pass them on the first run; later
+# runs read them back from the runner job and secret HOME_HOST.
 set -euo pipefail
 
 PROJECT=${PROJECT:-nkirsch-auto-builder}
@@ -14,12 +16,13 @@ AR_REPO=${AR_REPO:-builder}
 BUCKET=${BUCKET:-$PROJECT-data}
 SERVICE=${SERVICE:-builder}
 JOB=${JOB:-builder-runner}
-# Claude auth for the runner: the comma-separated ANTHROPIC_* IDs printed by
-# kirsch/home infrastructure/claude-wif/provision.sh gcp (Workload Identity
-# Federation); the job gets them as env and no API key. Defaults to rule
-# auto-builder-runner-rule. Set it empty (CLAUDE_FEDERATION=) to mount ANTHROPIC_API_KEY instead.
-CLAUDE_FEDERATION=${CLAUDE_FEDERATION-ANTHROPIC_ORGANIZATION_ID=dc5626e0-63a7-45a9-a418-b689f7ae6c40,ANTHROPIC_SERVICE_ACCOUNT_ID=svac_014ixSeHxixYtRESzvJZi7ah,ANTHROPIC_FEDERATION_RULE_ID=fdrl_01AUuCtDtwh5X21ynFaaaNQJ,ANTHROPIC_WORKSPACE_ID=wrkspc_018YcoPCmM7YfmUw7LC2hGzc}
-KEY_SECRET=$([ -n "$CLAUDE_FEDERATION" ] || echo ANTHROPIC_API_KEY)
+# Claude auth for the runner: the comma-separated ANTHROPIC_* IDs of a
+# Workload Identity Federation rule; the job gets them as env and no API key.
+# Empty keeps the runner job's; with none there either, the job mounts ANTHROPIC_API_KEY.
+CLAUDE_FEDERATION=${CLAUDE_FEDERATION-}
+# A DNS name (dynamic DNS) whose IPs' visits /logs leaves out, kept in secret
+# HOME_HOST; empty keeps the secret's value.
+HOME_HOST=${HOME_HOST-}
 # DEPLOY_ON from app.env over app.defaults.env, as the workflows read it.
 DEPLOY_ON=$(cd "$(dirname "$0")/.." && awk -F= '/^DEPLOY_ON=/ {v=$2} END {print v}' app.defaults.env app.env 2>/dev/null)
 
@@ -28,6 +31,19 @@ log() { echo "== $*"; }
 # New service accounts take a while to become visible to IAM.
 retry() { for _ in 1 2 3 4 5 6; do "$@" && return; sleep 10; done; return 1; }
 sa() { echo "$1@$PROJECT.iam.gserviceaccount.com"; }
+run_env() { # services|jobs NAME PREFIX: NAME's plain env vars starting with PREFIX, as A=1,B=2
+  g run "$1" describe "$2" --region "$REGION" --format json 2>/dev/null | python3 -c '
+import json, sys
+try:
+    spec = json.load(sys.stdin)["spec"]["template"]["spec"]
+except ValueError:
+    sys.exit()
+spec = spec.get("template", {}).get("spec", spec)  # a job nests one more template
+print(",".join("%s=%s" % (e["name"], e["value"]) for c in spec.get("containers", [])
+    for e in c.get("env", []) if e["name"].startswith(sys.argv[1]) and "value" in e))' "$3"
+}
+CLAUDE_FEDERATION=${CLAUDE_FEDERATION:-$(run_env jobs "$JOB" ANTHROPIC_)}
+KEY_SECRET=$([ -n "$CLAUDE_FEDERATION" ] || echo ANTHROPIC_API_KEY)
 
 log "project $PROJECT"
 gcloud projects describe "$PROJECT" >/dev/null 2>&1 ||
@@ -91,6 +107,14 @@ done
 # Least privilege: each SA gets only the roles and secrets it uses, scoped to
 # the resource where IAM allows it. Older broad grants are removed on re-run.
 SERVER_SECRETS="DATABASE_URL SESSION_KEY TICK_TOKEN STATS_TOKEN GITHUB_CLIENT_ID GITHUB_CLIENT_SECRET GOOGLE_CLIENT_ID GOOGLE_CLIENT_SECRET GH_APP_ID GH_APP_INSTALLATION_ID GH_APP_PRIVATE_KEY PUSHOVER_TOKEN PUSHOVER_USER"
+if [ -n "$HOME_HOST" ]; then
+  if ! g secrets describe HOME_HOST >/dev/null 2>&1; then
+    printf '%s' "$HOME_HOST" | g secrets create HOME_HOST --replication-policy automatic --data-file -
+  elif [ "$(g secrets versions access latest --secret HOME_HOST)" != "$HOME_HOST" ]; then
+    printf '%s' "$HOME_HOST" | g secrets versions add HOME_HOST --data-file - >/dev/null
+  fi
+fi
+if g secrets describe HOME_HOST >/dev/null 2>&1; then SERVER_SECRETS="$SERVER_SECRETS HOME_HOST"; fi
 # The runner gets GitHub tokens and its RUN_TOKEN from the server: no GH_APP_*
 # secrets, and no RUNNER_TOKEN (a shared bearer older runners used).
 RUNNER_SECRETS="$KEY_SECRET"
@@ -169,6 +193,10 @@ fi
 if ! g run services describe "$SERVICE" --region "$REGION" --format json | grep -q GOOGLE_CLIENT_ID; then
   g run services update "$SERVICE" --region "$REGION" \
     --update-secrets "$(mounts "GOOGLE_CLIENT_ID GOOGLE_CLIENT_SECRET")" >/dev/null
+fi
+# ...as do boards from before HOME_HOST, once it's set...
+if [[ " $SERVER_SECRETS " == *" HOME_HOST "* ]] && ! g run services describe "$SERVICE" --region "$REGION" --format json | grep -q '"HOME_HOST"'; then
+  g run services update "$SERVICE" --region "$REGION" --update-secrets "$(mounts HOME_HOST)" >/dev/null
 fi
 # ...and boards from before the hub's all-sites page lack STATS_TOKEN.
 if ! g run services describe "$SERVICE" --region "$REGION" --format json | grep -q STATS_TOKEN; then

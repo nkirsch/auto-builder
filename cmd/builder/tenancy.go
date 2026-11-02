@@ -138,10 +138,15 @@ type hub struct {
 	countErrs func(ctx context.Context, view string, since time.Time) (int, error) // tests: instead of the log view
 }
 
-// boardOf is the tenant slug a sign-in headed for next is for, or "".
-func boardOf(next string) string {
-	slug, _, _ := strings.Cut(strings.TrimPrefix(next, "/"), "/")
-	if tenant.ValidSlug(slug) != nil {
+// boardOf is the tenant slug a sign-in headed for next is for, or "". A
+// reserved slug counts only under /<slug>/ and only if a tenant still holds
+// it (exists); /<slug> itself is the hub's page.
+func boardOf(next string, exists func(string) bool) string {
+	slug, _, sub := strings.Cut(strings.TrimPrefix(next, "/"), "/")
+	if !tenant.WellFormed(slug) {
+		return ""
+	}
+	if tenant.ValidSlug(slug) != nil && (!sub || !exists(slug)) {
 		return ""
 	}
 	return slug
@@ -183,7 +188,12 @@ func newHub(ctx context.Context, cfg config, reg *tenant.Registry, storage store
 		BaseURL: cfg.BaseURL, ClientID: cfg.ClientID, ClientSecret: cfg.ClientSecret,
 		GoogleClientID: cfg.GoogleClientID, GoogleClientSecret: cfg.GoogleClientSecret,
 		SessionKey: []byte(cfg.SessionKey), DevLogin: cfg.DevLogin, Multi: true, Users: reg, Mailboxes: reg,
-		SignIns: reg, BoardOf: boardOf,
+		SignIns: reg, BoardOf: func(next string) string {
+			return boardOf(next, func(slug string) bool {
+				t, err := reg.Tenant(ctx, slug)
+				return err == nil && t.Status != "deleted"
+			})
+		},
 		GitHubLinkOnly: cfg.GitHubLinkOnly, LinkGitHub: func(ctx context.Context, identity, github string) error {
 			return linkGitHub(ctx, reg, identity, github)
 		},
@@ -472,7 +482,7 @@ func (l tenantLauncher) Launch(ctx context.Context, runID int) (string, error) {
 // board serves a tenant's board, building it on first use.
 func (h *hub) board(w http.ResponseWriter, r *http.Request) {
 	slug := r.PathValue("slug")
-	if tenant.ValidSlug(slug) != nil {
+	if !tenant.WellFormed(slug) { // existing tenants may hold a since-reserved slug
 		http.NotFound(w, r)
 		return
 	}

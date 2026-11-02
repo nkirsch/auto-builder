@@ -42,7 +42,7 @@ func run() error {
 	if action == "upstream" {
 		return mergePlatform(ctx)
 	}
-	if tenant.ValidSlug(slug) != nil || (action != "create" && action != "sync" && action != "delete") {
+	if !tenant.WellFormed(slug) || (action == "create" && tenant.ValidSlug(slug) != nil) || (action != "create" && action != "sync" && action != "delete") {
 		return fmt.Errorf("%w: TENANT=<slug> ACTION=create|sync|delete, or ACTION=upstream", errUsage)
 	}
 	reg, err := tenant.Open(ctx, env("DATABASE_URL", ""))

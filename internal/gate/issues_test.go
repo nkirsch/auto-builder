@@ -44,8 +44,8 @@ func TestIssueSync(t *testing.T) {
 	st.UpsertMember(ctx, "kat", "admin", "nkirsch") // Google sign-in, GitHub account connected
 	st.SetMemberEmail(ctx, "kat", "kat@example.com")
 	st.LinkGitHub(ctx, "kat", "kat-gh")
-	st.UpsertMember(ctx, "momo", "member", "nkirsch") // a made-up handle, someone else's on GitHub
-	st.SetMemberEmail(ctx, "momo", "momo@example.com")
+	st.UpsertMember(ctx, "maple", "member", "nkirsch") // a made-up handle, someone else's on GitHub
+	st.SetMemberEmail(ctx, "maple", "maple@example.com")
 
 	var mu sync.Mutex
 	var since []string
@@ -63,7 +63,7 @@ func TestIssueSync(t *testing.T) {
 				{"number":4,"title":"Mine","user":{"login":"nkirsch"},"author_association":"OWNER"},
 				{"number":5,"title":"Not mine","user":{"login":"nkirsch"},"author_association":"NONE"},
 				{"number":6,"title":"Linked","user":{"login":"Kat-GH"},"author_association":"NONE"},
-				{"number":7,"title":"Impostor","user":{"login":"momo"}}]`))
+				{"number":7,"title":"Impostor","user":{"login":"maple"}}]`))
 		case "GET /repos/o/r/issues/comments":
 			w.Write([]byte(`[
 				{"id":10,"body":"me too @nkirsch","user":{"login":"nkirsch"},"issue_url":"https://api.github.com/repos/o/r/issues/1"},

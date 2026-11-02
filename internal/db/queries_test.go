@@ -213,22 +213,22 @@ func TestMembersCaseInsensitive(t *testing.T) {
 func TestMemberEmail(t *testing.T) {
 	ctx := context.Background()
 	s := testStore(t)
-	s.UpsertMember(ctx, "katrina", "member", "nkirsch")
-	s.UpsertMember(ctx, "momo", "member", "nkirsch")
-	if err := s.SetMemberEmail(ctx, "katrina", " K@Example.com "); err != nil {
+	s.UpsertMember(ctx, "juniper", "member", "nkirsch")
+	s.UpsertMember(ctx, "maple", "member", "nkirsch")
+	if err := s.SetMemberEmail(ctx, "juniper", " K@Example.com "); err != nil {
 		t.Fatal(err)
 	}
-	if m, err := s.MemberByEmail(ctx, "k@example.com"); err != nil || m.Login != "katrina" || m.Email != "K@Example.com" {
+	if m, err := s.MemberByEmail(ctx, "k@example.com"); err != nil || m.Login != "juniper" || m.Email != "K@Example.com" {
 		t.Fatalf("by email = %+v, %v", m, err)
 	}
-	if err := s.SetMemberEmail(ctx, "momo", "k@EXAMPLE.com"); !errors.Is(err, ErrEmailTaken) {
+	if err := s.SetMemberEmail(ctx, "maple", "k@EXAMPLE.com"); !errors.Is(err, ErrEmailTaken) {
 		t.Fatalf("duplicate email: %v", err)
 	}
 	if _, err := s.MemberByEmail(ctx, ""); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("empty email: %v", err)
 	}
-	s.UpsertMember(ctx, "katrina", "admin", "nkirsch")
-	if m, _ := s.Member(ctx, "katrina"); m.Email != "K@Example.com" {
+	s.UpsertMember(ctx, "juniper", "admin", "nkirsch")
+	if m, _ := s.Member(ctx, "juniper"); m.Email != "K@Example.com" {
 		t.Fatalf("role change dropped email: %+v", m)
 	}
 }
@@ -236,13 +236,13 @@ func TestMemberEmail(t *testing.T) {
 func TestMemberGitHubLink(t *testing.T) {
 	ctx := context.Background()
 	s := testStore(t)
-	s.UpsertMember(ctx, "katrina", "member", "nkirsch")
-	s.SetMemberEmail(ctx, "katrina", "k@example.com")
-	s.UpsertMember(ctx, "momo", "member", "nkirsch")
-	s.SetMemberEmail(ctx, "momo", "m@example.com")
+	s.UpsertMember(ctx, "juniper", "member", "nkirsch")
+	s.SetMemberEmail(ctx, "juniper", "k@example.com")
+	s.UpsertMember(ctx, "maple", "member", "nkirsch")
+	s.SetMemberEmail(ctx, "maple", "m@example.com")
 	s.UpsertMember(ctx, "octocat", "member", "nkirsch")
 	// A made-up handle isn't its owner's GitHub account.
-	if _, err := s.MemberByGitHub(ctx, "momo"); !errors.Is(err, ErrNotFound) {
+	if _, err := s.MemberByGitHub(ctx, "maple"); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("made-up handle matched: %v", err)
 	}
 	if m, err := s.MemberByGitHub(ctx, "OctoCat"); err != nil || m.Login != "octocat" {
@@ -251,23 +251,23 @@ func TestMemberGitHubLink(t *testing.T) {
 	if err := s.LinkGitHubByEmail(ctx, "K@example.com", "kat-gh"); err != nil {
 		t.Fatal(err)
 	}
-	if m, err := s.MemberByGitHub(ctx, "KAT-GH"); err != nil || m.Login != "katrina" || m.GitHubLogin != "kat-gh" {
+	if m, err := s.MemberByGitHub(ctx, "KAT-GH"); err != nil || m.Login != "juniper" || m.GitHubLogin != "kat-gh" {
 		t.Fatalf("linked = %+v, %v", m, err)
 	}
 	// Connecting octocat's account elsewhere wins over the login match and moves it.
-	if err := s.LinkGitHub(ctx, "momo", "octocat"); err != nil {
+	if err := s.LinkGitHub(ctx, "maple", "octocat"); err != nil {
 		t.Fatal(err)
 	}
-	if m, _ := s.MemberByGitHub(ctx, "octocat"); m.Login != "momo" {
+	if m, _ := s.MemberByGitHub(ctx, "octocat"); m.Login != "maple" {
 		t.Fatalf("link not preferred: %+v", m)
 	}
-	if err := s.LinkGitHub(ctx, "katrina", "octocat"); err != nil {
+	if err := s.LinkGitHub(ctx, "juniper", "octocat"); err != nil {
 		t.Fatal(err)
 	}
-	if m, _ := s.Member(ctx, "momo"); m.GitHubLogin != "" {
+	if m, _ := s.Member(ctx, "maple"); m.GitHubLogin != "" {
 		t.Fatalf("account kept by its old member: %+v", m)
 	}
-	if err := s.LinkGitHub(ctx, "katrina", ""); err != nil {
+	if err := s.LinkGitHub(ctx, "juniper", ""); err != nil {
 		t.Fatal(err)
 	}
 	if m, _ := s.MemberByGitHub(ctx, "octocat"); m.Login != "octocat" {

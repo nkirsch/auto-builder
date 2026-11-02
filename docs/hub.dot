@@ -12,7 +12,7 @@ digraph hub {
   // ---- callers ----
   subgraph cluster_people {
     label="people"; style="rounded,dashed"; color="#3a3f4b"; fontcolor="#9aa3b5"; fontsize=13;
-    members [label=<<b>members · admins</b><br/><font point-size="10" color="#9aa3b5">browser: boards · /admin/hubs</font>>];
+    members [label=<<b>members · admins</b><br/><font point-size="10" color="#9aa3b5">browser: boards · /admin/hubs<br/>/visitors · /&lt;slug&gt;/visitors · /logs</font>>];
   }
 
   subgraph cluster_mine_in {
@@ -21,13 +21,14 @@ digraph hub {
     monitor    [label=<<b>status monitor</b><br/><font point-size="10" color="#9cc4f2">/health · /api/overview</font>>];
     widget [label=<<b>status widget</b><br/><font point-size="10" color="#9cc4f2">/api/overview</font>>];
     peers    [label=<<b>other hubs</b><br/><font point-size="10" color="#9cc4f2">HUBS → /api/overview</font>>];
+    report   [label=<<b>visitors report</b><br/><font point-size="10" color="#9cc4f2">/api/signins</font>>];
   }
 
   // ---- the hub ----
   subgraph cluster_hub {
     label="hub  (Cloud Run, TENANCY=on)"; style="rounded"; color="#a35fc2"; fontcolor="#d6a8ea"; fontsize=13; penwidth=1.6;
     node [color="#a35fc2", fillcolor="#22172a"];
-    server [label=<<font point-size="14"><b>builder server</b></font><br/><font point-size="10" color="#d6a8ea">boards /&lt;slug&gt;/ · /mcp · runner API<br/>/api/gate/tick · /api/overview · /api/tenants</font>>, penwidth=2];
+    server [label=<<font point-size="14"><b>builder server</b></font><br/><font point-size="10" color="#d6a8ea">boards /&lt;slug&gt;/ · /mcp · runner API<br/>/api/gate/tick · /api/overview · /api/signins · /api/tenants<br/>/visitors (visitors.APP_DOMAIN redirects here)</font>>, penwidth=2];
     runner [label=<<b>runner job</b><br/><font point-size="10" color="#d6a8ea">claim → clone → claude -p /build-board</font>>];
     prov   [label=<<b>provision job</b><br/><font point-size="10" color="#d6a8ea">repo · service · accounts · DNS · log view</font>>];
     upjob  [label=<<b>upstream job</b><br/><font point-size="10" color="#d6a8ea">merge auto-builder → PR</font>>];
@@ -39,11 +40,11 @@ digraph hub {
     node [color="#2f8a5f", fillcolor="#13241c"];
     sql   [label=<<b>Cloud SQL Postgres</b><br/><font point-size="10" color="#7fd1a8">control + t_&lt;slug&gt; schemas</font>>];
     gcs   [label=<<b>Cloud Storage</b><br/><font point-size="10" color="#7fd1a8">attachments · run logs</font>>];
-    runapi[label=<<b>Cloud Run Admin API</b><br/><font point-size="10" color="#7fd1a8">launch jobs</font>>];
-    logs  [label=<<b>Cloud Logging</b><br/><font point-size="10" color="#7fd1a8">app request logs · 5xx/24h</font>>];
+    runapi[label=<<b>Cloud Run Admin API</b><br/><font point-size="10" color="#7fd1a8">launch jobs · app revisions</font>>];
+    logs  [label=<<b>Cloud Logging</b><br/><font point-size="10" color="#7fd1a8">per-app request log views<br/>/logs · /visitors · 5xx/24h</font>>];
     sched [label=<<b>Cloud Scheduler</b><br/><font point-size="10" color="#7fd1a8">tick every 10 min</font>>];
-    sm    [label=<<b>Secret Manager</b><br/><font point-size="10" color="#7fd1a8">tokens · keys → env</font>>];
-    dns   [label=<<b>Cloud DNS · IAM</b><br/><font point-size="10" color="#7fd1a8">&lt;slug&gt; domain · app/deploy SAs</font>>];
+    sm    [label=<<b>Secret Manager</b><br/><font point-size="10" color="#7fd1a8">tokens · keys · HOME_HOST → env</font>>];
+    dns   [label=<<b>Cloud DNS · IAM</b><br/><font point-size="10" color="#7fd1a8">&lt;slug&gt; and visitors domains · app/deploy SAs</font>>];
   }
   subgraph cluster_gws {
     label="Google accounts"; style="rounded,dashed"; color="#2f6b4a"; fontcolor="#7fd1a8"; fontsize=13;
@@ -55,7 +56,7 @@ digraph hub {
   // ---- other third parties ----
   subgraph cluster_gh {
     label="GitHub"; style="rounded,dashed"; color="#3a3f4b"; fontcolor="#9aa3b5"; fontsize=13;
-    ghapp  [label=<<b>GitHub App API</b><br/><font point-size="10" color="#9aa3b5">PRs · issues sync · compare · repos</font>>];
+    ghapp  [label=<<b>GitHub App API</b><br/><font point-size="10" color="#9aa3b5">PRs · issues sync · compare · repos<br/>tags + merged PRs → version labels</font>>];
     ghoauth[label=<<b>GitHub OAuth</b><br/><font point-size="10" color="#9aa3b5">sign-in</font>>];
     gha    [label=<<b>Actions</b><br/><font point-size="10" color="#9aa3b5">CI · deploy.yml on release</font>>];
   }
@@ -70,24 +71,25 @@ digraph hub {
     signal [label=<<b>deploy notifier</b><br/><font point-size="10" color="#9cc4f2">deploy events</font>>];
   }
 
-  { rank=same; members; monitor; widget; peers; }
+  { rank=same; members; monitor; widget; peers; report; }
   { rank=same; runner; prov; upjob; server; }
 
   // in
   members  -> server [label="HTTPS"];
   monitor    -> server [label="bearer STATS_TOKEN", color="#4a90e2"];
   widget -> server [label="bearer STATS_TOKEN", color="#4a90e2"];
-  peers    -> server [label="STATS_TOKEN (both ways)", color="#4a90e2", dir=both];
+  peers    -> server [label="shared STATS_TOKEN\n(own STATS_SECRET: one-way)", color="#4a90e2"];
+  report   -> server [label="bearer STATS_TOKEN\nidentity · IP · UA out", color="#4a90e2"];
   server   -> sched  [label="/api/gate/tick", color="#2f8a5f", dir=back];
 
   // hub internals
-  server -> runapi [label="launch jobs", color="#a35fc2"];
+  server -> runapi [label="launch jobs · list revisions", color="#a35fc2"];
   server -> runner [label="claim · /mcp · finish", color="#a35fc2", dir=back];
 
   // hub → Google
   server -> sql    [color="#2f8a5f"];
   server -> gcs    [color="#2f8a5f"];
-  server -> logs   [label="errors_24h", color="#2f8a5f"];
+  server -> logs   [label="each app's view", color="#2f8a5f"];
   server -> sm     [label="env at deploy", style=dashed, color="#2f8a5f", dir=back];
   server -> goauth [color="#2f8a5f"];
   server -> gmail  [label="send", color="#2f8a5f"];

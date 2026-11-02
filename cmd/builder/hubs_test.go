@@ -97,8 +97,8 @@ func TestHubOverview(t *testing.T) {
 			return
 		}
 		json.NewEncoder(w).Encode(hubOverview{Name: "ignored", Upstream: "nkirsch/auto-builder", Behind: 3, Sites: []overviewSite{{
-			Name: "Momo", Board: "https://iterate.kirsch.org/momo/", App: true, Health: "ok", Detail: true, Releases: true, Unreleased: 2,
-			Stats: siteStats{Other: 4, Attention: []attention{{ID: 7, Title: "Escalated thing", Author: "katrina", Kind: "escalated"}}},
+			Name: "Maple", Board: "https://hub.example.net/maple/", App: true, Health: "ok", Detail: true, Releases: true, Unreleased: 2,
+			Stats: siteStats{Other: 4, Attention: []attention{{ID: 7, Title: "Escalated thing", Author: "juniper", Kind: "escalated"}}},
 		}}})
 	}))
 	defer other.Close()
@@ -116,7 +116,7 @@ func TestHubOverview(t *testing.T) {
 	}
 	for _, want := range []string{
 		`<a href="https://hub.example/alpha/items/` + strconv.Itoa(urgent) + `"><b>Site down</b></a>`,
-		`<a href="https://iterate.kirsch.org/momo/items/7">`,
+		`<a href="https://hub.example.net/maple/items/7">`,
 		"Add the FOO secret.",
 		"5 other unfinished items",
 		`<a href="` + other.URL + `/">kirsch</a>`,
@@ -145,7 +145,7 @@ func TestHubOverview(t *testing.T) {
 	if len(views) != 1 {
 		t.Errorf("5xx count not cached: read %d times", len(views))
 	}
-	if w := do(h, srv, "katrina", "GET", "/admin/hubs", nil); w.Code != http.StatusForbidden {
+	if w := do(h, srv, "juniper", "GET", "/admin/hubs", nil); w.Code != http.StatusForbidden {
 		t.Errorf("hubs page for a non-platform-admin: %d", w.Code)
 	}
 	// alpha doesn't deploy on release: no button here, and Release all skips it.
@@ -155,7 +155,7 @@ func TestHubOverview(t *testing.T) {
 	if w := do(h, srv, "nkirsch", "POST", "/admin/hubs/release", nil); w.Code != 303 || w.Header().Get("Location") != "/admin/hubs?flash=Nothing+to+release" {
 		t.Errorf("release all: %d %q", w.Code, w.Header().Get("Location"))
 	}
-	if w := do(h, srv, "katrina", "POST", "/admin/hubs/release", nil); w.Code != http.StatusForbidden {
+	if w := do(h, srv, "juniper", "POST", "/admin/hubs/release", nil); w.Code != http.StatusForbidden {
 		t.Errorf("release all by a non-platform-admin: %d", w.Code)
 	}
 }

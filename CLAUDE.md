@@ -13,6 +13,5 @@ GCP project `nkirsch-auto-builder`, region `us-central1`, host
 site isn't served.
 
 Claude auth: `builder-runner` uses Workload Identity Federation (rule
-`auto-builder-runner-rule`, workspace `nick.org`); its job env carries the
-`ANTHROPIC_*` IDs from kirsch/home `infrastructure/claude-wif/provision.sh gcp
-auto-builder-runner builder-runner@nkirsch-auto-builder.iam.gserviceaccount.com`.
+`auto-builder-runner-rule`); its job env carries the rule's `ANTHROPIC_*` IDs,
+which `infra/bootstrap.sh` reads back from the job on later runs.

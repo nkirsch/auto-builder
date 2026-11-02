@@ -131,7 +131,10 @@ func schemaPool(ctx context.Context, url, schema string, maxConns int32) (*pgxpo
 	cfg.ConnConfig.RuntimeParams["search_path"] = ident
 	cfg.MaxConns = maxConns
 	cfg.MinConns = 0
-	cfg.MaxConnIdleTime = time.Minute
+	// Close idle connections fast: a hub has a pool per tenant, and a tick or
+	// overview walks them all, so lingering idle ones add up on a small instance.
+	cfg.MaxConnIdleTime = 10 * time.Second
+	cfg.HealthCheckPeriod = 10 * time.Second
 	pool, err := pgxpool.NewWithConfig(ctx, cfg)
 	if err != nil {
 		return nil, err
@@ -461,6 +464,31 @@ func (r *Registry) SignIns(ctx context.Context, board string, identities []strin
 
 func (r *Registry) PruneSignIns(ctx context.Context, before time.Time) error {
 	return db.PruneSignIns(ctx, r.Control, before)
+}
+
+// BoardAdmins lists the logins and emails of slug's admins, read through the
+// control pool so a caller walking every board doesn't open each board's pool.
+func (r *Registry) BoardAdmins(ctx context.Context, slug string) ([]string, error) {
+	if !slugRE.MatchString(slug) { // existing tenants may hold a since-reserved slug
+		return nil, fmt.Errorf("slug %q", slug)
+	}
+	rows, err := r.Control.Query(ctx, `SELECT login, email FROM `+pgx.Identifier{Schema(slug), "members"}.Sanitize()+` WHERE role = 'admin'`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []string
+	for rows.Next() {
+		var login, email string
+		if err := rows.Scan(&login, &email); err != nil {
+			return nil, err
+		}
+		out = append(out, login)
+		if email != "" {
+			out = append(out, email)
+		}
+	}
+	return out, rows.Err()
 }
 
 // SignInIPs lists the IPs identities signed in from since; see db.SignInIPs.

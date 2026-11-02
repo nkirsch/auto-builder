@@ -18,12 +18,12 @@ func TestSignInsPage(t *testing.T) {
 	if err := b.parse(); err != nil {
 		t.Fatal(err)
 	}
-	b.Store.UpsertMember(ctx, "katrina", "member", "nkirsch")
-	b.Store.SetMemberEmail(ctx, "katrina", "katrina@example.com")
+	b.Store.UpsertMember(ctx, "juniper", "member", "nkirsch")
+	b.Store.SetMemberEmail(ctx, "juniper", "juniper@example.com")
 	b.Store.UpsertMember(ctx, "octocat", "member", "nkirsch")
 	for _, s := range []db.SignIn{
-		{Provider: "google", Identity: "katrina@gmail.example", Result: db.SignInNotMember, IP: "203.0.113.9"},
-		{Provider: "google", Identity: "katrina@example.com", Result: db.SignInUnverified},
+		{Provider: "google", Identity: "juniper@gmail.example", Result: db.SignInNotMember, IP: "203.0.113.9"},
+		{Provider: "google", Identity: "juniper@example.com", Result: db.SignInUnverified},
 		{Provider: "github", Identity: "octocat", Result: db.SignInOK},
 	} {
 		if err := b.Store.RecordSignIn(ctx, s, 0); err != nil {
@@ -38,7 +38,7 @@ func TestSignInsPage(t *testing.T) {
 		return w
 	}
 	html := get("").Body.String()
-	for _, want := range []string{"katrina@gmail.example", "203.0.113.9", "unverified email", "octocat", `class="failed"`} {
+	for _, want := range []string{"juniper@gmail.example", "203.0.113.9", "unverified email", "octocat", `class="failed"`} {
 		if !strings.Contains(html, want) {
 			t.Errorf("page missing %q", want)
 		}
@@ -46,9 +46,9 @@ func TestSignInsPage(t *testing.T) {
 	if strings.Contains(html, "<th>Board</th>") {
 		t.Error("board column on a single board")
 	}
-	html = get("?who=katrina").Body.String()
+	html = get("?who=juniper").Body.String()
 	if !strings.Contains(html, "unverified email") || strings.Contains(html, "octocat") || strings.Contains(html, "gmail.example") {
-		t.Errorf("katrina's page:\n%s", html)
+		t.Errorf("juniper's page:\n%s", html)
 	}
 	if w := get("?who=nobody"); w.Code != http.StatusNotFound {
 		t.Errorf("unknown member: %d", w.Code)
@@ -65,8 +65,8 @@ func TestAdminStuckSignIns(t *testing.T) {
 		t.Fatal(err)
 	}
 	b.Store.UpsertMember(ctx, "nkirsch", "admin", "nkirsch")
-	b.Store.UpsertMember(ctx, "katrina", "member", "nkirsch")
-	b.Store.SetMemberEmail(ctx, "katrina", "katrina@example.com")
+	b.Store.UpsertMember(ctx, "juniper", "member", "nkirsch")
+	b.Store.SetMemberEmail(ctx, "juniper", "juniper@example.com")
 	b.Store.UpsertMember(ctx, "octocat", "member", "nkirsch")
 	b.Store.UpsertMember(ctx, "seen", "member", "nkirsch")
 	b.Store.UpsertMember(ctx, "late", "member", "nkirsch")
@@ -74,8 +74,8 @@ func TestAdminStuckSignIns(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, s := range []db.SignIn{
-		{Provider: "google", Identity: "katrina@example.com", Result: db.SignInUnverified},
-		{Provider: "github", Identity: "katrina", Result: db.SignInGoogleOnly},
+		{Provider: "google", Identity: "juniper@example.com", Result: db.SignInUnverified},
+		{Provider: "github", Identity: "juniper", Result: db.SignInGoogleOnly},
 		{Provider: "github", Identity: "octocat", Result: db.SignInOK},
 		{Provider: "github", Identity: "seen", Result: db.SignInGoogleOnly},
 		{Provider: "github", Identity: "late", Result: db.SignInNotMember, Board: "other"},
@@ -87,7 +87,7 @@ func TestAdminStuckSignIns(t *testing.T) {
 	}
 	// late's failure came before they were added.
 	if _, err := pool.Exec(ctx, `UPDATE signins SET at = now() - interval '1 hour' WHERE identity = 'late';
-		UPDATE signins SET at = now() - interval '2 hours' WHERE identity = 'katrina@example.com'`); err != nil {
+		UPDATE signins SET at = now() - interval '2 hours' WHERE identity = 'juniper@example.com'`); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := pool.Exec(ctx, `UPDATE members SET added_at = now() - interval '30 minutes' WHERE login = 'late'`); err != nil {
@@ -101,8 +101,8 @@ func TestAdminStuckSignIns(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(stuck) != 1 || stuck[0].Login != "katrina" || stuck[0].Last.Result != db.SignInGoogleOnly {
-		t.Fatalf("stuck = %+v, want katrina's Google-only failure alone", stuck)
+	if len(stuck) != 1 || stuck[0].Login != "juniper" || stuck[0].Last.Result != db.SignInGoogleOnly {
+		t.Fatalf("stuck = %+v, want juniper's Google-only failure alone", stuck)
 	}
 
 	r := httptest.NewRequest(http.MethodGet, "/admin", nil)
@@ -110,7 +110,7 @@ func TestAdminStuckSignIns(t *testing.T) {
 	w := httptest.NewRecorder()
 	b.admin(w, r)
 	html := w.Body.String()
-	for _, want := range []string{"hasn't signed in yet: signing in with GitHub as katrina failed (Google only)", `href="/admin/signins?who=katrina">Their sign-ins</a>`} {
+	for _, want := range []string{"hasn't signed in yet: signing in with GitHub as juniper failed (Google only)", `href="/admin/signins?who=juniper">Their sign-ins</a>`} {
 		if !strings.Contains(html, want) {
 			t.Errorf("admin page missing %q:\n%s", want, html)
 		}

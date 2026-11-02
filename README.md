@@ -43,8 +43,8 @@ repo is built from.
   token that dies with its run, and an agent GitHub token limited to the
   repo (workflow changes only while an admin allows them).
 - **Sites**: a fork can add its own Hugo site and branding and keep merging
-  upstream. Most sites now sit on a hub instead (below): iterate.nick.org
-  and iterate.kirsch.org hold their apps' boards.
+  upstream. Most sites now sit on a hub instead (below), which holds their
+  apps' boards.
 
 ## Multi-tenant mode
 

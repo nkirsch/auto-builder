@@ -144,11 +144,11 @@ func TestHubTenants(t *testing.T) {
 	check(w, 200, "", `href="/beta/"`)
 	check(w, 200, "", "alpha.hub.example")
 	check(do(h, srv, "nkirsch", "GET", "/admin", nil), 200, "", "someone/beta")
-	check(do(h, srv, "nkirsch", "POST", "/admin/platform-admins", url.Values{"login": {"katrina"}}), 303, "/admin", "")
-	if _, err := h.reg.PlatformAdmin(ctx, "katrina"); err != nil {
-		t.Errorf("katrina not a platform admin: %v", err)
+	check(do(h, srv, "nkirsch", "POST", "/admin/platform-admins", url.Values{"login": {"juniper"}}), 303, "/admin", "")
+	if _, err := h.reg.PlatformAdmin(ctx, "juniper"); err != nil {
+		t.Errorf("juniper not a platform admin: %v", err)
 	}
-	check(do(h, srv, "nkirsch", "GET", "/admin", nil), 200, "", `action="/admin/platform-admins/katrina/delete"`)
+	check(do(h, srv, "nkirsch", "GET", "/admin", nil), 200, "", `action="/admin/platform-admins/juniper/delete"`)
 	check(do(h, srv, "nkirsch", "GET", "/admin", nil), 200, "", ">Provision</button>")
 	// Admin names people: a platform admin who signed in with Google, by their login too.
 	h.reg.SetUser(ctx, "nick@example.org", "Nick Kirsch", "")
@@ -158,9 +158,9 @@ func TestHubTenants(t *testing.T) {
 	check(do(h, srv, "nkirsch", "GET", "/admin", nil), 200, "", ">Re-provision</button>")
 	check(do(h, srv, "nkirsch", "POST", "/admin/platform-admins/nkirsch/delete", url.Values{}), 303,
 		"/admin?flash=You+can%27t+remove+yourself", "")
-	check(do(h, srv, "nkirsch", "POST", "/admin/platform-admins/katrina/delete", url.Values{}), 303, "/admin?flash=Removed+katrina", "")
-	if _, err := h.reg.PlatformAdmin(ctx, "katrina"); err == nil {
-		t.Error("katrina still a platform admin")
+	check(do(h, srv, "nkirsch", "POST", "/admin/platform-admins/juniper/delete", url.Values{}), 303, "/admin?flash=Removed+juniper", "")
+	if _, err := h.reg.PlatformAdmin(ctx, "juniper"); err == nil {
+		t.Error("juniper still a platform admin")
 	}
 
 	// Cross-site POSTs are refused.
@@ -573,8 +573,8 @@ func TestHubCreators(t *testing.T) {
 	ctx := context.Background()
 	h := testHub(t)
 	roles := map[string]map[string]string{
-		"builder": {"bob": "member", "momo": "member"},
-		"momo":    {"momo": "admin"},
+		"builder": {"bob": "member", "maple": "member"},
+		"maple":   {"maple": "admin"},
 	}
 	remote := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("Authorization") != "Bearer stats" {
@@ -586,7 +586,7 @@ func TestHubCreators(t *testing.T) {
 	}))
 	defer remote.Close()
 	h.cfg.StatsToken = "stats"
-	h.cfg.Sites = []remoteSite{{Name: "builder", URL: remote.URL + "/builder"}, {Name: "momo", URL: remote.URL + "/momo"}}
+	h.cfg.Sites = []remoteSite{{Name: "builder", URL: remote.URL + "/builder"}, {Name: "maple", URL: remote.URL + "/maple"}}
 	h.cfg.CreatorsFrom = []string{"builder"}
 	srv := h.routes()
 	code := func(w *httptest.ResponseRecorder, want int) {
@@ -626,9 +626,9 @@ func TestHubCreators(t *testing.T) {
 	code(do(h, srv, "jerry", "GET", "/jerrys/", nil), 200)
 	code(do(h, srv, "jerry", "POST", "/new", url.Values{"slug": {"jerry2"}}), 403) // one app each
 
-	// Members of builder may create; momo admins her own site, so she has hers.
+	// Members of builder may create; maple admins her own site, so she has hers.
 	code(do(h, srv, "bob", "GET", "/new", nil), 200)
-	code(do(h, srv, "momo", "GET", "/new", nil), 403)
+	code(do(h, srv, "maple", "GET", "/new", nil), 403)
 	code(do(h, srv, "mallory", "GET", "/new", nil), 403)
 
 	// A Google creator gets a board login from their address.

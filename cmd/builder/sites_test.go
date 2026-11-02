@@ -11,11 +11,11 @@ import (
 )
 
 func TestParseSites(t *testing.T) {
-	got, err := parseSites(" builder=https://builder.extreme.org/  nick.org=https://www.nick.org/iterate,")
+	got, err := parseSites(" builder=https://builder.extreme.org/  blog.example=https://www.blog.example/iterate,")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(got) != 2 || got[0] != (remoteSite{"builder", "https://builder.extreme.org"}) || got[1].URL != "https://www.nick.org/iterate" {
+	if len(got) != 2 || got[0] != (remoteSite{"builder", "https://builder.extreme.org"}) || got[1].URL != "https://www.blog.example/iterate" {
 		t.Fatalf("got %+v", got)
 	}
 	if _, err := parseSites("nope"); err == nil {
@@ -48,7 +48,7 @@ func TestFetchSite(t *testing.T) {
 		}
 	}))
 	defer srv.Close()
-	s := remoteSite{Name: "nick.org", URL: srv.URL + "/iterate"}
+	s := remoteSite{Name: "blog.example", URL: srv.URL + "/iterate"}
 
 	row := fetchSite(context.Background(), srv.Client(), s, "tok")
 	if row.Health != "ok" || !row.Detail || row.Stats.Open != 3 || row.Stats.Spend30d != 1.5 || row.Stats.LastRun.Status != "done" || row.Board != srv.URL+"/iterate/" {
@@ -99,7 +99,7 @@ func TestHubSites(t *testing.T) {
 		}
 	}))
 	defer remote.Close()
-	h.cfg.Sites, h.cfg.StatsToken = []remoteSite{{Name: "momo", URL: remote.URL}}, "tok"
+	h.cfg.Sites, h.cfg.StatsToken = []remoteSite{{Name: "maple", URL: remote.URL}}, "tok"
 	app := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/alpha/health":
@@ -121,7 +121,7 @@ func TestHubSites(t *testing.T) {
 	if w := do(h, srv, "mallory", "GET", "/admin/sites", nil); w.Code != 301 || w.Header().Get("Location") != "/" {
 		t.Fatalf("old sites path: %d %q", w.Code, w.Header().Get("Location"))
 	}
-	if body := do(h, srv, "mallory", "GET", "/", nil).Body.String(); strings.Contains(body, "momo") || strings.Contains(body, "30-day") {
+	if body := do(h, srv, "mallory", "GET", "/", nil).Body.String(); strings.Contains(body, "maple") || strings.Contains(body, "30-day") {
 		t.Errorf("a non-admin sees every board: %s", body)
 	}
 	w := do(h, srv, "nkirsch", "GET", "/", nil)
@@ -132,7 +132,7 @@ func TestHubSites(t *testing.T) {
     <td><a href="` + app.URL + `/alpha">` + strings.TrimPrefix(app.URL, "http://") + `/alpha</a></td>
     <td><span class="badge">admin</span></td>`,
 		"v26.10.30-2", `<td class="num">2</td>`, // the starter item and Dark mode
-		`<td><a href="` + remote.URL + `/"><b>momo</b></a></td>`, `<td><span class="badge">standalone</span></td>`, "v26.10.20-1", `<td class="num">4</td>`, "$2.25", "<b>$2.25</b>",
+		`<td><a href="` + remote.URL + `/"><b>maple</b></a></td>`, `<td><span class="badge">standalone</span></td>`, "v26.10.20-1", `<td class="num">4</td>`, "$2.25", "<b>$2.25</b>",
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("apps page missing %q", want)

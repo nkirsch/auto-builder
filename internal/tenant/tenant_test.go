@@ -270,17 +270,17 @@ func TestCreators(t *testing.T) {
 	if err := r.AddCreator(ctx, " @jerry ", "nkirsch"); err != nil {
 		t.Fatal(err)
 	}
-	if err := r.AddCreator(ctx, "Momo@Example.org", "nkirsch"); err != nil {
+	if err := r.AddCreator(ctx, "Maple@Example.org", "nkirsch"); err != nil {
 		t.Fatal(err)
 	}
 	if err := r.AddCreator(ctx, "", "nkirsch"); err == nil {
 		t.Error("empty creator accepted")
 	}
-	if got, _ := r.Creators(ctx); len(got) != 2 || got[0] != "jerry" || got[1] != "momo@example.org" {
+	if got, _ := r.Creators(ctx); len(got) != 2 || got[0] != "jerry" || got[1] != "maple@example.org" {
 		t.Fatalf("creators %q", got)
 	}
-	if ok, _ := r.Creator(ctx, "momo@EXAMPLE.org"); !ok {
-		t.Error("momo not a creator")
+	if ok, _ := r.Creator(ctx, "maple@EXAMPLE.org"); !ok {
+		t.Error("maple not a creator")
 	}
 	if ok, _ := r.Creator(ctx, "mallory"); ok {
 		t.Error("mallory a creator")

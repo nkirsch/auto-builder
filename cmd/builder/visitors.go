@@ -36,7 +36,8 @@ const (
 	visitorRows     = 300
 	visitorTimeline = 60
 	versionsTTL     = time.Hour
-	adminIPDays     = 90 // sign-ins are kept 90 days
+	versionsRetry   = 10 * time.Minute // after a failed revision lookup
+	adminIPDays     = 90               // sign-ins are kept 90 days
 )
 
 // version names what a revision served: its release tag (else the short SHA)
@@ -111,8 +112,11 @@ func (v *versioner) labelsFor(ctx context.Context) map[string]version {
 	labels := map[string]version{}
 	revs, err := v.revisions(ctx)
 	if err != nil {
+		// Unlabeled (the page shows revision names) until versionsRetry passes,
+		// so an app whose service can't be read doesn't cost a lookup per page.
 		slog.Warn("visitors revisions", "err", err)
-		return labels // unlabeled: the page shows revision names; retried next time
+		v.labels, v.at = labels, time.Now().Add(versionsRetry-versionsTTL)
+		return labels
 	}
 	var (
 		commits []github.Commit
@@ -397,19 +401,11 @@ func (h *hub) adminIPs(ctx context.Context, slug string) (map[string]bool, error
 	for _, a := range pas {
 		ids = append(ids, a.Login, a.Email)
 	}
-	st, err := h.reg.Store(ctx, slug)
+	admins, err := h.reg.BoardAdmins(ctx, slug)
 	if err != nil {
 		return nil, err
 	}
-	members, err := st.Members(ctx)
-	if err != nil {
-		return nil, err
-	}
-	for _, m := range members {
-		if m.IsAdmin() {
-			ids = append(ids, m.Login, m.Email)
-		}
-	}
+	ids = append(ids, admins...)
 	ips, err := h.reg.SignInIPs(ctx, ids, time.Now().AddDate(0, 0, -adminIPDays))
 	if err != nil {
 		return nil, err

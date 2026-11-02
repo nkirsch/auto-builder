@@ -39,10 +39,8 @@
 {{else}}<p class="muted">No apps yet.</p>{{end}}
 {{with .Data.Upstream}}
 <h2>Upstream</h2>
-{{with .Lag}}{{if .Known}}<p>{{if .N}}<a href="https://github.com/{{$.Data.Upstream.Platform}}">{{$.Data.Upstream.Platform}}</a> is <b class="behind">{{.N}}{{if .More}}+{{end}} commit{{if ne .N 1}}s{{end}} behind</b> <a href="https://github.com/{{$.Data.Upstream.Repo}}/commits/master">{{$.Data.Upstream.Repo}}</a>.{{else}}<a href="https://github.com/{{$.Data.Upstream.Platform}}">{{$.Data.Upstream.Platform}}</a> is <b>up to date</b> with <a href="https://github.com/{{$.Data.Upstream.Repo}}">{{$.Data.Upstream.Repo}}</a>.{{end}}</p>{{end}}{{end}}
 <form method="post" action="/admin/upstream" class="row">
-  {{if .On}}<input type="hidden" name="on" value="false"><span><a href="https://github.com/{{.Platform}}">{{.Platform}}</a> keeps up with <a href="https://github.com/{{.Repo}}">{{.Repo}}</a>: new commits merge through a PR once CI passes, then deploy.{{with .PR}} <a href="https://github.com/{{$.Data.Upstream.Platform}}/pull/{{.}}">PR #{{.}}</a> is in flight.{{end}}</span><button class="secondary">Turn off</button>
-  {{else}}<input type="hidden" name="on" value="true"><span><a href="https://github.com/{{.Platform}}">{{.Platform}}</a> doesn't keep up with <a href="https://github.com/{{.Repo}}">{{.Repo}}</a> automatically.</span><button class="secondary">Keep up with upstream</button>{{end}}
+  <input type="hidden" name="on" value="{{not .On}}"><span><a href="https://github.com/{{.Platform}}">{{.Platform}}</a> {{if .Lag.Known}}{{if .Lag.N}}is <b class="behind">{{.Lag.N}}{{if .Lag.More}}+{{end}} commit{{if ne .Lag.N 1}}s{{end}} behind</b> <a href="https://github.com/{{.Repo}}/commits/master">{{.Repo}}</a>{{else}}is <b>up to date</b> with <a href="https://github.com/{{.Repo}}">{{.Repo}}</a>{{end}}{{else}}tracks <a href="https://github.com/{{.Repo}}">{{.Repo}}</a>{{end}}.{{if .On}}{{with .PR}} <a href="https://github.com/{{$.Data.Upstream.Platform}}/pull/{{.}}">PR #{{.}}</a> is in flight.{{end}}{{end}}</span><button class="secondary">{{if .On}}Stop keeping up{{else}}Keep up with upstream{{end}}</button>
 </form>
 {{end}}
 <h2>Platform admins</h2>

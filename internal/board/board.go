@@ -106,6 +106,8 @@ type Board struct {
 	Upstream string
 	// Traffic, when set, links the admin page to the site's traffic at /logs.
 	Traffic bool
+	// Visitors, when set, links it to the app's visitors at /visitors too (hubs only).
+	Visitors bool
 	// HubLimits: the hub's platform admins set the spend limit; board admins only see it.
 	HubLimits bool
 	// Platform, when set (multi-tenant mode), is whom admins escalate to.
@@ -982,7 +984,7 @@ func (b *Board) admin(w http.ResponseWriter, r *http.Request) {
 	if b.Mailer != nil {
 		mail = map[string]any{"From": b.Mailer.Mailbox(r)}
 	}
-	b.render(w, r, "admin", "Admin", map[string]any{"Members": members, "Stuck": stuck, "Hold": b.inviteHold(r.Context()), "Costs": costs, "Traffic": b.Traffic,
+	b.render(w, r, "admin", "Admin", map[string]any{"Members": members, "Stuck": stuck, "Hold": b.inviteHold(r.Context()), "Costs": costs, "Traffic": b.Traffic, "Visitors": b.Visitors,
 		"Limit": limit, "MemberCosts": byMember, "Stats": []db.RunStats{recent, all}, "Upstream": upstream, "Mail": mail, "HubLimits": b.HubLimits,
 		"Workflows": workflows, "GitHub": b.gitHubSignIn()})
 }

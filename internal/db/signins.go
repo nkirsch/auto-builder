@@ -122,6 +122,30 @@ func AllSignIns(ctx context.Context, pool *pgxpool.Pool, board, identity string,
 	return out, rows.Err()
 }
 
+// SignInIPs lists the distinct IPs that identities signed in from, at any
+// board, since a time: the visitors page leaves admins' own visits out.
+func SignInIPs(ctx context.Context, pool *pgxpool.Pool, identities []string, since time.Time) ([]string, error) {
+	ids := make([]string, len(identities))
+	for i, id := range identities {
+		ids[i] = strings.ToLower(id)
+	}
+	rows, err := pool.Query(ctx, `SELECT DISTINCT ip FROM signins
+		WHERE at > $2 AND result = 'ok' AND ip <> '' AND lower(identity) = ANY($1)`, ids, since)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []string
+	for rows.Next() {
+		var ip string
+		if err := rows.Scan(&ip); err != nil {
+			return nil, err
+		}
+		out = append(out, ip)
+	}
+	return out, rows.Err()
+}
+
 func PruneSignIns(ctx context.Context, pool *pgxpool.Pool, before time.Time) error {
 	_, err := pool.Exec(ctx, `DELETE FROM signins WHERE at < $1`, before)
 	return err

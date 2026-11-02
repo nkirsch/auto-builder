@@ -46,6 +46,8 @@ type hit struct {
 	IP, UA, Path, Ref string
 	Method            string
 	Status            int
+	Revision          string // the Cloud Run revision that served it
+	Service           string // projects/P/locations/R/services/S, from the entry's resource
 }
 
 type count struct {
@@ -154,13 +156,21 @@ type logView struct {
 func (l logView) hits(ctx context.Context, since time.Time) ([]hit, error) {
 	var out []hit
 	filter := fmt.Sprintf(`timestamp >= %q AND httpRequest.requestMethod = "GET"`, since.UTC().Format(time.RFC3339))
-	err := l.list(ctx, filter, "entries(timestamp,httpRequest)", 100, func(raw json.RawMessage) error {
+	err := l.list(ctx, filter, "entries(timestamp,httpRequest,resource/labels)", 100, func(raw json.RawMessage) error {
 		var e struct {
 			Timestamp   time.Time `json:"timestamp"`
 			HTTPRequest struct {
 				RequestMethod, RequestURL, UserAgent, RemoteIP, Referer string
 				Status                                                  int
 			} `json:"httpRequest"`
+			Resource struct {
+				Labels struct {
+					ProjectID    string `json:"project_id"`
+					Location     string `json:"location"`
+					ServiceName  string `json:"service_name"`
+					RevisionName string `json:"revision_name"`
+				} `json:"labels"`
+			} `json:"resource"`
 		}
 		if err := json.Unmarshal(raw, &e); err != nil {
 			return err
@@ -170,8 +180,13 @@ func (l logView) hits(ctx context.Context, since time.Time) ([]hit, error) {
 		if u, err := url.Parse(h.RequestURL); err == nil {
 			p = u.Path
 		}
+		lb := e.Resource.Labels
+		svc := ""
+		if lb.ProjectID != "" && lb.Location != "" && lb.ServiceName != "" {
+			svc = fmt.Sprintf("projects/%s/locations/%s/services/%s", lb.ProjectID, lb.Location, lb.ServiceName)
+		}
 		out = append(out, hit{At: e.Timestamp, IP: h.RemoteIP, UA: h.UserAgent, Path: p,
-			Ref: h.Referer, Method: h.RequestMethod, Status: h.Status})
+			Ref: h.Referer, Method: h.RequestMethod, Status: h.Status, Revision: lb.RevisionName, Service: svc})
 		return nil
 	})
 	return out, err
@@ -262,23 +277,43 @@ type traffic struct {
 	mu   sync.Mutex
 	at   time.Time
 	rep  *trafficReport
+	raw  []hit     // the hits rep was built from, for the visitors pages
+	from time.Time // where raw starts
 }
 
 // report returns the cached report, rebuilding it when stale or on refresh.
 func (t *traffic) report(ctx context.Context, refresh bool) (trafficReport, error) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
+	if err := t.load(ctx, refresh); err != nil {
+		return trafficReport{}, err
+	}
+	return *t.rep, nil
+}
+
+// recent returns the cached hits (since from) behind the report.
+func (t *traffic) recent(ctx context.Context, refresh bool) ([]hit, time.Time, error) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if err := t.load(ctx, refresh); err != nil {
+		return nil, time.Time{}, err
+	}
+	return t.raw, t.from, nil
+}
+
+// load rereads the hits and rebuilds the report when stale or on refresh; t.mu held.
+func (t *traffic) load(ctx context.Context, refresh bool) error {
 	now := t.now()
 	if t.rep == nil || now.Sub(t.at) > trafficCache || refresh {
 		from := time.Date(now.In(pacific).Year(), now.In(pacific).Month(), now.In(pacific).Day()-trafficDays+1, 0, 0, 0, 0, pacific)
 		hits, err := t.hits(ctx, from)
 		if err != nil {
-			return trafficReport{}, err
+			return err
 		}
 		r := buildReport(hits, t.host, from, now, t.home(ctx))
-		t.rep, t.at = &r, now
+		t.rep, t.at, t.raw, t.from = &r, now, hits, from
 	}
-	return *t.rep, nil
+	return nil
 }
 
 func newTraffic(baseURL, project, service string) *traffic {

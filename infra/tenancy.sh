@@ -11,6 +11,7 @@ NAME=${NAME:-extreme}                  # prefixes every platform resource and se
 DOMAIN=${DOMAIN:-extreme.org}          # hub at the apex, apps on <slug>.$DOMAIN
 ZONE=${ZONE:-extreme-org}              # Cloud DNS zone for $DOMAIN
 HUB_ALIASES=${HUB_ALIASES-hub.$DOMAIN}  # space-separated hosts in $DOMAIN that 308 to the hub
+VISITORS_HOST=visitors.$DOMAIN         # mapped to the hub, which sends it to /visitors
 ORG=${ORG:-extreme-dot-org}            # GitHub org holding the app repos
 PLATFORM_REPO=${PLATFORM_REPO:-extreme-dot-org/extreme}
 SQL_INSTANCE=${SQL_INSTANCE:-builder}
@@ -208,7 +209,7 @@ for type in A AAAA; do
     g dns record-sets create "$DOMAIN." --type "$type" --ttl 300 --rrdatas "$rr" --zone "$ZONE"
 done
 
-for host in $HUB_ALIASES; do
+for host in $HUB_ALIASES $VISITORS_HOST; do
   log "alias $host"
   g beta run domain-mappings describe --domain "$host" --region "$REGION" >/dev/null 2>&1 ||
     g beta run domain-mappings create --service "$NAME" --domain "$host" --region "$REGION"

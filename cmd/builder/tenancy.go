@@ -119,8 +119,10 @@ type hub struct {
 	mu      sync.Mutex
 	tenants map[string]*tenantRT
 
-	trafficMu sync.Mutex
-	traffics  map[string]*traffic // each app's traffic report, shared by its /logs and /admin/traffic
+	trafficMu  sync.Mutex
+	traffics   map[string]*traffic   // each app's traffic report, shared by its /logs and /admin/traffic
+	versioners map[string]*versioner // each app's revision labels, for the visitors pages
+	vkey       []byte                // the visitors pages' pseudonym key
 
 	behindMu sync.Mutex
 	behindAt time.Time   // when behindOf was last counted
@@ -200,7 +202,7 @@ func newHub(ctx context.Context, cfg config, reg *tenant.Registry, storage store
 
 func (h *hub) parse() error {
 	h.tmpl = map[string]*template.Template{}
-	for _, p := range []string{"login", "index", "new", "admin", "urgent", "traffic", "signins", "hubs"} {
+	for _, p := range []string{"login", "index", "new", "admin", "urgent", "traffic", "signins", "hubs", "visitors"} {
 		t, err := template.New("").Funcs(template.FuncMap{
 			"short": func(s string) string { return s[:min(7, len(s))] },
 			"ago":   func(t time.Time) string { return t.Format("Jan 2, 2006") },
@@ -248,6 +250,7 @@ func (h *hub) routes() http.Handler {
 	mux.Handle("GET /api/signins", auth.Bearer(h.cfg.StatsToken, http.HandlerFunc(h.apiSignIns)))   // visitors.nick.org names visitors
 	h.apiRoutes(mux)
 	mux.HandleFunc("GET /admin/traffic", h.platformAdmin(h.trafficAll))
+	mux.HandleFunc("GET /visitors", h.signedIn(h.visitorsAll))
 	mux.HandleFunc("GET /admin/signins", h.platformAdmin(h.signIns))
 	mux.HandleFunc("POST /admin/tenants/{slug}/items/{id}/reassign", h.platformAdmin(h.reassign))
 	mux.HandleFunc("GET /{slug}", func(w http.ResponseWriter, r *http.Request) {
@@ -285,7 +288,7 @@ func (h *hub) routes() http.Handler {
 	mux.Handle("POST /api/gate/tick", auth.Bearer(h.cfg.TickToken, http.HandlerFunc(h.tick)))
 	// Aliases (e.g. hub.<domain>) 308 to BASE_URL's host, where the session
 	// cookie and the OAuth callbacks live.
-	return redirectHosts(h.cfg.BaseURL, h.cfg.RedirectHosts, mux)
+	return redirectHosts(h.cfg.BaseURL, h.cfg.RedirectHosts, h.visitorsHost(mux))
 }
 
 // runner authenticates a RUN_TOKEN and hands its tenant and run to f.
@@ -529,7 +532,7 @@ func (h *hub) tenantFor(ctx context.Context, slug string) (*tenantRT, error) {
 	b := &board.Board{
 		Store: st, Storage: storage, Auth: ta, Gate: g, BaseURL: base,
 		BotLogin: h.cfg.BotLogin, GitSHA: h.cfg.GitSHA, Repo: t.Repo, CodeRepo: h.cfg.Repo, GitHub: gh,
-		Name: t.Name, SiteURL: h.appURL(slug), Releases: h.cfg.Releases, Traffic: h.cfg.LogProject != "",
+		Name: t.Name, SiteURL: h.appURL(slug), Releases: h.cfg.Releases, Traffic: h.cfg.LogProject != "", Visitors: h.cfg.LogProject != "",
 		Platform: hubPlatform{h, slug}, Deployed: deployed, HubLimits: true, SignIns: h.reg, Slug: slug,
 		Ready: func(ctx context.Context) bool {
 			t, err := h.reg.Tenant(ctx, slug)
@@ -583,7 +586,8 @@ func (h *hub) tenantFor(ctx context.Context, slug string) (*tenantRT, error) {
 	if err := b.Routes(mux); err != nil {
 		return nil, err
 	}
-	mux.Handle("GET /logs", ta.RequireAdmin(h.traffic(slug))) // the app's traffic
+	mux.Handle("GET /logs", ta.RequireAdmin(h.traffic(slug)))         // the app's traffic
+	mux.Handle("GET /visitors", ta.RequireAdmin(h.visitorsFor(slug))) // and its visitors
 	scfg := h.cfg
 	scfg.Repo, scfg.BaseURL = t.Repo, base
 	rt := &tenantRT{

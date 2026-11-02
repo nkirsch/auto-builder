@@ -1,0 +1,50 @@
+{{define "content"}}
+<h1>Visitors</h1>
+{{with .Data.Pick}}
+<p class="hint">You admin more than one app; pick one.</p>
+<ul>{{range .}}<li><a href="/{{.Slug}}/visitors">{{.Slug}}</a></li>{{end}}</ul>
+{{else}}{{with .Data.Report}}
+<p class="hint">{{.Scope}} · {{ago .From}} – now, from each app's Cloud Run request log. A visitor is a browser (it loaded CSS or JS) shown by a pseudonym only: no IPs, user agents or names. Bots, crawlers, admins' own visits and the operator's home network are left out ({{.Dropped}} page views). Cached for an hour, <a href="?{{with $.Data.App}}app={{.}}&amp;{{end}}refresh">refresh</a>.</p>
+{{if $.Data.Tenants}}<form method="get" action="/visitors" class="row">
+  <select name="app" aria-label="App"><option value="">Every app</option>
+  {{range $.Data.Tenants}}{{if eq .Status "ready"}}<option value="{{.Slug}}"{{if eq $.Data.App .Slug}} selected{{end}}>{{.Slug}}</option>{{end}}{{end}}
+  </select> <button class="secondary">Show</button>
+</form>{{end}}
+{{with .Errs}}<p class="bad">Couldn't read: {{range $i, $e := .}}{{if $i}}, {{end}}{{$e}}{{end}}.</p>{{end}}
+<p><b>{{.Total}}</b> visitors · <b>{{.Views}}</b> page views</p>
+
+<h2>Versions</h2>
+<p class="hint">What each deploy served: its release (or commit) and the PRs it shipped.</p>
+<div class="table-wrap"><table class="sites">
+  <thead><tr>{{if .All}}<th>App</th>{{end}}<th>Version</th><th>Shipped</th><th>Deployed</th><th class="num">Visitors</th><th class="num">Views</th></tr></thead>
+  <tbody>
+  {{range .Versions}}<tr>{{if $.Data.Report.All}}<td><a href="/visitors?app={{.App}}">{{.App}}</a></td>{{end}}
+    <td><b>{{.Label}}</b></td>
+    <td>{{range $i, $c := .Changes}}{{if $i}}<br>{{end}}{{$c}}{{else}}<span class="muted">–</span>{{end}}</td>
+    <td class="muted">{{if not .Created.IsZero}}{{when .Created}}{{end}}</td>
+    <td class="num">{{.Visitors}}</td><td class="num">{{.Views}}</td></tr>
+  {{else}}<tr><td colspan="6" class="muted">No page views yet.</td></tr>{{end}}
+  </tbody>
+</table></div>
+
+<h2>Visitors</h2>
+{{if gt .Total (len .Rows)}}<p class="hint">The {{len .Rows}} most recent of {{.Total}}.</p>{{end}}
+<div class="table-wrap"><table class="sites">
+  <thead><tr><th>Visitor</th><th>Browser</th>{{if .All}}<th>Apps</th>{{end}}<th>Versions seen</th><th class="num">Views</th><th>Last seen</th></tr></thead>
+  <tbody>
+  {{range .Rows}}<tr>
+    <td><details><summary><code>{{.ID}}</code></summary>
+      <table>{{range .Timeline}}<tr><td class="muted">{{when .At}}</td>{{if $.Data.Report.All}}<td>{{.App}}</td>{{end}}<td>{{.Path}}</td><td class="muted">{{.Version}}</td></tr>{{end}}
+      {{if .More}}<tr><td colspan="4" class="muted">and {{.More}} earlier</td></tr>{{end}}</table>
+      {{with .Referrers}}<p class="muted">From {{range $i, $r := .}}{{if $i}}, {{end}}{{$r}}{{end}}</p>{{end}}
+    </details></td>
+    <td>{{.Browser}}</td>
+    {{if $.Data.Report.All}}<td>{{range $i, $a := .Apps}}{{if $i}}, {{end}}{{$a}}{{end}}</td>{{end}}
+    <td>{{range $i, $v := .Versions}}{{if $i}}, {{end}}{{$v}}{{end}}</td>
+    <td class="num">{{.Views}}</td>
+    <td class="muted">{{when .Last}}</td>
+  </tr>{{else}}<tr><td colspan="6" class="muted">No visitors yet.</td></tr>{{end}}
+  </tbody>
+</table></div>
+{{end}}{{end}}
+{{end}}

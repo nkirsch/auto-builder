@@ -6,6 +6,9 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
+	"strings"
+	"time"
 
 	"golang.org/x/oauth2"
 	"golang.org/x/oauth2/google"
@@ -53,6 +56,53 @@ func (s *ServiceSHA) SHA(ctx context.Context) (string, error) {
 		}
 	}
 	return "", nil
+}
+
+// Revision is one of a service's Cloud Run revisions and the GIT_SHA it runs.
+type Revision struct {
+	Name    string // short name, as request logs label it
+	Created time.Time
+	SHA     string
+}
+
+// Revisions lists the service's revisions, at most pages of 100.
+func (s *ServiceSHA) Revisions(ctx context.Context, pages int) ([]Revision, error) {
+	var out []Revision
+	token := ""
+	for range pages {
+		var list struct {
+			Revisions []struct {
+				Name       string    `json:"name"`
+				CreateTime time.Time `json:"createTime"`
+				Containers []struct {
+					Env []struct{ Name, Value string } `json:"env"`
+				} `json:"containers"`
+			} `json:"revisions"`
+			NextPageToken string `json:"nextPageToken"`
+		}
+		path := s.Service + "/revisions?pageSize=100"
+		if token != "" {
+			path += "&pageToken=" + url.QueryEscape(token)
+		}
+		if err := s.get(ctx, path, &list); err != nil {
+			return nil, err
+		}
+		for _, r := range list.Revisions {
+			rev := Revision{Name: r.Name[strings.LastIndex(r.Name, "/")+1:], Created: r.CreateTime}
+			for _, c := range r.Containers {
+				for _, e := range c.Env {
+					if e.Name == "GIT_SHA" {
+						rev.SHA = e.Value
+					}
+				}
+			}
+			out = append(out, rev)
+		}
+		if token = list.NextPageToken; token == "" {
+			break
+		}
+	}
+	return out, nil
 }
 
 func (s *ServiceSHA) get(ctx context.Context, name string, out any) error {

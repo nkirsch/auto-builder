@@ -34,6 +34,9 @@ CLAUDE_FEDERATION=${CLAUDE_FEDERATION-}
 # A DNS name (dynamic DNS) whose IPs' visits /logs and /visitors leave out,
 # kept in secret $NAME-HOME_HOST; empty keeps the secret's value.
 HOME_HOST=${HOME_HOST-}
+# The secret this hub's STATS_TOKEN comes from. Give a hub its own when hubs
+# share a project but shouldn't read each other's /api/overview and /api/signins.
+STATS_SECRET=${STATS_SECRET:-STATS_TOKEN}
 
 g() { gcloud --project "$PROJECT" --quiet "$@"; }
 run_env() { # services|jobs NAME PREFIX: NAME's plain env vars starting with PREFIX, as A=1,B=2
@@ -78,7 +81,7 @@ fi
 log "secrets"
 secret "$NAME-SESSION_KEY" "$(openssl rand -hex 32)"
 secret "$NAME-TICK_TOKEN" "$(openssl rand -hex 32)"
-secret STATS_TOKEN "$(openssl rand -hex 32)" # shared with bootstrap.sh and the single-board sites
+secret "$STATS_SECRET" "$(openssl rand -hex 32)" # STATS_TOKEN: shared with bootstrap.sh and the single-board sites
 # Filled in by hand (TENANCY.md manual steps).
 for s in GITHUB_CLIENT_ID GITHUB_CLIENT_SECRET GOOGLE_CLIENT_ID GOOGLE_CLIENT_SECRET \
   GH_APP_ID GH_APP_INSTALLATION_ID GH_APP_PRIVATE_KEY $KEY_SECRET; do
@@ -88,7 +91,7 @@ done
 mounts() { for m in $1; do printf '%s:latest,' "$m"; done | sed 's/,$//'; }
 prefixed() { for s in $1; do printf '%s=%s ' "$s" "$NAME-$s"; done; }
 APP_SECRETS="GH_APP_ID GH_APP_INSTALLATION_ID GH_APP_PRIVATE_KEY"
-SERVER_MOUNTS="$(prefixed "DATABASE_URL SESSION_KEY TICK_TOKEN GITHUB_CLIENT_ID GITHUB_CLIENT_SECRET GOOGLE_CLIENT_ID GOOGLE_CLIENT_SECRET $APP_SECRETS") PUSHOVER_TOKEN=PUSHOVER_TOKEN PUSHOVER_USER=PUSHOVER_USER STATS_TOKEN=STATS_TOKEN"
+SERVER_MOUNTS="$(prefixed "DATABASE_URL SESSION_KEY TICK_TOKEN GITHUB_CLIENT_ID GITHUB_CLIENT_SECRET GOOGLE_CLIENT_ID GOOGLE_CLIENT_SECRET $APP_SECRETS") PUSHOVER_TOKEN=PUSHOVER_TOKEN PUSHOVER_USER=PUSHOVER_USER STATS_TOKEN=$STATS_SECRET"
 RUNNER_MOUNTS=$(prefixed "$KEY_SECRET")
 if [ -n "$HOME_HOST" ]; then
   if ! g secrets describe "$NAME-HOME_HOST" >/dev/null 2>&1; then
@@ -187,7 +190,7 @@ fi
 aliases=$(echo $HUB_ALIASES | tr ' ' ,)
 g run services update "$NAME" --region "$REGION" \
   --update-env-vars "^;^SITES=$SITES;CREATORS_FROM=$CREATORS_FROM;APP_DOMAIN=$DOMAIN;REDIRECT_HOSTS=$aliases${HUBS:+;HUBS=$HUBS}" \
-  --update-secrets "$(mounts "STATS_TOKEN=STATS_TOKEN $HOME_MOUNT")" >/dev/null
+  --update-secrets "$(mounts "STATS_TOKEN=$STATS_SECRET $HOME_MOUNT")" >/dev/null
 retry g run services add-iam-policy-binding "$NAME" --region "$REGION" \
   --member "serviceAccount:$(sa deployer)" --role roles/run.developer >/dev/null
 

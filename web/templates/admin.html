@@ -80,8 +80,7 @@
 {{with .Data.Upstream}}
 <h2>Upstream</h2>
 <form method="post" action="{{base}}/admin/upstream" class="row">
-  {{if .On}}<input type="hidden" name="on" value="false"><span>Keeping up with <a href="https://github.com/{{.Repo}}">{{.Repo}}</a>: new commits merge through a PR (this site's own files kept) once CI passes, then deploy.{{with .PR}} <a href="https://github.com/{{$.Repo}}/pull/{{.}}">PR #{{.}}</a> is in flight.{{end}}</span><button class="secondary">Turn off</button>
-  {{else}}<input type="hidden" name="on" value="true"><span>Not keeping up with <a href="https://github.com/{{.Repo}}">{{.Repo}}</a> automatically.</span><button class="secondary">Keep up with upstream</button>{{end}}
+  <input type="hidden" name="on" value="{{not .On}}"><span>{{if .On}}Keeping up with{{else}}Not keeping up with{{end}} <a href="https://github.com/{{.Repo}}">{{.Repo}}</a>.{{if .On}}{{with .PR}} <a href="https://github.com/{{$.Repo}}/pull/{{.}}">PR #{{.}}</a> is in flight.{{end}}{{end}}</span><button class="secondary">{{if .On}}Stop keeping up{{else}}Keep up with upstream{{end}}</button>
 </form>
 {{end}}
 <h2>Workflows</h2>

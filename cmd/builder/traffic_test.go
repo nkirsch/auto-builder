@@ -2,7 +2,9 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -127,5 +129,46 @@ func TestPage(t *testing.T) {
 	}
 	if page(hit{Method: "POST", Status: 200, Path: "/"}) || page(hit{Method: "GET", Status: 404, Path: "/"}) {
 		t.Error("POST or 404 counted")
+	}
+}
+
+type rtFunc func(*http.Request) (*http.Response, error)
+
+func (f rtFunc) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
+
+// list retries a 429 from entries.list and fails once the retries run out.
+func TestLogViewListRetries429(t *testing.T) {
+	logBackoff = time.Millisecond
+	defer func() { logBackoff = 2 * time.Second }()
+	reply := func(code int, body string) *http.Response {
+		return &http.Response{StatusCode: code, Status: http.StatusText(code), Header: http.Header{},
+			Body: io.NopCloser(strings.NewReader(body))}
+	}
+	for _, tc := range []struct {
+		fails   int
+		wantErr bool
+	}{{2, false}, {logRetries + 1, true}} {
+		calls := 0
+		l := logView{name: "v", client: &http.Client{Transport: rtFunc(func(r *http.Request) (*http.Response, error) {
+			if r.URL.Host == "metadata.google.internal" {
+				return reply(200, `{"access_token":"t"}`), nil
+			}
+			calls++
+			if calls <= tc.fails {
+				return reply(429, `{}`), nil
+			}
+			return reply(200, `{"entries":[{},{}]}`), nil
+		})}}
+		n := 0
+		err := l.list(context.Background(), "", "entries(timestamp)", 1, func(json.RawMessage) error { n++; return nil })
+		if tc.wantErr {
+			if err == nil || calls != logRetries+1 {
+				t.Errorf("fails=%d: err=%v calls=%d, want an error after %d calls", tc.fails, err, calls, logRetries+1)
+			}
+			continue
+		}
+		if err != nil || n != 2 || calls != tc.fails+1 {
+			t.Errorf("fails=%d: err=%v entries=%d calls=%d", tc.fails, err, n, calls)
+		}
 	}
 }

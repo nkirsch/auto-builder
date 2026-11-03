@@ -79,6 +79,9 @@ func (a *Auth) log(r *http.Request, s db.SignIn, within time.Duration) {
 	}
 }
 
+// ClientIP is clientIP, for the hub's records of signed-in requests.
+func ClientIP(r *http.Request) string { return clientIP(r) }
+
 // clientIP is the first X-Forwarded-For address (Cloud Run's front end sets
 // it), else the peer's.
 func clientIP(r *http.Request) string {

@@ -229,3 +229,33 @@ func TestAPISignIns(t *testing.T) {
 		t.Errorf("signins: %+v", out)
 	}
 }
+
+// A signed-in session's later IPs + browsers join /api/signins, once each.
+func TestAPISignInsSeen(t *testing.T) {
+	h := testHub(t)
+	h.cfg.StatsToken = "tok"
+	srv := h.routes()
+	for range 2 {
+		r := httptest.NewRequest("GET", "/mine", nil)
+		r.AddCookie(h.auth.SessionCookie("pat@example.com"))
+		r.Header.Set("X-Forwarded-For", "9.9.9.9")
+		r.Header.Set("User-Agent", "Phone")
+		srv.ServeHTTP(httptest.NewRecorder(), r)
+	}
+	r := httptest.NewRequest("GET", "/static/style.css", nil)
+	r.AddCookie(h.auth.SessionCookie("pat@example.com"))
+	r.Header.Set("X-Forwarded-For", "8.8.8.8")
+	srv.ServeHTTP(httptest.NewRecorder(), r)
+
+	r = httptest.NewRequest("GET", "/api/signins?days=7", nil)
+	r.Header.Set("Authorization", "Bearer tok")
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, r)
+	var out []struct{ Identity, IP, UA string }
+	if err := json.NewDecoder(w.Body).Decode(&out); err != nil || w.Code != http.StatusOK {
+		t.Fatalf("%d %v", w.Code, err)
+	}
+	if len(out) != 1 || out[0].Identity != "pat@example.com" || out[0].IP != "9.9.9.9" || out[0].UA != "Phone" {
+		t.Errorf("signins: %+v", out)
+	}
+}

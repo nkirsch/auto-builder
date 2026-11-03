@@ -102,6 +102,8 @@ func runTenancy(ctx context.Context, cfg config) error {
 // hub serves the tenant list, app creation and platform admin, and mounts
 // each tenant's board under its slug.
 type hub struct {
+	seenMu  sync.Mutex
+	seenAt  map[string]time.Time // identity + IP + UA → when noteSeen last recorded it
 	cfg     config
 	reg     *tenant.Registry
 	auth    *auth.Auth
@@ -298,7 +300,7 @@ func (h *hub) routes() http.Handler {
 	mux.Handle("POST /api/gate/tick", auth.Bearer(h.cfg.TickToken, http.HandlerFunc(h.tick)))
 	// Aliases (e.g. hub.<domain>) 308 to BASE_URL's host, where the session
 	// cookie and the OAuth callbacks live.
-	return redirectHosts(h.cfg.BaseURL, h.cfg.RedirectHosts, h.visitorsHost(mux))
+	return redirectHosts(h.cfg.BaseURL, h.cfg.RedirectHosts, h.visitorsHost(h.noteSeen(mux)))
 }
 
 // runner authenticates a RUN_TOKEN and hands its tenant and run to f.
@@ -356,6 +358,9 @@ func (h *hub) tick(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := h.reg.PruneSignIns(r.Context(), time.Now().Add(-db.SignInKeep)); err != nil {
 		errs = append(errs, fmt.Errorf("prune sign-ins: %w", err))
+	}
+	if err := h.reg.PruneSeen(r.Context(), time.Now().Add(-db.SignInKeep)); err != nil {
+		errs = append(errs, fmt.Errorf("prune seen: %w", err))
 	}
 	if h.upstream != nil {
 		if err := h.upstream.Check(r.Context()); err != nil {

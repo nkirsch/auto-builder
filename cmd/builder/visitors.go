@@ -6,6 +6,7 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/base32"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -222,6 +223,7 @@ type visitorsReport struct {
 	Versions []versionRow
 	Dropped  int      // page views from bots, crawlers, admins and the home network
 	Errs     []string // apps whose log couldn't be read
+	Reading  []string // apps whose log is partly read; a reload continues
 }
 
 // pseudonym is a short keyed hash of IP + user agent, scoped so the same
@@ -463,12 +465,17 @@ func (h *hub) visitorsReport(ctx context.Context, slugs []string, scope string, 
 			}
 			slog.Warn("visitors", "app", slug, "err", err)
 			errs[i] = slug
+			if errors.As(err, new(errReading)) {
+				errs[i] = "~" + slug
+			}
 		}()
 	}
 	wg.Wait()
 	r := buildVisitors(apps, h.visitorKey(), scope, h.hiddenReferrer)
 	for _, e := range errs {
-		if e != "" {
+		if slug, ok := strings.CutPrefix(e, "~"); ok {
+			r.Reading = append(r.Reading, slug)
+		} else if e != "" {
 			r.Errs = append(r.Errs, e)
 		}
 	}

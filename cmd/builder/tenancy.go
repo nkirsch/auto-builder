@@ -85,7 +85,7 @@ func runTenancy(ctx context.Context, cfg config) error {
 		}
 	}
 	h.notify = notify.New(cfg.SignalURL, cfg.PushoverToken, cfg.PushoverUser)
-	srv := &http.Server{Addr: ":" + cfg.Port, Handler: logRequests(h.routes()), ReadHeaderTimeout: 10 * time.Second}
+	srv := &http.Server{Addr: ":" + cfg.Port, Handler: logRequests(h.routes(), h.auth.SignedIn), ReadHeaderTimeout: 10 * time.Second}
 	go func() {
 		<-ctx.Done()
 		shutdown, cancel := context.WithTimeout(context.Background(), 10*time.Second)

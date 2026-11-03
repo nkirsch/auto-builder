@@ -32,12 +32,13 @@ import (
 // from) and HOME_HOST's IPs are left out.
 
 const (
-	visitorBurst    = 10 // this many page views within a minute is a crawler
-	visitorRows     = 300
-	visitorTimeline = 60
-	versionsTTL     = time.Hour
-	versionsRetry   = 10 * time.Minute // after a failed revision lookup
-	adminIPDays     = 90               // sign-ins are kept 90 days
+	visitorBurst     = 10 // this many page views within a minute is a crawler
+	visitorRows      = 300
+	visitorTimeline  = 60
+	versionsTTL      = time.Hour
+	visitorsParallel = 3                // apps read at once, under Logging's per-minute read quota
+	versionsRetry    = 10 * time.Minute // after a failed revision lookup
+	adminIPDays      = 90               // sign-ins are kept 90 days
 )
 
 // version names what a revision served: its release tag (else the short SHA)
@@ -425,10 +426,13 @@ func (h *hub) visitorsReport(ctx context.Context, slugs []string, scope string, 
 	var from time.Time
 	var wg sync.WaitGroup
 	var fromMu sync.Mutex
+	sem := make(chan struct{}, visitorsParallel)
 	for i, slug := range slugs {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
+			sem <- struct{}{}
+			defer func() { <-sem }()
 			tr := h.traffic(slug)
 			hits, f, err := tr.recent(ctx, refresh)
 			if err == nil {

@@ -12,6 +12,7 @@ import (
 	"net/url"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -24,7 +25,11 @@ import (
 const (
 	trafficDays  = 30
 	trafficCache = time.Hour
+	logRetries   = 5 // retries of a 429/503 from entries.list
 )
+
+// logBackoff is the first wait after a 429/503; tests shorten it.
+var logBackoff = 2 * time.Second
 
 var (
 	pacific = mustZone("America/Los_Angeles")
@@ -226,13 +231,29 @@ func (l logView) list(ctx context.Context, filter, fields string, maxPages int, 
 	}
 	for pages := 0; pages < maxPages; pages++ {
 		b, _ := json.Marshal(body)
-		req, _ := http.NewRequestWithContext(ctx, http.MethodPost,
-			"https://logging.googleapis.com/v2/entries:list?fields="+fields+",nextPageToken", bytes.NewReader(b))
-		req.Header.Set("Authorization", "Bearer "+tok)
-		req.Header.Set("Content-Type", "application/json")
-		resp, err := l.client.Do(req)
-		if err != nil {
-			return err
+		var resp *http.Response
+		for try := 0; ; try++ {
+			req, _ := http.NewRequestWithContext(ctx, http.MethodPost,
+				"https://logging.googleapis.com/v2/entries:list?fields="+fields+",nextPageToken", bytes.NewReader(b))
+			req.Header.Set("Authorization", "Bearer "+tok)
+			req.Header.Set("Content-Type", "application/json")
+			if resp, err = l.client.Do(req); err != nil {
+				return err
+			}
+			if (resp.StatusCode != http.StatusTooManyRequests && resp.StatusCode != http.StatusServiceUnavailable) || try >= logRetries {
+				break
+			}
+			resp.Body.Close()
+			// Logging's read quota is per minute: back off 2s, 4s, 8s… (or Retry-After).
+			wait := logBackoff << try
+			if s, err := strconv.Atoi(resp.Header.Get("Retry-After")); err == nil && s > 0 {
+				wait = time.Duration(s) * time.Second
+			}
+			select {
+			case <-ctx.Done():
+				return fmt.Errorf("entries.list: %s", resp.Status)
+			case <-time.After(wait):
+			}
 		}
 		var page struct {
 			Entries       []json.RawMessage `json:"entries"`

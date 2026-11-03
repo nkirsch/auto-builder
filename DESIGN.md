@@ -42,7 +42,7 @@ internal/board  item/response/attachment handlers, mentions, markdown (goldmark,
 internal/gate   decides whether a run is warranted; launches the Job
 internal/mcp    MCP tools for the agent (modelcontextprotocol/go-sdk, Stateless streamable HTTP)
 internal/store  Storage interface: GCS or local dir
-internal/notify Pushover for the admin (optional) + in-app notifications
+internal/notify admin push via signal.nick.org or Pushover (optional) + in-app notifications
 web/            templates + static CSS
 .claude/commands/build-board.md   the agent's instructions
 infra/bootstrap.sh                idempotent gcloud setup
@@ -105,8 +105,11 @@ non-bot change (create, reply, approve) and drives the gate.
   item it sets `reopen_on_ship`, and the ship-checker reopens it right after
   marking it shipped, so the merge is still tracked. Comments imported by
   issue sync don't reopen items.
-- New items, replies and approvals Pushover the admin when
-  `PUSHOVER_TOKEN` / `PUSHOVER_USER` are set (otherwise log only), except
+- New items, replies and approvals push to the admin through signal.nick.org
+  when `SIGNAL_URL` is set (bearer `SIGNAL_TOKEN`, else the Cloud Run
+  identity; events `board.notify`/`board.alert`, app `deployments`), else
+  Pushover directly when `PUSHOVER_TOKEN` / `PUSHOVER_USER` are set (otherwise
+  log only), except
   those by `PUSHOVER_QUIET` (default `nkirsch`), the person receiving them.
 - Auto-approve (`members.auto_approve`) is on by default; admins can turn it
   off for themselves on `/admin`. An auto-approving admin's new asks start
@@ -362,7 +365,7 @@ are filled with `gcloud secrets versions add`.
 
 `DATABASE_URL`, `SESSION_KEY`, `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET`,
 `TICK_TOKEN`, `ANTHROPIC_API_KEY`, `GH_APP_ID`, `GH_APP_INSTALLATION_ID`,
-`GH_APP_PRIVATE_KEY`, optional `PUSHOVER_TOKEN` / `PUSHOVER_USER`.
+`GH_APP_PRIVATE_KEY`, optional `PUSHOVER_TOKEN` / `PUSHOVER_USER` (unused when env `SIGNAL_URL` is set).
 
 ## GCP resources (`infra/bootstrap.sh`, idempotent)
 

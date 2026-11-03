@@ -84,7 +84,7 @@ func runTenancy(ctx context.Context, cfg config) error {
 			h.upstream.Release = releaser(github.ForApp(app), cfg.Repo)
 		}
 	}
-	h.notify = notify.NewPushover(cfg.PushoverToken, cfg.PushoverUser)
+	h.notify = notify.New(cfg.SignalURL, cfg.PushoverToken, cfg.PushoverUser)
 	srv := &http.Server{Addr: ":" + cfg.Port, Handler: logRequests(h.routes()), ReadHeaderTimeout: 10 * time.Second}
 	go func() {
 		<-ctx.Done()

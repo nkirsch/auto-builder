@@ -1,4 +1,5 @@
-// Package notify sends the admin Pushover messages; in-app notifications live
+// Package notify sends the admin push messages, through signal.nick.org when
+// SIGNAL_URL is set (Pushover directly otherwise); in-app notifications live
 // in the notifications table.
 package notify
 
@@ -10,16 +11,32 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	signal "github.com/nkirsch/signal-go"
 )
 
-// Pushover sends to one user. With no credentials it only logs.
+// Pushover sends to one user, through signal when configured. With neither
+// signal nor Pushover credentials it only logs.
 type Pushover struct {
 	Token, User string
 	client      *http.Client
+	signal      *signal.Client
 }
 
+// NewPushover posts to Pushover directly.
 func NewPushover(token, user string) *Pushover {
 	return &Pushover{Token: token, User: user, client: &http.Client{Timeout: 10 * time.Second}}
+}
+
+// New sends through signal at signalURL (bearer SIGNAL_TOKEN, else the
+// Cloud Run identity) when signalURL is set, else Pushover directly.
+func New(signalURL, token, user string) *Pushover {
+	p := NewPushover(token, user)
+	if signalURL != "" {
+		p.signal = signal.NewFromEnv()
+		p.signal.URL = strings.TrimRight(signalURL, "/")
+	}
+	return p
 }
 
 // Send posts a message; failures are logged, never returned, so callers aren't held up.
@@ -33,6 +50,16 @@ func (p *Pushover) Alert(ctx context.Context, title, message, link string) {
 }
 
 func (p *Pushover) send(ctx context.Context, title, message, link string, priority int) {
+	if p != nil && p.signal != nil {
+		event := "board.notify"
+		if priority > 0 {
+			event = "board.alert"
+		}
+		ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
+		defer cancel()
+		p.signal.Send(ctx, signal.Event{Event: event, Title: title, Message: message, URL: link, App: "deployments", Priority: signal.P(priority)})
+		return
+	}
 	if p == nil || p.Token == "" || p.User == "" {
 		slog.Info("notify", "title", title, "message", message, "url", link)
 		return

@@ -365,7 +365,7 @@ are filled with `gcloud secrets versions add`.
 
 `DATABASE_URL`, `SESSION_KEY`, `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET`,
 `TICK_TOKEN`, `ANTHROPIC_API_KEY`, `GH_APP_ID`, `GH_APP_INSTALLATION_ID`,
-`GH_APP_PRIVATE_KEY`, optional `PUSHOVER_TOKEN` / `PUSHOVER_USER` (unused when env `SIGNAL_URL` is set).
+`GH_APP_PRIVATE_KEY`; env `SIGNAL_URL` (default https://signal.nick.org) for admin pushes, optional `PUSHOVER_TOKEN` / `PUSHOVER_USER` secrets only without it.
 
 ## GCP resources (`infra/bootstrap.sh`, idempotent)
 

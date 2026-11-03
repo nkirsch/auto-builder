@@ -252,7 +252,7 @@ func (l logView) list(ctx context.Context, filter, fields string, maxPages int, 
 			}
 			select {
 			case <-ctx.Done():
-				return fmt.Errorf("entries.list: %s", resp.Status)
+				return fmt.Errorf("entries.list: %s: %w", resp.Status, errRateLimited)
 			case <-time.After(wait):
 			}
 		}
@@ -262,6 +262,9 @@ func (l logView) list(ctx context.Context, filter, fields string, maxPages int, 
 		}
 		err = json.NewDecoder(resp.Body).Decode(&page)
 		resp.Body.Close()
+		if resp.StatusCode == http.StatusTooManyRequests {
+			return fmt.Errorf("entries.list: %s: %w", resp.Status, errRateLimited)
+		}
 		if resp.StatusCode != http.StatusOK {
 			return fmt.Errorf("entries.list: %s", resp.Status)
 		}
@@ -320,6 +323,9 @@ type traffic struct {
 // readOverlap is reread at each resume for entries Logging ingests late.
 const readOverlap = 5 * time.Minute
 
+// errRateLimited is Logging's read quota (60 a minute per project) running out.
+var errRateLimited = errors.New("rate limited")
+
 // errReading is a load that stopped partway; the next one resumes.
 type errReading struct{ err error }
 
@@ -377,7 +383,10 @@ func (t *traffic) load(ctx context.Context, refresh bool) error {
 			slog.Warn("traffic: serving the cached report", "host", t.host, "err", err)
 			return nil
 		}
-		return errReading{err}
+		if len(hits) > 0 || errors.Is(err, errRateLimited) || errors.Is(err, context.DeadlineExceeded) {
+			return errReading{err}
+		}
+		return err
 	}
 	if t.read.Before(start) {
 		t.read = start

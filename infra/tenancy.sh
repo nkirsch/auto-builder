@@ -12,6 +12,7 @@ PROJECT=${PROJECT:-nkirsch-auto-builder}
 REGION=${REGION:-us-central1}
 NAME=${NAME:-extreme}                  # prefixes every platform resource and secret
 DOMAIN=${DOMAIN:-extreme.org}          # hub at the apex, apps on <slug>.$DOMAIN
+SIGNAL_URL=${SIGNAL_URL:-https://signal.nick.org} # admin pushes (internal/notify); the server account must be in signal's SIGNAL_GOOGLE
 ZONE=${ZONE:-extreme-org}              # Cloud DNS zone for $DOMAIN
 HUB_ALIASES=${HUB_ALIASES-hub.$DOMAIN}  # space-separated hosts in $DOMAIN that 308 to the hub
 VISITORS_HOST=visitors.$DOMAIN         # mapped to the hub, which sends it to /visitors
@@ -91,7 +92,7 @@ done
 mounts() { for m in $1; do printf '%s:latest,' "$m"; done | sed 's/,$//'; }
 prefixed() { for s in $1; do printf '%s=%s ' "$s" "$NAME-$s"; done; }
 APP_SECRETS="GH_APP_ID GH_APP_INSTALLATION_ID GH_APP_PRIVATE_KEY"
-SERVER_MOUNTS="$(prefixed "DATABASE_URL SESSION_KEY TICK_TOKEN GITHUB_CLIENT_ID GITHUB_CLIENT_SECRET GOOGLE_CLIENT_ID GOOGLE_CLIENT_SECRET $APP_SECRETS") PUSHOVER_TOKEN=PUSHOVER_TOKEN PUSHOVER_USER=PUSHOVER_USER STATS_TOKEN=$STATS_SECRET"
+SERVER_MOUNTS="$(prefixed "DATABASE_URL SESSION_KEY TICK_TOKEN GITHUB_CLIENT_ID GITHUB_CLIENT_SECRET GOOGLE_CLIENT_ID GOOGLE_CLIENT_SECRET $APP_SECRETS") STATS_TOKEN=$STATS_SECRET"
 RUNNER_MOUNTS=$(prefixed "$KEY_SECRET")
 if [ -n "$HOME_HOST" ]; then
   if ! g secrets describe "$NAME-HOME_HOST" >/dev/null 2>&1; then
@@ -182,7 +183,7 @@ if ! g run services describe "$NAME" --region "$REGION" >/dev/null 2>&1; then
   g run deploy "$NAME" --region "$REGION" --image us-docker.pkg.dev/cloudrun/container/hello \
     --service-account "$(sa server)" --allow-unauthenticated \
     --add-cloudsql-instances "$PROJECT:$REGION:$SQL_INSTANCE" \
-    --set-env-vars "TENANCY=on,REPO=$PLATFORM_REPO,TENANT_ORG=$ORG,BASE_URL=https://$DOMAIN,GCS_BUCKET=$PROJECT-$NAME,GCP_PROJECT=$PROJECT,GCP_REGION=$REGION,RUNNER_JOB=$NAME-runner,PROVISION_JOB=$NAME-provision,ADMIN_LOGIN=$ADMIN_LOGIN,ADMIN_EMAIL=$ADMIN_EMAIL,ISSUE_SYNC=on" \
+    --set-env-vars "TENANCY=on,SIGNAL_URL=$SIGNAL_URL,REPO=$PLATFORM_REPO,TENANT_ORG=$ORG,BASE_URL=https://$DOMAIN,GCS_BUCKET=$PROJECT-$NAME,GCP_PROJECT=$PROJECT,GCP_REGION=$REGION,RUNNER_JOB=$NAME-runner,PROVISION_JOB=$NAME-provision,ADMIN_LOGIN=$ADMIN_LOGIN,ADMIN_EMAIL=$ADMIN_EMAIL,ISSUE_SYNC=on" \
     --set-secrets "$(mounts "$SERVER_MOUNTS")" \
     --min-instances 0 --max-instances 2 --memory 512Mi
 fi

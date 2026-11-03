@@ -9,6 +9,7 @@ REGION=${REGION:-us-central1}
 BILLING=${BILLING:-} # billing account ID; needed only to link a new project
 REPO=${REPO:-nkirsch/auto-builder}
 DOMAIN=${DOMAIN:-builder.extreme.org}
+SIGNAL_URL=${SIGNAL_URL:-https://signal.nick.org} # admin pushes (internal/notify); the server account must be in signal's SIGNAL_GOOGLE
 SQL_INSTANCE=${SQL_INSTANCE:-builder}
 SQL_DB=${SQL_DB:-builder}
 SQL_USER=${SQL_USER:-builder}
@@ -86,7 +87,7 @@ secret TICK_TOKEN "$(openssl rand -hex 32)"
 secret STATS_TOKEN "$(openssl rand -hex 32)" # the hub's Apps page reads GET /api/stats with it
 # Filled in by hand (see DESIGN.md manual steps); created empty-less so Cloud Run can mount them.
 for s in GITHUB_CLIENT_ID GITHUB_CLIENT_SECRET GOOGLE_CLIENT_ID GOOGLE_CLIENT_SECRET ANTHROPIC_API_KEY GH_APP_ID \
-  GH_APP_INSTALLATION_ID GH_APP_PRIVATE_KEY PUSHOVER_TOKEN PUSHOVER_USER; do
+  GH_APP_INSTALLATION_ID GH_APP_PRIVATE_KEY; do
   secret "$s" "unset"
 done
 
@@ -106,7 +107,7 @@ for a in builder-server builder-runner builder-deployer; do
 done
 # Least privilege: each SA gets only the roles and secrets it uses, scoped to
 # the resource where IAM allows it. Older broad grants are removed on re-run.
-SERVER_SECRETS="DATABASE_URL SESSION_KEY TICK_TOKEN STATS_TOKEN GITHUB_CLIENT_ID GITHUB_CLIENT_SECRET GOOGLE_CLIENT_ID GOOGLE_CLIENT_SECRET GH_APP_ID GH_APP_INSTALLATION_ID GH_APP_PRIVATE_KEY PUSHOVER_TOKEN PUSHOVER_USER"
+SERVER_SECRETS="DATABASE_URL SESSION_KEY TICK_TOKEN STATS_TOKEN GITHUB_CLIENT_ID GITHUB_CLIENT_SECRET GOOGLE_CLIENT_ID GOOGLE_CLIENT_SECRET GH_APP_ID GH_APP_INSTALLATION_ID GH_APP_PRIVATE_KEY"
 if [ -n "$HOME_HOST" ]; then
   if ! g secrets describe HOME_HOST >/dev/null 2>&1; then
     printf '%s' "$HOME_HOST" | g secrets create HOME_HOST --replication-policy automatic --data-file -
@@ -185,7 +186,7 @@ if ! g run services describe "$SERVICE" --region "$REGION" >/dev/null 2>&1; then
   g run deploy "$SERVICE" --region "$REGION" --source "$(dirname "$0")/.." \
     --service-account "$(sa builder-server)" --allow-unauthenticated \
     --add-cloudsql-instances "$PROJECT:$REGION:$SQL_INSTANCE" \
-    --set-env-vars "BASE_URL=https://$DOMAIN,GCS_BUCKET=$BUCKET,GCP_PROJECT=$PROJECT,GCP_REGION=$REGION,RUNNER_JOB=$JOB,GIT_SHA=$(git -C "$(dirname "$0")" rev-parse HEAD)" \
+    --set-env-vars "BASE_URL=https://$DOMAIN,SIGNAL_URL=$SIGNAL_URL,GCS_BUCKET=$BUCKET,GCP_PROJECT=$PROJECT,GCP_REGION=$REGION,RUNNER_JOB=$JOB,GIT_SHA=$(git -C "$(dirname "$0")" rev-parse HEAD)" \
     --set-secrets "$(mounts "$SERVER_SECRETS")" \
     --min-instances 0 --max-instances 2 --memory 512Mi
 fi

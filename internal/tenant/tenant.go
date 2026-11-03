@@ -495,9 +495,28 @@ func (r *Registry) BoardAdmins(ctx context.Context, slug string) ([]string, erro
 	return out, rows.Err()
 }
 
-// SignInIPs lists the IPs identities signed in from since; see db.SignInIPs.
+// SignInIPs lists the IPs identities signed in from or their sessions used since.
 func (r *Registry) SignInIPs(ctx context.Context, identities []string, since time.Time) ([]string, error) {
-	return db.SignInIPs(ctx, r.Control, identities, since)
+	ips, err := db.SignInIPs(ctx, r.Control, identities, since)
+	if err != nil {
+		return nil, err
+	}
+	seen, err := db.SeenIPs(ctx, r.Control, identities, since)
+	return append(ips, seen...), err
+}
+
+// RecordSeen, AllSeen and PruneSeen keep the IPs + browsers signed-in
+// sessions used; see db.RecordSeen.
+func (r *Registry) RecordSeen(ctx context.Context, identity, ip, ua string) error {
+	return db.RecordSeen(ctx, r.Control, identity, ip, ua)
+}
+
+func (r *Registry) AllSeen(ctx context.Context, since time.Time) ([]db.Seen, error) {
+	return db.AllSeen(ctx, r.Control, since)
+}
+
+func (r *Registry) PruneSeen(ctx context.Context, before time.Time) error {
+	return db.PruneSeen(ctx, r.Control, before)
 }
 
 // AllSignIns lists every board's sign-in attempts for platform admins; see db.AllSignIns.

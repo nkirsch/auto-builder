@@ -315,7 +315,7 @@ func run() error {
 		return err
 	}
 	handler = redirectHosts(cfg.BaseURL, cfg.RedirectHosts, handler)
-	srv := &http.Server{Addr: ":" + cfg.Port, Handler: logRequests(handler), ReadHeaderTimeout: 10 * time.Second}
+	srv := &http.Server{Addr: ":" + cfg.Port, Handler: logRequests(handler, a.SignedIn), ReadHeaderTimeout: 10 * time.Second}
 	go func() {
 		<-ctx.Done()
 		shutdown, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -610,13 +610,20 @@ type statusWriter struct {
 func (w *statusWriter) WriteHeader(code int)        { w.code = code; w.ResponseWriter.WriteHeader(code) }
 func (w *statusWriter) Unwrap() http.ResponseWriter { return w.ResponseWriter }
 
-func logRequests(next http.Handler) http.Handler {
+// logRequests logs each request but /health; who names a signed-in
+// session's identity ("" when signed out), with the client IP.
+func logRequests(next http.Handler, who func(*http.Request) string) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
 		sw := &statusWriter{ResponseWriter: w, code: http.StatusOK}
 		next.ServeHTTP(sw, r)
-		if !strings.HasSuffix(r.URL.Path, "/health") {
-			slog.Info("http", "method", r.Method, "path", r.URL.Path, "status", sw.code, "ms", time.Since(start).Milliseconds())
+		if strings.HasSuffix(r.URL.Path, "/health") {
+			return
 		}
+		attrs := []any{"method", r.Method, "path", r.URL.Path, "status", sw.code, "ms", time.Since(start).Milliseconds()}
+		if id := who(r); id != "" {
+			attrs = append(attrs, "who", id, "ip", auth.ClientIP(r))
+		}
+		slog.Info("http", attrs...)
 	})
 }

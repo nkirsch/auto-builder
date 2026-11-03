@@ -11,6 +11,7 @@
   </select> <button class="secondary">Show</button>
 </form>{{end}}
 {{with .Errs}}<p class="bad">Couldn't read: {{range $i, $e := .}}{{if $i}}, {{end}}{{$e}}{{end}}.</p>{{end}}
+{{with .Reading}}<p class="sub">Still reading (Cloud Logging allows 60 reads a minute): {{range $i, $e := .}}{{if $i}}, {{end}}{{$e}}{{end}}. Reload in a minute to continue.</p>{{end}}
 <p><b>{{.Total}}</b> visitors · <b>{{.Views}}</b> page views</p>
 
 <h2>Versions</h2>

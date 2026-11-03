@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"html/template"
 	"log/slog"
@@ -251,7 +252,7 @@ func (l logView) list(ctx context.Context, filter, fields string, maxPages int, 
 			}
 			select {
 			case <-ctx.Done():
-				return fmt.Errorf("entries.list: %s", resp.Status)
+				return fmt.Errorf("entries.list: %s: %w", resp.Status, errRateLimited)
 			case <-time.After(wait):
 			}
 		}
@@ -261,6 +262,9 @@ func (l logView) list(ctx context.Context, filter, fields string, maxPages int, 
 		}
 		err = json.NewDecoder(resp.Body).Decode(&page)
 		resp.Body.Close()
+		if resp.StatusCode == http.StatusTooManyRequests {
+			return fmt.Errorf("entries.list: %s: %w", resp.Status, errRateLimited)
+		}
 		if resp.StatusCode != http.StatusOK {
 			return fmt.Errorf("entries.list: %s", resp.Status)
 		}
@@ -310,7 +314,23 @@ type traffic struct {
 	rep  *trafficReport
 	raw  []hit     // the hits rep was built from, for the visitors pages
 	from time.Time // where raw starts
+	// read is how far raw has been read: a load resumes there (less
+	// readOverlap) instead of rereading the window, so a cold read that
+	// outlasts Logging's read quota finishes over several loads.
+	read time.Time
 }
+
+// readOverlap is reread at each resume for entries Logging ingests late.
+const readOverlap = 5 * time.Minute
+
+// errRateLimited is Logging's read quota (60 a minute per project) running out.
+var errRateLimited = errors.New("rate limited")
+
+// errReading is a load that stopped partway; the next one resumes.
+type errReading struct{ err error }
+
+func (e errReading) Error() string { return "still reading the request log: " + e.err.Error() }
+func (e errReading) Unwrap() error { return e.err }
 
 // report returns the cached report, rebuilding it when stale or on refresh.
 func (t *traffic) report(ctx context.Context, refresh bool) (trafficReport, error) {
@@ -332,18 +352,47 @@ func (t *traffic) recent(ctx context.Context, refresh bool) ([]hit, time.Time, e
 	return t.raw, t.from, nil
 }
 
-// load rereads the hits and rebuilds the report when stale or on refresh; t.mu held.
+// load reads the hits since the last read and rebuilds the report when stale
+// or on refresh; t.mu held. A read that fails partway keeps what it got, and
+// a stale report is served over a failed refresh.
 func (t *traffic) load(ctx context.Context, refresh bool) error {
 	now := t.now()
-	if t.rep == nil || now.Sub(t.at) > trafficCache || refresh {
-		from := time.Date(now.In(pacific).Year(), now.In(pacific).Month(), now.In(pacific).Day()-trafficDays+1, 0, 0, 0, 0, pacific)
-		hits, err := t.hits(ctx, from)
-		if err != nil {
-			return err
-		}
-		r := buildReport(hits, t.host, from, now, t.home(ctx))
-		t.rep, t.at, t.raw, t.from = &r, now, hits, from
+	if t.rep != nil && now.Sub(t.at) <= trafficCache && !refresh {
+		return nil
 	}
+	from := time.Date(now.In(pacific).Year(), now.In(pacific).Month(), now.In(pacific).Day()-trafficDays+1, 0, 0, 0, 0, pacific)
+	start := from
+	if t.read.After(from) {
+		start = t.read.Add(-readOverlap)
+	} else {
+		t.raw = nil
+	}
+	keep := t.raw[:0:0]
+	for _, x := range t.raw {
+		if !x.At.Before(from) && x.At.Before(start) {
+			keep = append(keep, x)
+		}
+	}
+	hits, err := t.hits(ctx, start)
+	t.raw = append(keep, hits...)
+	if n := len(hits); n > 0 && hits[n-1].At.After(t.read) {
+		t.read = hits[n-1].At
+	}
+	if err != nil {
+		if t.rep != nil {
+			slog.Warn("traffic: serving the cached report", "host", t.host, "err", err)
+			return nil
+		}
+		if len(hits) > 0 || errors.Is(err, errRateLimited) || errors.Is(err, context.DeadlineExceeded) {
+			return errReading{err}
+		}
+		return err
+	}
+	if t.read.Before(start) {
+		t.read = start
+	}
+	r := buildReport(t.raw, t.host, from, now, t.home(ctx))
+	t.rep, t.at, t.from = &r, now, from
 	return nil
 }
 
@@ -467,6 +516,10 @@ func lookupHome(host string) func(context.Context) map[string]bool {
 
 func (t *traffic) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	rep, err := t.report(r.Context(), r.URL.Query().Has("refresh"))
+	if errors.As(err, new(errReading)) {
+		http.Error(w, err.Error()+"; reload in a minute to continue", http.StatusServiceUnavailable)
+		return
+	}
 	if err != nil {
 		slog.Error("traffic", "err", err)
 		http.Error(w, "traffic unavailable: "+err.Error(), http.StatusBadGateway)

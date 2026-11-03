@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -170,5 +171,56 @@ func TestLogViewListRetries429(t *testing.T) {
 		if err != nil || n != 2 || calls != tc.fails+1 {
 			t.Errorf("fails=%d: err=%v entries=%d calls=%d", tc.fails, err, n, calls)
 		}
+	}
+}
+
+// A read that fails partway keeps its hits; the next load resumes from the
+// last one (less readOverlap), and later loads read only what's new.
+func TestTrafficResumes(t *testing.T) {
+	now := time.Date(2026, 10, 24, 12, 0, 0, 0, pacific)
+	at := func(h int) time.Time { return now.Add(time.Duration(-h) * time.Hour) }
+	all := []hit{
+		{At: at(50), IP: "1.1.1.1", UA: chrome, Path: "/a", Method: "GET", Status: 200},
+		{At: at(40), IP: "1.1.1.2", UA: chrome, Path: "/b", Method: "GET", Status: 200},
+		{At: at(30), IP: "1.1.1.3", UA: chrome, Path: "/c", Method: "GET", Status: 200},
+	}
+	var starts []time.Time
+	fail := true
+	tr := &traffic{host: "site.example", now: func() time.Time { return now },
+		home: func(context.Context) map[string]bool { return nil },
+		hits: func(_ context.Context, since time.Time) ([]hit, error) {
+			starts = append(starts, since)
+			var out []hit
+			for _, x := range all {
+				if !x.At.Before(since) {
+					out = append(out, x)
+				}
+			}
+			if fail {
+				fail = false
+				return out[:1], fmt.Errorf("entries.list: 429 Too Many Requests")
+			}
+			return out, nil
+		}}
+	ctx := context.Background()
+	if _, _, err := tr.recent(ctx, false); !errors.As(err, new(errReading)) {
+		t.Fatalf("first load: err = %v, want errReading", err)
+	}
+	hits, _, err := tr.recent(ctx, false)
+	if err != nil || len(hits) != 3 {
+		t.Fatalf("second load: %d hits, err %v", len(hits), err)
+	}
+	if want := at(50).Add(-readOverlap); !starts[1].Equal(want) {
+		t.Errorf("resumed at %v, want %v", starts[1], want)
+	}
+	all = append(all, hit{At: at(1), IP: "1.1.1.4", UA: chrome, Path: "/d", Method: "GET", Status: 200})
+	resume := at(30).Add(-readOverlap)
+	now = now.Add(2 * time.Hour)
+	hits, _, err = tr.recent(ctx, false)
+	if err != nil || len(hits) != 4 {
+		t.Fatalf("hourly load: %d hits, err %v", len(hits), err)
+	}
+	if !starts[2].Equal(resume) {
+		t.Errorf("hourly load read from %v, want %v", starts[2], resume)
 	}
 }

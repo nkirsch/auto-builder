@@ -25,12 +25,14 @@ var started = time.Now().UTC()
 // siteStats is one board's summary for the hub's Apps page; a single
 // board serves it at GET /api/stats behind STATS_TOKEN.
 type siteStats struct {
-	Version  string    `json:"version"`
-	GitSHA   string    `json:"sha"`
-	Started  time.Time `json:"started"`
-	Open     int       `json:"open"`
-	LastRun  *runBrief `json:"last_run,omitempty"`
-	Spend30d float64   `json:"spend_30d_usd"`
+	Version string    `json:"version"`
+	GitSHA  string    `json:"sha"`
+	Started time.Time `json:"started"`
+	Open    int       `json:"open"`
+	LastRun *runBrief `json:"last_run,omitempty"`
+	// LastDone is when the newest successful run of the last streakRuns finished.
+	LastDone *time.Time `json:"last_done,omitempty"`
+	Spend30d float64    `json:"spend_30d_usd"`
 	// Attention is the unfinished items someone must act on: escalated to the
 	// platform admins ("urgent") or the board's admins ("escalated"), or
 	// blocked. Other counts the rest of the unfinished items.
@@ -118,6 +120,7 @@ func statsFor(ctx context.Context, st *db.Store, version, sha string) (siteStats
 		s.LastRun = &runBrief{Status: r.Status, At: at}
 	}
 	s.FailStreak = failStreak(runs)
+	s.LastDone = lastDone(runs)
 	rs, err := st.RunStats(ctx, time.Now().Add(-failedWindow))
 	if err != nil {
 		return s, err
@@ -141,6 +144,20 @@ func failStreak(runs []db.Run) int {
 		}
 	}
 	return n
+}
+
+// lastDone is when the newest successful run (newest first) finished, or nil.
+func lastDone(runs []db.Run) *time.Time {
+	for _, r := range runs {
+		if r.Status == "done" {
+			at := r.CreatedAt
+			if r.FinishedAt != nil {
+				at = *r.FinishedAt
+			}
+			return &at
+		}
+	}
+	return nil
 }
 
 func (s *server) stats(w http.ResponseWriter, r *http.Request) {

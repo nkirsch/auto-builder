@@ -194,6 +194,21 @@ func TestFailStreak(t *testing.T) {
 	}
 }
 
+// lastDone is the newest successful run's finish time, else its creation time.
+func TestLastDone(t *testing.T) {
+	t1, t2 := time.Unix(100, 0), time.Unix(200, 0)
+	if got := lastDone([]db.Run{{Status: "failed"}}); got != nil {
+		t.Errorf("no done run: got %v", got)
+	}
+	got := lastDone([]db.Run{{Status: "failed", FinishedAt: &t2}, {Status: "done", CreatedAt: t1, FinishedAt: &t2}, {Status: "done", CreatedAt: t1}})
+	if got == nil || !got.Equal(t2) {
+		t.Errorf("got %v, want %v", got, t2)
+	}
+	if got := lastDone([]db.Run{{Status: "done", CreatedAt: t1}}); got == nil || !got.Equal(t1) {
+		t.Errorf("unfinished done: got %v, want %v", got, t1)
+	}
+}
+
 // /api/signins lists successful sign-ins at every board, behind STATS_TOKEN.
 func TestAPISignIns(t *testing.T) {
 	ctx := context.Background()

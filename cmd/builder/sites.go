@@ -38,8 +38,9 @@ type siteStats struct {
 	// blocked. Other counts the rest of the unfinished items.
 	Attention []attention `json:"attention,omitempty"`
 	Other     int         `json:"other"`
-	// Failed7d counts the runs that failed in the last week; FailStreak the
-	// newest finished runs that failed in a row.
+	// Failed7d counts the runs that failed in the last week and after the
+	// newest successful run; FailStreak the newest finished runs that failed
+	// in a row.
 	Failed7d   int `json:"failed_7d,omitempty"`
 	FailStreak int `json:"fail_streak,omitempty"`
 }
@@ -121,7 +122,14 @@ func statsFor(ctx context.Context, st *db.Store, version, sha string) (siteStats
 	}
 	s.FailStreak = failStreak(runs)
 	s.LastDone = lastDone(runs)
-	rs, err := st.RunStats(ctx, time.Now().Add(-failedWindow))
+	since := time.Now().Add(-failedWindow)
+	for _, r := range runs {
+		if r.Status == "done" {
+			since = later(since, r.CreatedAt)
+			break
+		}
+	}
+	rs, err := st.RunStats(ctx, since)
 	if err != nil {
 		return s, err
 	}
@@ -144,6 +152,13 @@ func failStreak(runs []db.Run) int {
 		}
 	}
 	return n
+}
+
+func later(a, b time.Time) time.Time {
+	if b.After(a) {
+		return b
+	}
+	return a
 }
 
 // lastDone is when the newest successful run (newest first) finished, or nil.

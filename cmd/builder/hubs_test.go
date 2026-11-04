@@ -194,6 +194,39 @@ func TestFailStreak(t *testing.T) {
 	}
 }
 
+// A successful run clears the failed runs before it from failed_7d.
+func TestFailedClearedByDone(t *testing.T) {
+	ctx := context.Background()
+	h := testHub(t)
+	if w := do(h, h.routes(), "nkirsch", "POST", "/new", url.Values{"slug": {"alpha"}, "name": {"Alpha"}}); w.Code != 303 {
+		t.Fatalf("create: %d", w.Code)
+	}
+	st, _ := h.reg.Store(ctx, "alpha")
+	finish := func(statuses ...string) siteStats {
+		for _, status := range statuses {
+			run, err := st.CreateRun(ctx, "tick", "")
+			if err != nil {
+				t.Fatal(err)
+			}
+			st.FinishRun(ctx, run, status, "", "", nil)
+		}
+		s, err := statsFor(ctx, st, "v", "sha")
+		if err != nil {
+			t.Fatal(err)
+		}
+		return s
+	}
+	if s := finish("failed", "failed"); s.Failed7d != 2 {
+		t.Errorf("before done: failed_7d %d, want 2", s.Failed7d)
+	}
+	if s := finish("done"); s.Failed7d != 0 || s.LastDone == nil {
+		t.Errorf("after done: failed_7d %d last_done %v", s.Failed7d, s.LastDone)
+	}
+	if s := finish("failed"); s.Failed7d != 1 {
+		t.Errorf("failed after done: failed_7d %d, want 1", s.Failed7d)
+	}
+}
+
 // lastDone is the newest successful run's finish time, else its creation time.
 func TestLastDone(t *testing.T) {
 	t1, t2 := time.Unix(100, 0), time.Unix(200, 0)

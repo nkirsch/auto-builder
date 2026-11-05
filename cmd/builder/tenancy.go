@@ -102,8 +102,7 @@ func runTenancy(ctx context.Context, cfg config) error {
 // hub serves the tenant list, app creation and platform admin, and mounts
 // each tenant's board under its slug.
 type hub struct {
-	seenMu  sync.Mutex
-	seenAt  map[string]time.Time // identity + IP + UA → when noteSeen last recorded it
+	seen    seenNoter
 	cfg     config
 	reg     *tenant.Registry
 	auth    *auth.Auth
@@ -259,7 +258,9 @@ func (h *hub) routes() http.Handler {
 	mux.HandleFunc("GET /admin/hubs", h.platformAdmin(h.hubs))
 	mux.HandleFunc("POST /admin/hubs/release", h.platformAdmin(h.releaseAll))
 	mux.Handle("GET /api/overview", auth.Bearer(h.cfg.StatsToken, http.HandlerFunc(h.apiOverview))) // other hubs' /admin/hubs
-	mux.Handle("GET /api/signins", auth.Bearer(h.cfg.StatsToken, http.HandlerFunc(h.apiSignIns)))   // an outside visitors report names visitors
+	mux.Handle("GET /api/signins", auth.Bearer(h.cfg.StatsToken, serveSignIns(func(ctx context.Context, since time.Time) ([]db.SignIn, error) {
+		return h.reg.AllSignIns(ctx, "", "", since)
+	}, h.reg.AllSeen))) // an outside visitors report names visitors
 	h.apiRoutes(mux)
 	mux.HandleFunc("GET /admin/traffic", h.platformAdmin(h.trafficAll))
 	mux.HandleFunc("GET /visitors", h.signedIn(h.visitorsAll))
@@ -300,7 +301,7 @@ func (h *hub) routes() http.Handler {
 	mux.Handle("POST /api/gate/tick", auth.Bearer(h.cfg.TickToken, http.HandlerFunc(h.tick)))
 	// Aliases (e.g. hub.<domain>) 308 to BASE_URL's host, where the session
 	// cookie and the OAuth callbacks live.
-	return redirectHosts(h.cfg.BaseURL, h.cfg.RedirectHosts, h.visitorsHost(h.noteSeen(mux)))
+	return redirectHosts(h.cfg.BaseURL, h.cfg.RedirectHosts, h.visitorsHost(h.seen.wrap(mux, h.auth.SignedIn, h.reg.RecordSeen)))
 }
 
 // runner authenticates a RUN_TOKEN and hands its tenant and run to f.

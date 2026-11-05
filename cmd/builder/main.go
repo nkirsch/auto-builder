@@ -304,6 +304,7 @@ func run() error {
 	mux.HandleFunc("GET /version", s.versionJSON)                                          // public: a site footer can show it
 	mux.Handle("GET /api/stats", auth.Bearer(cfg.StatsToken, http.HandlerFunc(s.stats)))   // the hub's Apps page
 	mux.Handle("GET /api/member", auth.Bearer(cfg.StatsToken, http.HandlerFunc(s.member))) // the hub's creator check
+	mux.Handle("GET /api/signins", auth.Bearer(cfg.StatsToken, s.signIns()))               // an outside visitors report names visitors
 	if cfg.SiteDir != "" {
 		mux.Handle("GET /logs", a.RequireAdmin(newTraffic(cfg.BaseURL, cfg.Project, os.Getenv("K_SERVICE"), cfg.HomeHost))) // site traffic
 	}
@@ -314,6 +315,8 @@ func run() error {
 	if err != nil {
 		return err
 	}
+	var seen seenNoter
+	handler = seen.wrap(handler, a.SignedIn, s.recordSeen)
 	handler = redirectHosts(cfg.BaseURL, cfg.RedirectHosts, handler)
 	srv := &http.Server{Addr: ":" + cfg.Port, Handler: logRequests(handler, a.SignedIn), ReadHeaderTimeout: 10 * time.Second}
 	go func() {
@@ -587,6 +590,9 @@ func (s *server) attachment(w http.ResponseWriter, r *http.Request) {
 func (s *server) tick(w http.ResponseWriter, r *http.Request) {
 	if err := s.store.PruneSignIns(r.Context(), time.Now().Add(-db.SignInKeep)); err != nil {
 		slog.Error("prune sign-ins", "err", err)
+	}
+	if err := db.PruneSeen(r.Context(), s.store.Pool, time.Now().Add(-db.SignInKeep)); err != nil {
+		slog.Error("prune seen", "err", err)
 	}
 	if err := s.gate.Tick(r.Context()); err != nil {
 		slog.Error("tick", "err", err)

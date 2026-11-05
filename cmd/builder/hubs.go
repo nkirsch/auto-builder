@@ -9,13 +9,9 @@ import (
 	"net/http"
 	"net/url"
 	"slices"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
-
-	"github.com/nkirsch/auto-builder/internal/auth"
-	"github.com/nkirsch/auto-builder/internal/db"
 )
 
 // hubOverview is one hub's state for the multi-hub view: every board it
@@ -235,83 +231,6 @@ func (h *hub) apiOverview(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, o)
-}
-
-// apiSignIns lists successful sign-ins at every board over the last
-// ?days=N (default 7, at most db.SignInKeep), newest first, so a visitor
-// report can name the IP + browser they came from.
-func (h *hub) apiSignIns(w http.ResponseWriter, r *http.Request) {
-	days := 7
-	if d, err := strconv.Atoi(r.URL.Query().Get("days")); err == nil && d >= 1 && d <= int(db.SignInKeep.Hours()/24) {
-		days = d
-	}
-	since := time.Now().Add(-time.Duration(days) * 24 * time.Hour)
-	all, err := h.reg.AllSignIns(r.Context(), "", "", since)
-	if err != nil {
-		slog.Error("signins", "err", err)
-		http.Error(w, "internal error", http.StatusInternalServerError)
-		return
-	}
-	type signIn struct {
-		At        time.Time `json:"at"`
-		Identity  string    `json:"identity"`
-		Board     string    `json:"board,omitempty"`
-		IP        string    `json:"ip"`
-		UserAgent string    `json:"ua"`
-	}
-	out := []signIn{}
-	for _, s := range all {
-		if !s.Failed() && s.Identity != "" {
-			out = append(out, signIn{s.At, s.Identity, s.Board, s.IP, s.UserAgent})
-		}
-	}
-	// Sessions outlive the IP they signed in from: list every IP + browser
-	// they've used too.
-	seen, err := h.reg.AllSeen(r.Context(), since)
-	if err != nil {
-		slog.Error("seen", "err", err)
-		http.Error(w, "internal error", http.StatusInternalServerError)
-		return
-	}
-	for _, s := range seen {
-		out = append(out, signIn{s.Last, s.Identity, "", s.IP, s.UserAgent})
-	}
-	writeJSON(w, http.StatusOK, out)
-}
-
-// seenEvery spaces out noteSeen's writes for one identity, IP and browser.
-const seenEvery = time.Hour
-
-// noteSeen records the IP + browser of each signed-in request (pages, not
-// assets or APIs), at most once per seenEvery each.
-func (h *hub) noteSeen(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		next.ServeHTTP(w, r)
-		p := r.URL.Path
-		if strings.HasPrefix(p, "/static/") || strings.HasPrefix(p, "/api/") || p == "/health" || p == "/favicon.ico" {
-			return
-		}
-		who := h.auth.SignedIn(r)
-		if who == "" {
-			return
-		}
-		ip, ua := auth.ClientIP(r), r.UserAgent()
-		key := who + "\x00" + ip + "\x00" + ua
-		now := time.Now()
-		h.seenMu.Lock()
-		if h.seenAt == nil {
-			h.seenAt = map[string]time.Time{}
-		}
-		if now.Sub(h.seenAt[key]) < seenEvery {
-			h.seenMu.Unlock()
-			return
-		}
-		h.seenAt[key] = now
-		h.seenMu.Unlock()
-		if err := h.reg.RecordSeen(context.WithoutCancel(r.Context()), who, ip, ua); err != nil {
-			slog.Error("record seen", "err", err)
-		}
-	})
 }
 
 // fetchHub reads another hub's /api/overview; a failure lands in Err.

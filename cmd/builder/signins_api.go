@@ -15,7 +15,8 @@ import (
 
 // serveSignIns lists successful sign-ins over the last ?days=N (default 7, at
 // most db.SignInKeep), newest first, then the IPs + browsers sessions used, so
-// a visitor report can name who they came from.
+// a visitor report can name who they came from. ?failed=1 adds identities a
+// board turned away, marked refused; other failures have no verified identity.
 func serveSignIns(all func(context.Context, time.Time) ([]db.SignIn, error), used func(context.Context, time.Time) ([]db.Seen, error)) http.HandlerFunc {
 	type signIn struct {
 		At        time.Time `json:"at"`
@@ -23,6 +24,7 @@ func serveSignIns(all func(context.Context, time.Time) ([]db.SignIn, error), use
 		Board     string    `json:"board,omitempty"`
 		IP        string    `json:"ip"`
 		UserAgent string    `json:"ua"`
+		Refused   bool      `json:"refused,omitempty"`
 	}
 	return func(w http.ResponseWriter, r *http.Request) {
 		days := 7
@@ -36,10 +38,12 @@ func serveSignIns(all func(context.Context, time.Time) ([]db.SignIn, error), use
 			http.Error(w, "internal error", http.StatusInternalServerError)
 			return
 		}
+		failed := r.URL.Query().Get("failed") == "1"
 		out := []signIn{}
 		for _, s := range rows {
-			if !s.Failed() && s.Identity != "" {
-				out = append(out, signIn{s.At, s.Identity, s.Board, s.IP, s.UserAgent})
+			refused := s.Result == db.SignInNotMember
+			if s.Identity != "" && (!s.Failed() || failed && refused) {
+				out = append(out, signIn{s.At, s.Identity, s.Board, s.IP, s.UserAgent, refused})
 			}
 		}
 		// Sessions outlive the IP they signed in from.
@@ -50,7 +54,7 @@ func serveSignIns(all func(context.Context, time.Time) ([]db.SignIn, error), use
 			return
 		}
 		for _, s := range seen {
-			out = append(out, signIn{s.Last, s.Identity, "", s.IP, s.UserAgent})
+			out = append(out, signIn{s.Last, s.Identity, "", s.IP, s.UserAgent, false})
 		}
 		writeJSON(w, http.StatusOK, out)
 	}

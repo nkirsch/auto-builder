@@ -32,6 +32,7 @@ func TestBoardSignIns(t *testing.T) {
 	for _, in := range []db.SignIn{
 		{Provider: "google", Identity: "pat@example.com", Result: db.SignInOK, IP: "1.2.3.4", UserAgent: "Safari"},
 		{Provider: "google", Identity: "eve@example.com", Result: db.SignInNotMember, IP: "6.6.6.6", UserAgent: "x"},
+		{Provider: "google", Identity: "unverified@example.com", Result: "unverified email", IP: "7.7.7.7", UserAgent: "x"},
 	} {
 		if err := st.RecordSignIn(ctx, in, 0); err != nil {
 			t.Fatal(err)
@@ -67,5 +68,20 @@ func TestBoardSignIns(t *testing.T) {
 	}
 	if len(out) != 2 || out[0].IP != "1.2.3.4" || out[1].IP != "9.9.9.9" || out[1].UA != "Phone" || out[1].Identity != "pat@example.com" {
 		t.Errorf("signins: %+v", out)
+	}
+
+	r = httptest.NewRequest("GET", "/api/signins?days=7&failed=1", nil)
+	r.Header.Set("Authorization", "Bearer tok")
+	w = httptest.NewRecorder()
+	h.ServeHTTP(w, r)
+	var all []struct {
+		Identity string
+		Refused  bool
+	}
+	if err := json.NewDecoder(w.Body).Decode(&all); err != nil || w.Code != http.StatusOK {
+		t.Fatalf("%d %v", w.Code, err)
+	}
+	if len(all) != 3 || all[0].Identity != "eve@example.com" || !all[0].Refused || all[1].Refused || all[2].Refused {
+		t.Errorf("with failed: %+v", all)
 	}
 }

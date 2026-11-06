@@ -67,7 +67,8 @@ non-bot change (create, reply, approve) and drives the gate.
 - `/` open items (approved badge, status, reply count) in sections: blocked
   (any status, so a shipped or closed item that still needs a human stays
   visible), waiting for approval, approved but not started, in progress (PR
-  open or merged); empty sections are hidden, and a Done button switches to
+  open or merged, or the running run has acted on it); items the running run
+  has acted on get an "in this run" badge linking to `/runs`; empty sections are hidden, and a Done button switches to
   shipped/closed items that aren't blocked;
   items with unread notifications for you (mentions + replies to your items)
   get an unread dot, cleared by opening the item or Mark all read, and the

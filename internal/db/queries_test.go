@@ -361,11 +361,29 @@ func TestRunItems(t *testing.T) {
 		}
 	}
 	c, _ := s.CreateItem(ctx, "Costs", "", "alice")
+	inRun := func() map[int]bool {
+		t.Helper()
+		items, err := s.Items(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		m := map[int]bool{}
+		for _, it := range items {
+			m[it.ID] = it.InRun
+		}
+		return m
+	}
+	if m := inRun(); !m[a] || !m[b] || m[c] {
+		t.Fatalf("in run while running = %v", m)
+	}
 	summary := fmt.Sprintf("Built nothing.\n- **#%d** (open): skipped\n- **#%d**: replied\n- PR #9999 merged", c, a)
 	if err := s.FinishRun(ctx, run, "done", summary, "", nil); err != nil {
 		t.Fatal(err)
 	}
 	s.NoteRunItem(ctx, a) // after the run
+	if m := inRun(); m[a] || m[b] || m[c] {
+		t.Fatalf("in run after the run = %v", m)
+	}
 	got, err := s.RunItems(ctx, []int{run, 99})
 	if err != nil {
 		t.Fatal(err)

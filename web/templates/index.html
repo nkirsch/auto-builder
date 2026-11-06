@@ -31,6 +31,7 @@
     <div class="meta">
       <span class="status s-{{.Status}}">{{.Status}}</span>
       {{if .Approved}}<span class="badge approved">approved</span>{{end}}
+      {{if .InRun}}<a class="badge in-run" href="{{base}}/runs" title="The running run is working on it">in this run</a>{{end}}
       {{with .Blocked}}<span class="badge blocked" title="{{.}}">blocked</span>{{end}}
       {{template "escalation" .}}
       {{range .Tags}}<a class="tag" href="{{base}}/{{boardq $.Data.Show . $.Data.By}}">#{{.}}</a>{{end}}

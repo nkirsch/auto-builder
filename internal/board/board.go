@@ -466,7 +466,7 @@ type section struct {
 
 // sections groups the Open view into escalated, blocked (any status), waiting for
 // approval, approved but not started, and in progress (a PR is open or
-// merged); empty groups are left out. The Done view is one untitled list.
+// merged, or the running run has acted on it); empty groups are left out. The Done view is one untitled list.
 func sections(items []db.Item, done bool) []section {
 	if done {
 		if len(items) == 0 {
@@ -482,8 +482,10 @@ func sections(items []db.Item, done bool) []section {
 			i = 0
 		case it.Blocked != "":
 			i = 1
-		case it.Status == "open" && it.Approved:
+		case it.Status == "open" && it.Approved && !it.InRun:
 			i = 3
+		case it.Status == "open" && it.Approved:
+			i = 4
 		case it.Status == "open":
 			i = 2
 		}

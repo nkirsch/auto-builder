@@ -44,23 +44,24 @@ type siteStats struct {
 	Failed7d   int `json:"failed_7d,omitempty"`
 	FailStreak int `json:"fail_streak,omitempty"`
 	// LastActivity is the newest thing to happen on the board: a login, item,
-	// reply, run, release or new user. LastHuman leaves out runs and the bot's
-	// items and replies.
+	// reply, run, release or new user. LastHuman leaves out runs, releases and
+	// the bot's items and replies, which an agent can do.
 	LastActivity *db.Activity `json:"last_activity,omitempty"`
 	LastHuman    *db.Activity `json:"last_human_activity,omitempty"`
 }
 
-// noteHuman keeps a person's kind at at as the last activity if it's the newest.
+// noteActivity keeps kind at at as the last activity if it's the newest.
+func (s *siteStats) noteActivity(kind string, at time.Time) {
+	if !at.IsZero() && (s.LastActivity == nil || at.After(s.LastActivity.At)) {
+		s.LastActivity = &db.Activity{Kind: kind, At: at}
+	}
+}
+
+// noteHuman is noteActivity for something only a person does, so it counts for LastHuman too.
 func (s *siteStats) noteHuman(kind string, at time.Time) {
-	if at.IsZero() {
-		return
-	}
-	a := &db.Activity{Kind: kind, At: at}
-	if s.LastActivity == nil || at.After(s.LastActivity.At) {
-		s.LastActivity = a
-	}
-	if s.LastHuman == nil || at.After(s.LastHuman.At) {
-		s.LastHuman = a
+	s.noteActivity(kind, at)
+	if !at.IsZero() && (s.LastHuman == nil || at.After(s.LastHuman.At)) {
+		s.LastHuman = &db.Activity{Kind: kind, At: at}
 	}
 }
 
@@ -205,7 +206,7 @@ func (s *server) stats(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if s.lastRelease != nil {
-		st.noteHuman("release", s.lastRelease(r.Context()))
+		st.noteActivity("release", s.lastRelease(r.Context()))
 	}
 	writeJSON(w, http.StatusOK, st)
 }

@@ -1,20 +1,22 @@
 // Command hub drives auto-builder hubs from a terminal through their tenant
 // API (bearer ADMIN_TOKEN):
 //
-//	hub [-json]                        every hub's boards, like /admin/hubs
+//	hub [-json|-csv] [-hub NAME,...]   boards on every hub, like /admin/hubs
 //	hub add [-run] [-draft] BOARD TITLE [BODY]
 //	hub run BOARD                      start BOARD's run now
 //
 // BOARD is a tenant slug, found on whichever hub has it. Hubs come from
 // $HUBS_CONFIG or ~/.config/hub/hubs, one per line: "URL PROJECT SECRET", the
 // hub and the Secret Manager secret holding its ADMIN_TOKEN, or "URL
-// env:VAR" for a token in $VAR. The first hub serves the overview.
+// env:VAR" for a token in $VAR. -hub keeps only hubs whose URL or name contains
+// one of its comma-separated NAMEs, for every command.
 package main
 
 import (
 	"bytes"
 	"cmp"
 	"context"
+	"encoding/csv"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -24,6 +26,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"text/tabwriter"
@@ -38,9 +41,10 @@ func main() {
 }
 
 const usage = `usage:
-  hub [-json]                               every hub's boards and what needs attention
+  hub [-json|-csv]                          boards on every hub and what needs attention
   hub add [-run] [-draft] BOARD TITLE [BODY] file an approved ask (-draft: unapproved); -run starts a run
-  hub run BOARD                             start BOARD's run now`
+  hub run BOARD                             start BOARD's run now
+  any of them: -hub NAME,...                only hubs whose URL or name contains a NAME`
 
 func run(ctx context.Context, args []string, out io.Writer) error {
 	cmd := "hubs"
@@ -49,27 +53,37 @@ func run(ctx context.Context, args []string, out io.Writer) error {
 	}
 	fs := flag.NewFlagSet("hub "+cmd, flag.ContinueOnError)
 	asJSON := fs.Bool("json", false, "print the raw JSON")
+	asCSV := fs.Bool("csv", false, "print one row per board")
+	only := fs.String("hub", "", "only hubs whose URL or name contains one of these comma-separated names")
 	runNow := fs.Bool("run", false, "start a run after filing")
 	draft := fs.Bool("draft", false, "leave the ask unapproved")
 	pos, err := parseAnywhere(fs, args)
 	if err != nil {
 		return err
 	}
+	if *asJSON && *asCSV {
+		return errors.New("-json or -csv, not both")
+	}
 	hubs, err := loadHubs()
 	if err != nil {
+		return err
+	}
+	if hubs, err = selectHubs(hubs, *only); err != nil {
 		return err
 	}
 	c := &client{http: &http.Client{Timeout: 30 * time.Second}}
 	switch {
 	case cmd == "hubs" && len(pos) == 0:
-		var v hubsView
-		raw, err := c.do(ctx, hubs[0], "GET", "/api/hubs", nil, &v)
+		raw, v, err := c.overview(ctx, hubs, *only)
 		if err != nil {
 			return err
 		}
-		if *asJSON {
+		switch {
+		case *asJSON:
 			_, err := out.Write(raw)
 			return err
+		case *asCSV:
+			return writeCSV(out, v)
 		}
 		printHubs(out, v, time.Now())
 		return nil
@@ -164,6 +178,37 @@ func parseHubs(text string) ([]hub, error) {
 		return nil, errors.New("no hubs listed")
 	}
 	return hubs, nil
+}
+
+// matches reports whether any of name's values contains one of the comma-separated terms.
+func matches(only string, values ...string) bool {
+	for _, term := range strings.Split(strings.ToLower(only), ",") {
+		for _, v := range values {
+			if term = strings.TrimSpace(term); term != "" && strings.Contains(strings.ToLower(v), term) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// selectHubs narrows hubs to those matching only, when it's set.
+func selectHubs(hubs []hub, only string) ([]hub, error) {
+	if only == "" {
+		return hubs, nil
+	}
+	var kept []hub
+	var urls []string
+	for _, h := range hubs {
+		urls = append(urls, h.URL)
+		if matches(only, h.URL) {
+			kept = append(kept, h)
+		}
+	}
+	if len(kept) == 0 {
+		return nil, fmt.Errorf("no hub matches %q in %s", only, strings.Join(urls, ", "))
+	}
+	return kept, nil
 }
 
 type client struct {
@@ -308,41 +353,178 @@ func (c *client) start(ctx context.Context, out io.Writer, h hub, slug string) e
 	return nil
 }
 
+// overview merges every hub's GET /api/hubs, in config order. A hub that can't
+// be read becomes a hub with an Error, so the others still show. Hubs can list
+// each other: each appears once, preferring an answer without an error, and
+// when only is set peers it doesn't match are dropped.
+func (c *client) overview(ctx context.Context, hubs []hub, only string) ([]byte, hubsView, error) {
+	type answer struct {
+		Hubs      []json.RawMessage `json:"hubs"`
+		Attention []json.RawMessage `json:"attention"`
+	}
+	answers := make([]answer, len(hubs))
+	errs := make([]error, len(hubs))
+	var wg sync.WaitGroup
+	for i, h := range hubs {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			_, errs[i] = c.do(ctx, h, "GET", "/api/hubs", nil, &answers[i])
+		}()
+	}
+	wg.Wait()
+	if !slices.ContainsFunc(errs, func(err error) bool { return err == nil }) {
+		return nil, hubsView{}, errors.Join(errs...)
+	}
+
+	type entry struct {
+		Name  string `json:"name"`
+		URL   string `json:"url"`
+		Error string `json:"error"`
+	}
+	var merged []json.RawMessage
+	at := map[string]int{}      // hub URL → index in merged
+	failed := map[string]bool{} // hub URLs whose kept entry has an error
+	names := map[string]bool{}  // names of kept hubs, which attention refers to
+	for i, a := range answers {
+		if errs[i] != nil {
+			b, err := json.Marshal(entry{Name: strings.TrimPrefix(hubs[i].URL, "https://"), URL: hubs[i].URL, Error: errs[i].Error()})
+			if err != nil {
+				return nil, hubsView{}, err
+			}
+			a.Hubs = []json.RawMessage{b}
+		}
+		for _, raw := range a.Hubs {
+			var e entry
+			if err := json.Unmarshal(raw, &e); err != nil {
+				return nil, hubsView{}, fmt.Errorf("%s/api/hubs: %w", hubs[i].URL, err)
+			}
+			if only != "" && !matches(only, e.URL, e.Name) {
+				continue
+			}
+			names[e.Name] = true
+			j, seen := at[e.URL]
+			switch {
+			case !seen:
+				at[e.URL] = len(merged)
+				merged = append(merged, raw)
+			case failed[e.URL] && e.Error == "":
+				merged[j] = raw
+			default:
+				continue
+			}
+			failed[e.URL] = e.Error != ""
+		}
+	}
+
+	var attention []json.RawMessage
+	seen := map[string]bool{}
+	for _, a := range answers {
+		for _, raw := range a.Attention {
+			var item struct{ Hub, Title, URL string }
+			if err := json.Unmarshal(raw, &item); err != nil {
+				return nil, hubsView{}, err
+			}
+			key := item.URL + "\x00" + item.Title
+			if seen[key] || !names[item.Hub] {
+				continue
+			}
+			seen[key] = true
+			attention = append(attention, raw)
+		}
+	}
+
+	raw, err := json.Marshal(answer{merged, attention})
+	if err != nil {
+		return nil, hubsView{}, err
+	}
+	var v hubsView
+	if err := json.Unmarshal(raw, &v); err != nil {
+		return nil, hubsView{}, err
+	}
+	// Each hub's own total can't be summed when hubs list each other, but the boards' can.
+	for _, h := range v.Hubs {
+		for _, s := range h.Sites {
+			v.Other += s.Stats.Other
+		}
+	}
+	raw, err = json.Marshal(struct {
+		answer
+		Other int `json:"other"`
+	}{answer{merged, attention}, v.Other})
+	return raw, v, err
+}
+
+// hubSite is one board in GET /api/hubs.
+type hubSite struct {
+	Name        string `json:"name"`
+	Site        string `json:"site"`
+	App         bool   `json:"app"`
+	Health      string `json:"health"`
+	HealthErr   string `json:"health_err"`
+	Detail      bool   `json:"detail"`
+	Releases    bool   `json:"releases"`
+	Unreleased  int    `json:"unreleased"`
+	Errors24h   int    `json:"errors_24h"`
+	ErrorsKnown bool   `json:"errors_known"`
+	Stats       struct {
+		Version   string            `json:"version"`
+		GitSHA    string            `json:"sha"`
+		Attention []json.RawMessage `json:"attention"`
+		Other     int               `json:"other"`
+		Failed7d  int               `json:"failed_7d"`
+		LastRun   *struct {
+			Status string    `json:"status"`
+			At     time.Time `json:"at"`
+		} `json:"last_run"`
+	} `json:"stats"`
+}
+
+// writeCSV writes one row per board; a hub that couldn't be read is one row with its error.
+func writeCSV(w io.Writer, v hubsView) error {
+	cw := csv.NewWriter(w)
+	cw.Write([]string{"hub", "board", "health", "health_error", "version", "standalone", "unreleased",
+		"errors_24h", "attention", "other", "last_run", "last_run_at", "failed_7d", "site", "hub_url", "hub_error"})
+	for _, h := range v.Hubs {
+		if h.Error != "" {
+			cw.Write([]string{h.Name, "", "", "", "", "", "", "", "", "", "", "", "", "", h.URL, h.Error})
+		}
+		for _, s := range h.Sites {
+			// Blank means unknown, so a count of 0 stays distinct.
+			unreleased, errs, attn, other, last, at := "", "", "", "", "", ""
+			if s.Releases {
+				unreleased = fmt.Sprint(s.Unreleased)
+			}
+			if s.ErrorsKnown {
+				errs = fmt.Sprint(s.Errors24h)
+			}
+			if s.Detail {
+				attn, other = fmt.Sprint(len(s.Stats.Attention)), fmt.Sprint(s.Stats.Other)
+			}
+			if r := s.Stats.LastRun; r != nil {
+				last, at = r.Status, r.At.Format(time.RFC3339)
+			}
+			cw.Write([]string{h.Name, s.Name, s.Health, s.HealthErr, cmp.Or(s.Stats.Version, short(s.Stats.GitSHA)),
+				fmt.Sprint(!s.App), unreleased, errs, attn, other, last, at, fmt.Sprint(s.Stats.Failed7d), s.Site, h.URL, ""})
+		}
+	}
+	cw.Flush()
+	return cw.Error()
+}
+
 // hubsView is GET /api/hubs.
 type hubsView struct {
 	Hubs []struct {
-		Name         string `json:"name"`
-		URL          string `json:"url"`
-		Version      string `json:"version"`
-		Error        string `json:"error"`
-		Upstream     string `json:"upstream"`
-		Behind       int    `json:"behind"`
-		More         bool   `json:"behind_more"`
-		Unreleased   int    `json:"unreleased"`
-		ReleaseKnown bool   `json:"release_known"`
-		Sites        []struct {
-			Name        string `json:"name"`
-			Site        string `json:"site"`
-			App         bool   `json:"app"`
-			Health      string `json:"health"`
-			HealthErr   string `json:"health_err"`
-			Detail      bool   `json:"detail"`
-			Releases    bool   `json:"releases"`
-			Unreleased  int    `json:"unreleased"`
-			Errors24h   int    `json:"errors_24h"`
-			ErrorsKnown bool   `json:"errors_known"`
-			Stats       struct {
-				Version   string            `json:"version"`
-				GitSHA    string            `json:"sha"`
-				Attention []json.RawMessage `json:"attention"`
-				Other     int               `json:"other"`
-				Failed7d  int               `json:"failed_7d"`
-				LastRun   *struct {
-					Status string    `json:"status"`
-					At     time.Time `json:"at"`
-				} `json:"last_run"`
-			} `json:"stats"`
-		} `json:"sites"`
+		Name         string    `json:"name"`
+		URL          string    `json:"url"`
+		Version      string    `json:"version"`
+		Error        string    `json:"error"`
+		Upstream     string    `json:"upstream"`
+		Behind       int       `json:"behind"`
+		More         bool      `json:"behind_more"`
+		Unreleased   int       `json:"unreleased"`
+		ReleaseKnown bool      `json:"release_known"`
+		Sites        []hubSite `json:"sites"`
 	} `json:"hubs"`
 	Attention []struct {
 		ID     int       `json:"id"`
@@ -402,7 +584,7 @@ func printHubs(w io.Writer, v hubsView, now time.Time) {
 				head += fmt.Sprintf(" · %d%s behind %s", h.Behind, more, h.Upstream)
 			}
 		}
-		fmt.Fprintf(w, "\n%s  %s\n", strings.ToUpper(head), h.URL)
+		fmt.Fprintf(w, "\n── %s  %s\n", strings.ToUpper(head), h.URL)
 		if h.Error != "" {
 			fmt.Fprintf(w, "  couldn't read %s/api/overview: %s\n", h.URL, h.Error)
 			continue

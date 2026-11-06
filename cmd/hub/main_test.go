@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"encoding/csv"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -64,7 +65,7 @@ func TestCLI(t *testing.T) {
 	b, bCalls := fakeHub(t, "tb", "kenko", "busy")
 	t.Setenv("TA", "ta")
 	t.Setenv("TB", "tb")
-	t.Setenv("HUBS_CONFIG", a.URL+" env:TA # the first serves hubs\n\n"+b.URL+"/ env:TB\n")
+	t.Setenv("HUBS_CONFIG", a.URL+" env:TA # a comment\n\n"+b.URL+"/ env:TB\n")
 	hub := func(args ...string) (string, error) {
 		var out bytes.Buffer
 		err := run(ctx, args, &out)
@@ -120,6 +121,90 @@ func TestCLI(t *testing.T) {
 	}
 	if out, err := hub("-json"); err != nil || !json.Valid([]byte(out)) {
 		t.Errorf("hubs -json: %v %q", err, out)
+	}
+}
+
+// overviewHub answers GET /api/hubs with body.
+func overviewHub(t *testing.T, body string) *httptest.Server {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte(body))
+	}))
+	t.Cleanup(srv.Close)
+	return srv
+}
+
+func TestOverviewAllHubs(t *testing.T) {
+	ctx := context.Background()
+	a := overviewHub(t, `{"hubs":[{"name":"nick.org","url":"https://iterate.nick.org","release_known":true,
+		"sites":[{"name":"kenko","app":true,"health":"ok","detail":true,"releases":true,"unreleased":0,"site":"https://kenko.nick.org",
+		"stats":{"version":"v1","other":2,"attention":[{}],"last_run":{"status":"done","at":"2026-11-06T10:00:00Z"}}}]},
+		{"name":"kirsch.org","url":"https://iterate.kirsch.org","error":"peer down"}],
+		"attention":[{"id":1,"title":"Down","kind":"urgent","hub":"nick.org","site":"kenko","url":"https://iterate.nick.org/kenko/items/1"}],"other":2}`)
+	b := overviewHub(t, `{"hubs":[{"name":"kirsch.org","url":"https://iterate.kirsch.org",
+		"sites":[{"name":"momo","app":true,"health":"ok,\"odd\"","detail":true,"stats":{"sha":"abcdef123456","other":3}}]}],"other":3}`)
+	down := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, `{"error":"unauthorized"}`, http.StatusUnauthorized)
+	}))
+	t.Cleanup(down.Close)
+	t.Setenv("T", "x")
+	t.Setenv("HUBS_CONFIG", a.URL+" env:T\n"+b.URL+" env:T\n"+down.URL+" env:T\n")
+	hub := func(args ...string) (string, error) {
+		var out bytes.Buffer
+		err := run(ctx, args, &out)
+		return out.String(), err
+	}
+
+	out, err := hub()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"── NICK.ORG", "── KIRSCH.ORG", "momo", "HTTP 401", "5 other unfinished items"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("missing %q:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "peer down") {
+		t.Errorf("a peer's error should give way to the hub's own answer:\n%s", out)
+	}
+
+	out, err = hub("-csv")
+	if err != nil {
+		t.Fatal(err)
+	}
+	rows, err := csv.NewReader(strings.NewReader(out)).ReadAll()
+	if err != nil {
+		t.Fatalf("csv: %v\n%s", err, out)
+	}
+	if len(rows) != 4 || rows[0][0] != "hub" || rows[1][0] != "nick.org" || rows[1][1] != "kenko" ||
+		rows[2][4] != "abcdef1" || rows[2][2] != `ok,"odd"` || !strings.Contains(rows[3][15], "HTTP 401") {
+		t.Errorf("csv rows: %q", rows)
+	}
+
+	var merged struct {
+		Hubs  []json.RawMessage `json:"hubs"`
+		Other int               `json:"other"`
+	}
+	out, err = hub("-json")
+	if err != nil || json.Unmarshal([]byte(out), &merged) != nil || len(merged.Hubs) != 3 || merged.Other != 5 {
+		t.Errorf("-json: %v %q", err, out)
+	}
+
+	// -hub matches the config URL, and drops peers and attention it doesn't match.
+	t.Setenv("HUBS_CONFIG", "https://iterate.nick.org.invalid env:T\n")
+	if _, err := hub("-hub", "nope"); err == nil || !strings.Contains(err.Error(), "no hub matches") {
+		t.Errorf("-hub nope: %v", err)
+	}
+	t.Setenv("HUBS_CONFIG", a.URL+" env:T\n"+b.URL+" env:T\n")
+	out, err = hub("-hub", "127.0.0.1,kirsch")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(out, "NICK.ORG") || !strings.Contains(out, "KIRSCH.ORG") || strings.Contains(out, "Down") {
+		t.Errorf("-hub kirsch:\n%s", out)
+	}
+	if _, err := hub("-json", "-csv"); err == nil {
+		t.Error("-json -csv should be refused")
 	}
 }
 

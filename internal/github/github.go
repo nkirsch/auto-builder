@@ -516,8 +516,18 @@ func (c *Client) CloseIssue(ctx context.Context, repo string, n int, comment str
 		map[string]string{"state": "closed", "state_reason": reason}, nil)
 }
 
-// LatestRelease returns the latest published release's tag, or "" if there is none.
+// LatestRelease returns the newest vYY.M.D[-N] tag, or else the latest
+// published release's tag, or "" if there is neither. Deploys tag every
+// commit they ship (deploy.yml), including push deploys that publish no
+// release, so the newest such tag is what's live or was last released.
 func (c *Client) LatestRelease(ctx context.Context, repo string) (string, error) {
+	tags, err := c.TagsWithPrefix(ctx, repo, "v")
+	if err != nil && !IsNotFound(err) {
+		return "", err
+	}
+	if v := NewestVersion(tags); v != "" {
+		return v, nil
+	}
 	var rel struct {
 		Tag string `json:"tag_name"`
 	}

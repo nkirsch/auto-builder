@@ -54,3 +54,53 @@ func NextTag(day string, existing []string) string {
 	}
 	return fmt.Sprintf("%s-%d", day, n+1)
 }
+
+// NewestVersion is the highest vYY.M.D[-N] tag among tags (a bare day tag
+// sorts before its -1), or "" if none has that form.
+func NewestVersion(tags []string) string {
+	best, bestKey := "", [4]int{}
+	for _, t := range tags {
+		k, ok := versionKey(t)
+		if ok && (best == "" || cmpKey(k, bestKey) > 0) {
+			best, bestKey = t, k
+		}
+	}
+	return best
+}
+
+// versionKey parses vYY.M.D[-N] into {YY, M, D, N}; YY under 20 is taken
+// for semver (v1.2.3), not a date.
+func versionKey(tag string) (k [4]int, ok bool) {
+	s, ok := strings.CutPrefix(tag, "v")
+	if !ok {
+		return k, false
+	}
+	s, n, hasN := strings.Cut(s, "-")
+	parts := strings.Split(s, ".")
+	if len(parts) != 3 {
+		return k, false
+	}
+	if hasN {
+		parts = append(parts, n)
+	}
+	for i, p := range parts {
+		v, err := strconv.Atoi(p)
+		if err != nil || v < 0 || p != strconv.Itoa(v) {
+			return k, false
+		}
+		k[i] = v
+	}
+	if k[0] < 20 || k[1] < 1 || k[1] > 12 || k[2] < 1 || k[2] > 31 {
+		return k, false
+	}
+	return k, true
+}
+
+func cmpKey(a, b [4]int) int {
+	for i := range a {
+		if a[i] != b[i] {
+			return a[i] - b[i]
+		}
+	}
+	return 0
+}

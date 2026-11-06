@@ -1,6 +1,6 @@
 # The extreme-provision job (TENANCY.md): the provision binary on the gcloud
 # image, which has the beta commands (domain mappings) and git.
-FROM golang:1.26 AS build
+FROM golang:1.27 AS build
 WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download

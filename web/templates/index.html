@@ -18,7 +18,8 @@
   {{with .Data.By}}<a href="{{base}}/{{boardq $.Data.Show $.Data.Tag ""}}">Everyone</a>{{end}}
   {{if eq .Data.Show "done"}}<a class="button secondary" href="{{base}}/{{boardq "" .Data.Tag .Data.By}}">Open</a>{{else}}<a class="button secondary" href="{{base}}/{{boardq "done" .Data.Tag .Data.By}}">Done</a>{{end}}
   {{if .Data.Unread}}<form method="post" action="{{base}}/read"><input type="hidden" name="back" value="{{.Path}}"><button class="secondary">Mark all read</button></form>{{end}}
-  {{if .Me.IsAdmin}}<form method="post" action="{{base}}/admin/run"><button class="secondary">Run now</button></form>{{end}}
+  {{if .Running}}<a class="button secondary" href="{{base}}/runs" title="The agent is working on the board"><span class="spinner"></span> Running</a>
+  {{else if .Me.IsAdmin}}<form method="post" action="{{base}}/admin/run"><button class="secondary">Run now</button></form>{{end}}
   <a class="button" href="{{base}}/items/new">New ask</a>
 </div>
 {{range .Data.Sections}}

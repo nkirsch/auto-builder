@@ -334,7 +334,10 @@ type page struct {
 	SiteURL string            // the app's site, linked from the nav
 	NewApp  string            // a hub's New app page, for members to make their own app
 	Refresh int               // seconds until the page reloads itself; 0 never
-	Pending int               // commits awaiting a release, for an admin's History badge; 0 none
+	Pending int               // commits awaiting a release, for an admin's Releases badge; 0 none
+	// Releasing: a release is deploying (admins only); the nav shows it instead of Pending.
+	Releasing bool
+	Running   bool // a run is requested or running
 	Names   map[string]string // member logins to names, for who
 	// LinkGitHub offers Google members connecting their GitHub accounts.
 	LinkGitHub bool
@@ -357,6 +360,13 @@ func (b *Board) renderRefresh(w http.ResponseWriter, r *http.Request, name, titl
 		}
 		names = b.names(r.Context())
 	}
+	var running bool
+	if me.Login != "" && b.Store != nil {
+		var err error
+		if running, err = b.Store.RunActive(r.Context()); err != nil {
+			slog.Warn("run active", "err", err)
+		}
+	}
 	t, ok := b.tmpl[name]
 	if !ok {
 		http.Error(w, "no template "+name, http.StatusInternalServerError)
@@ -365,10 +375,11 @@ func (b *Board) renderRefresh(w http.ResponseWriter, r *http.Request, name, titl
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	p := page{Me: me, Unread: unread, Title: title, GitSHA: b.GitSHA, Repo: cmp.Or(b.CodeRepo, b.Repo), Flash: r.URL.Query().Get("m"),
 		BotName: b.BotLogin, Theme: theme(r), Path: r.URL.RequestURI(), BaseURL: strings.TrimSuffix(b.BaseURL, "/"),
-		AppName: b.Name, SiteURL: b.SiteURL, NewApp: yourApp(b.CreateAppURL), Refresh: refresh, Names: names, Data: data}
+		AppName: b.Name, SiteURL: b.SiteURL, NewApp: yourApp(b.CreateAppURL), Refresh: refresh, Names: names, Data: data,
+		Running: running}
 	p.Version = b.Version()
 	if me.IsAdmin() {
-		p.Pending = b.pendingRelease(r.Context())
+		p.Pending, p.Releasing = b.releaseState(r.Context())
 	}
 	p.LinkGitHub = b.Auth != nil && b.Auth.CanLinkGitHub() && me.Email != ""
 	if err := t.ExecuteTemplate(w, "layout", p); err != nil {

@@ -1026,6 +1026,13 @@ func (s *Store) FailStale(ctx context.Context, running, requested time.Duration)
 	return tag.RowsAffected(), err
 }
 
+// RunActive reports whether a run is requested or running.
+func (s *Store) RunActive(ctx context.Context) (bool, error) {
+	var active bool
+	err := s.Pool.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM runs WHERE status IN ('requested', 'running'))`).Scan(&active)
+	return active, err
+}
+
 // GateState is what the gate needs to decide whether to launch.
 type GateState struct {
 	Active       bool

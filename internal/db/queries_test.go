@@ -756,3 +756,23 @@ func TestItemsForPRs(t *testing.T) {
 		t.Errorf("ItemsForPRs = %+v", got)
 	}
 }
+
+func TestRunActive(t *testing.T) {
+	ctx := context.Background()
+	s := testStore(t)
+	if active, err := s.RunActive(ctx); err != nil || active {
+		t.Fatalf("no runs: active %v %v", active, err)
+	}
+	id, _ := s.CreateRun(ctx, "manual", "nkirsch")
+	if active, _ := s.RunActive(ctx); !active {
+		t.Fatal("requested run not active")
+	}
+	s.ClaimRun(ctx, id, "abc", "v1")
+	if active, _ := s.RunActive(ctx); !active {
+		t.Fatal("running run not active")
+	}
+	s.FinishRun(ctx, id, "done", "", "", nil)
+	if active, _ := s.RunActive(ctx); active {
+		t.Fatal("finished run still active")
+	}
+}

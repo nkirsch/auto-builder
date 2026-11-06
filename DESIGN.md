@@ -22,7 +22,7 @@ steps are the manual ones below.
 | Hosting | GCP, new personal project, region `us-central1` (domain mappings supported). |
 | Host | `builder.extreme.org` — CNAME to `ghs.googlehosted.com` in Cloud DNS zone `extreme-org`, Cloud Run domain mapping. |
 | Sub-path | A `BASE_URL` with a path (e.g. `https://site.example/iterate`) mounts the board there: templates prefix links with `{{base}}`, root-relative redirects get the prefix, cookies are scoped to it. With `SITE_DIR` the server also serves that static site at every other path (`SITE_VERSION` in its `.html` replaced by the release name) and redirects other hosts to `BASE_URL`'s; without it, no host redirect (the board sits behind a proxy). `REDIRECT_HOSTS` (comma-separated) 308s those hosts to `BASE_URL`'s with path and query kept, `/health` excepted, for moving a board to a new domain. Public `GET /version` returns `{"version": …}` for a site footer. |
-| Site extras | With `SITE_DIR`, admin-only `GET /logs` reports the static site's readers over 30 days from Cloud Run's request log (bots and the admin's home host dropped). `RELEASES=true` adds Release now to `/runs` and the top of `/history` (admins only), and gives admins' History nav link a count of default-branch commits since the latest release (the newest `vYY.M.D[-N]` tag, which every deploy puts on what it ships, else the latest published release; read at most once a minute) when one needs cutting; Release now cuts `vYY.M.D-N` (Pacific date, N from 1) at the default branch head with the App token, which triggers release workflows; for repos that deploy on release. |
+| Site extras | With `SITE_DIR`, admin-only `GET /logs` reports the static site's readers over 30 days from Cloud Run's request log (bots and the admin's home host dropped). `RELEASES=true` adds Release now to `/runs` and the top of `/history` (admins only), and gives admins' Releases nav link (the `/history` page) a count of default-branch commits since the latest release (the newest `vYY.M.D[-N]` tag, which every deploy puts on what it ships, else the latest published release; read at most once a minute) when one needs cutting, as a button that cuts one and returns to the page; while a release deploys (a `release`-event workflow run is queued or in progress, or the board cut one in the last 30 seconds) a spinner replaces the count; Release now cuts `vYY.M.D-N` (Pacific date, N from 1) at the default branch head with the App token, which triggers release workflows; for repos that deploy on release. |
 | Forks | A fork is a site plus this board: it overrides `app.defaults.env` in `app.env` (site name and URL, Hugo version, `SERVE_SITE`, `DEPLOY_ON` push, release or none, `ISSUE_SYNC`, local Postgres), branding, `.claude/site.md` (the agent's per-site instructions) and the Hugo tree; everything else comes from upstream. Upstream's own site is a redirect to `iterate/`. |
 | Branding | `web/templates/brand.html` (site name, description, head extras, nav brand, footer extras, login blurb; upstream's footer links NICK LLC) and `web/static/brand.css` (loaded after `style.css`) hold everything a fork restyles; forks replace those two files and the icons, not the layout. |
 | Database | Cloud SQL Postgres (smallest tier, Postgres 16/17), via the Cloud Run Cloud SQL connector (`host=/cloudsql/PROJECT:REGION:INSTANCE`). pgx v5. Embedded SQL migrations + `schema_migrations` table. |
@@ -78,7 +78,9 @@ non-bot change (create, reply, approve) and drives the gate.
   summary, summary, log link, cost, runtime, and a progress ring plus
   per-stage timings: queued → setup → agent → report; admins can Cancel an
   active run, which stops its Cloud Run execution and marks it `cancelled`,
-  not a failure, so no backoff), `/history` (PRs merged into the default
+  not a failure, so no backoff; while a run is requested or running the
+  nav's Runs link shows a spinner and the board's Run now becomes a Running
+  link to `/runs`, for every member), `/history` (titled Releases: PRs merged into the default
   branch, grouped under the first `v*` tag that contains them, newest first;
   read from GitHub over the last 100 commits and closed PRs, cached a minute;
   each PR links its item via `items.pr_number` or `run_prs`, and the version
@@ -99,7 +101,7 @@ non-bot change (create, reply, approve) and drives the gate.
   items with its guess via `set_tags`, never `urgent` (see Shipping).
 - An ask's author links to the board filtered to their asks (`/?by=login`,
   combinable with `tag` and `show`) from the board, Runs (beside each item a
-  run acted on) and History.
+  run acted on) and Releases.
 - An admin reply on a `closed` or `shipped` item reopens it (approval kept),
   so the agent picks it up again; member replies only notify. On a `merged`
   item it sets `reopen_on_ship`, and the ship-checker reopens it right after

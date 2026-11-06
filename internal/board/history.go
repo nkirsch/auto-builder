@@ -128,7 +128,7 @@ func (b *Board) historyPage(w http.ResponseWriter, r *http.Request) {
 		}
 		data["Releases"] = markLive(rs, live, sha)
 	}
-	b.render(w, r, "history", "History", data)
+	b.render(w, r, "history", "Releases", data)
 }
 
 // markLive copies rs with Live set on the release tagged live or at sha.

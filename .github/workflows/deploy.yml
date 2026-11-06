@@ -166,7 +166,7 @@ jobs:
           skip_install: true
       - name: deploy server
         run: >
-          gcloud run deploy ${{ vars.SERVICE }} --project ${{ vars.GCP_PROJECT }} --region ${{ vars.GCP_REGION }}
+          gcloud run deploy ${{ vars.SERVICE }} --project ${{ vars.GCP_PROJECT }} --region ${{ vars.HUB_REGION || vars.GCP_REGION }}
           --image ${{ vars.IMAGE }}/server:${{ github.sha }}
           --update-env-vars GIT_SHA=${{ github.sha }},VERSION=${{ steps.version.outputs.version }},${{ steps.env.outputs.vars }} --quiet
       - name: update runner job

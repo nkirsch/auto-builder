@@ -10,7 +10,13 @@ BILLING=${BILLING:-} # billing account ID; needed only to link a new project
 REPO=${REPO:-nkirsch/auto-builder}
 DOMAIN=${DOMAIN:-builder.extreme.org}
 SIGNAL_URL=${SIGNAL_URL:-https://signal.nick.org} # admin pushes (internal/notify); the server account must be in signal's SIGNAL_GOOGLE
-SQL_INSTANCE=${SQL_INSTANCE:-builder}
+# The hub service sits by its database; jobs, images and apps stay in $REGION.
+HUB_REGION=${HUB_REGION:-us-west1}
+# Shared instance: one database + role per hub, each role unprivileged.
+SQL_PROJECT=${SQL_PROJECT:-nick-org-2019}
+SQL_REGION=${SQL_REGION:-us-west1}
+SQL_INSTANCE=${SQL_INSTANCE:-nick-org}
+SQL_CONN=$SQL_PROJECT:$SQL_REGION:$SQL_INSTANCE
 SQL_DB=${SQL_DB:-builder}
 SQL_USER=${SQL_USER:-builder}
 AR_REPO=${AR_REPO:-builder}
@@ -28,6 +34,7 @@ HOME_HOST=${HOME_HOST-}
 DEPLOY_ON=$(cd "$(dirname "$0")/.." && awk -F= '/^DEPLOY_ON=/ {v=$2} END {print v}' app.defaults.env app.env 2>/dev/null)
 
 g() { gcloud --project "$PROJECT" --quiet "$@"; }
+gs() { gcloud --project "$SQL_PROJECT" --quiet "$@"; }
 log() { echo "== $*"; }
 # New service accounts take a while to become visible to IAM.
 retry() { for _ in 1 2 3 4 5 6; do "$@" && return; sleep 10; done; return 1; }
@@ -62,25 +69,51 @@ g services enable run.googleapis.com sqladmin.googleapis.com \
   storage.googleapis.com cloudbuild.googleapis.com sts.googleapis.com \
   gmail.googleapis.com
 
-log "cloud sql $SQL_INSTANCE"
-g sql instances describe "$SQL_INSTANCE" >/dev/null 2>&1 ||
-  g sql instances create "$SQL_INSTANCE" --region "$REGION" \
+log "cloud sql $SQL_CONN / $SQL_DB"
+if ! gs sql instances describe "$SQL_INSTANCE" >/dev/null 2>&1; then
+  [ "$SQL_PROJECT" = "$PROJECT" ] || { echo "no instance $SQL_CONN" >&2; exit 1; }
+  gs sql instances create "$SQL_INSTANCE" --region "$SQL_REGION" \
     --database-version POSTGRES_17 --edition enterprise --tier db-f1-micro \
     --storage-size 10 --storage-auto-increase
-g sql databases describe "$SQL_DB" --instance "$SQL_INSTANCE" >/dev/null 2>&1 ||
-  g sql databases create "$SQL_DB" --instance "$SQL_INSTANCE"
-
+fi
+until [ "$(gs sql instances describe "$SQL_INSTANCE" --format 'value(state)')" = RUNNABLE ]; do sleep 15; done
+# sql STATEMENTS — run as postgres through cloud-sql-proxy (brew install cloud-sql-proxy).
+# The postgres password is reset to a throwaway value each time.
+sql() {
+  local port=54329 pw
+  pw=$(openssl rand -hex 24)
+  gs sql users set-password postgres --instance "$SQL_INSTANCE" --password "$pw" >/dev/null
+  cloud-sql-proxy --gcloud-auth --port "$port" "$SQL_CONN" >/dev/null 2>&1 &
+  local proxy=$!
+  for _ in $(seq 30); do pg_isready -q -h 127.0.0.1 -p "$port" && break; sleep 1; done
+  local rc=0
+  PGPASSWORD=$pw psql -q -v ON_ERROR_STOP=1 -h 127.0.0.1 -p "$port" -U postgres -d postgres -c "$1" || rc=$?
+  kill "$proxy"
+  return $rc
+}
 # Generated secrets; the DB password lives only inside DATABASE_URL.
 secret() { # name value
   g secrets describe "$1" >/dev/null 2>&1 ||
     printf '%s' "$2" | g secrets create "$1" --replication-policy automatic --data-file -
 }
-if ! g secrets describe DATABASE_URL >/dev/null 2>&1; then
+# Role and database are made in SQL, not gcloud: gcloud users join cloudsqlsuperuser,
+# which owns every gcloud-made database, so apps could read each other's data.
+if ! g secrets describe "DATABASE_URL" >/dev/null 2>&1; then
   pw=$(openssl rand -hex 24)
-  g sql users create "$SQL_USER" --instance "$SQL_INSTANCE" --password "$pw" 2>/dev/null ||
-    g sql users set-password "$SQL_USER" --instance "$SQL_INSTANCE" --password "$pw"
-  secret DATABASE_URL "postgres://$SQL_USER:$pw@/$SQL_DB?host=/cloudsql/$PROJECT:$REGION:$SQL_INSTANCE"
+  sql "DO \$\$BEGIN
+         IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = '$SQL_USER') THEN CREATE ROLE $SQL_USER LOGIN; END IF;
+       END\$\$;
+       ALTER ROLE $SQL_USER PASSWORD '$pw';"
+  secret DATABASE_URL "postgres://$SQL_USER:$pw@/$SQL_DB?host=/cloudsql/$SQL_CONN"
 fi
+# postgres administers the role but needs SET to hand it a database.
+sql "GRANT $SQL_USER TO postgres WITH INHERIT FALSE, SET TRUE"
+gs sql databases describe "$SQL_DB" --instance "$SQL_INSTANCE" >/dev/null 2>&1 ||
+  sql "CREATE DATABASE $SQL_DB OWNER $SQL_USER"
+# Only the owner can revoke PUBLIC's CONNECT; from postgres, REVOKE does nothing.
+sql "SET ROLE $SQL_USER;
+     REVOKE ALL ON DATABASE $SQL_DB FROM PUBLIC;
+     GRANT CONNECT ON DATABASE $SQL_DB TO postgres"
 log "secrets"
 secret SESSION_KEY "$(openssl rand -hex 32)"
 secret TICK_TOKEN "$(openssl rand -hex 32)"
@@ -132,7 +165,8 @@ secret_access() { # sa secrets
       --role roles/secretmanager.secretAccessor >/dev/null
   done
 }
-proj_role builder-server roles/cloudsql.client
+retry gs projects add-iam-policy-binding "$SQL_PROJECT" --member "serviceAccount:$(sa builder-server)" \
+  --role roles/cloudsql.client --condition None >/dev/null
 secret_access builder-server "$SERVER_SECRETS"
 # The runner executes the agent on untrusted item text: no DATABASE_URL,
 # SESSION_KEY, TICK_TOKEN or OAuth secret, and no other GCP access.
@@ -181,27 +215,27 @@ retry g iam service-accounts add-iam-policy-binding "$(sa builder-deployer)" \
 
 IMAGE="$REGION-docker.pkg.dev/$PROJECT/$AR_REPO"
 log "cloud run service $SERVICE"
-if ! g run services describe "$SERVICE" --region "$REGION" >/dev/null 2>&1; then
+if ! g run services describe "$SERVICE" --region "$HUB_REGION" >/dev/null 2>&1; then
   # First deploy builds from source; CI owns deploys after this.
-  g run deploy "$SERVICE" --region "$REGION" --source "$(dirname "$0")/.." \
+  g run deploy "$SERVICE" --region "$HUB_REGION" --source "$(dirname "$0")/.." \
     --service-account "$(sa builder-server)" --allow-unauthenticated \
-    --add-cloudsql-instances "$PROJECT:$REGION:$SQL_INSTANCE" \
+    --add-cloudsql-instances "$SQL_CONN" \
     --set-env-vars "BASE_URL=https://$DOMAIN,SIGNAL_URL=$SIGNAL_URL,GCS_BUCKET=$BUCKET,GCP_PROJECT=$PROJECT,GCP_REGION=$REGION,RUNNER_JOB=$JOB,GIT_SHA=$(git -C "$(dirname "$0")" rev-parse HEAD)" \
     --set-secrets "$(mounts "$SERVER_SECRETS")" \
     --min-instances 0 --max-instances 2 --memory 512Mi
 fi
 # Services created before Google sign-in lack its secrets.
-if ! g run services describe "$SERVICE" --region "$REGION" --format json | grep -q GOOGLE_CLIENT_ID; then
-  g run services update "$SERVICE" --region "$REGION" \
+if ! g run services describe "$SERVICE" --region "$HUB_REGION" --format json | grep -q GOOGLE_CLIENT_ID; then
+  g run services update "$SERVICE" --region "$HUB_REGION" \
     --update-secrets "$(mounts "GOOGLE_CLIENT_ID GOOGLE_CLIENT_SECRET")" >/dev/null
 fi
 # ...as do boards from before HOME_HOST, once it's set...
-if [[ " $SERVER_SECRETS " == *" HOME_HOST "* ]] && ! g run services describe "$SERVICE" --region "$REGION" --format json | grep -q '"HOME_HOST"'; then
-  g run services update "$SERVICE" --region "$REGION" --update-secrets "$(mounts HOME_HOST)" >/dev/null
+if [[ " $SERVER_SECRETS " == *" HOME_HOST "* ]] && ! g run services describe "$SERVICE" --region "$HUB_REGION" --format json | grep -q '"HOME_HOST"'; then
+  g run services update "$SERVICE" --region "$HUB_REGION" --update-secrets "$(mounts HOME_HOST)" >/dev/null
 fi
 # ...and boards from before the hub's all-sites page lack STATS_TOKEN.
-if ! g run services describe "$SERVICE" --region "$REGION" --format json | grep -q STATS_TOKEN; then
-  g run services update "$SERVICE" --region "$REGION" --update-secrets "$(mounts STATS_TOKEN)" >/dev/null
+if ! g run services describe "$SERVICE" --region "$HUB_REGION" --format json | grep -q STATS_TOKEN; then
+  g run services update "$SERVICE" --region "$HUB_REGION" --update-secrets "$(mounts STATS_TOKEN)" >/dev/null
 fi
 
 log "cloud run job $JOB"
@@ -220,8 +254,8 @@ fi
 # Older jobs mounted the App secrets and RUNNER_TOKEN; unmount them, then
 # revoke the runner's access. The server no longer reads RUNNER_TOKEN either.
 g run jobs update "$JOB" --region "$REGION" --remove-secrets "${OLD_RUNNER_SECRETS// /,}" >/dev/null
-if g run services describe "$SERVICE" --region "$REGION" --format json | grep -q '"RUNNER_TOKEN"'; then
-  g run services update "$SERVICE" --region "$REGION" --remove-secrets RUNNER_TOKEN >/dev/null
+if g run services describe "$SERVICE" --region "$HUB_REGION" --format json | grep -q '"RUNNER_TOKEN"'; then
+  g run services update "$SERVICE" --region "$HUB_REGION" --remove-secrets RUNNER_TOKEN >/dev/null
 fi
 for s in $OLD_RUNNER_SECRETS; do
   g secrets remove-iam-policy-binding "$s" --member "serviceAccount:$(sa builder-runner)" \
@@ -242,8 +276,8 @@ if ! g scheduler jobs describe builder-tick --location "$REGION" >/dev/null 2>&1
 fi
 
 log "domain mapping $DOMAIN"
-g beta run domain-mappings describe --domain "$DOMAIN" --region "$REGION" >/dev/null 2>&1 ||
-  g beta run domain-mappings create --service "$SERVICE" --domain "$DOMAIN" --region "$REGION" ||
+g beta run domain-mappings describe --domain "$DOMAIN" --region "$HUB_REGION" >/dev/null 2>&1 ||
+  g beta run domain-mappings create --service "$SERVICE" --domain "$DOMAIN" --region "$HUB_REGION" ||
   echo "!! domain mapping failed: verify the domain for this account (DESIGN.md manual step 2)"
 
 log "github repo settings"
@@ -259,7 +293,7 @@ JSON
   else
     echo "!! no master branch yet; re-run after it exists to protect it"
   fi
-  for v in "GCP_PROJECT=$PROJECT" "GCP_REGION=$REGION" \
+  for v in "GCP_PROJECT=$PROJECT" "GCP_REGION=$REGION" "HUB_REGION=$HUB_REGION" \
     "GCP_WIF_PROVIDER=projects/$NUMBER/locations/global/workloadIdentityPools/github/providers/github" \
     "GCP_DEPLOYER=$(sa builder-deployer)" "IMAGE=$IMAGE"; do
     gh variable set "${v%%=*}" --repo "$REPO" --body "${v#*=}"

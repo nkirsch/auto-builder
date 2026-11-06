@@ -18,7 +18,14 @@ HUB_ALIASES=${HUB_ALIASES-hub.$DOMAIN}  # space-separated hosts in $DOMAIN that 
 VISITORS_HOST=visitors.$DOMAIN         # mapped to the hub, which sends it to /visitors
 ORG=${ORG:-extreme-dot-org}            # GitHub org holding the app repos
 PLATFORM_REPO=${PLATFORM_REPO:-extreme-dot-org/extreme}
-SQL_INSTANCE=${SQL_INSTANCE:-builder}
+# The hub service sits by its database; jobs, images and apps stay in $REGION.
+HUB_REGION=${HUB_REGION:-us-west1}
+# Shared instance: one database + role per hub, each role unprivileged.
+SQL_PROJECT=${SQL_PROJECT:-nick-org-2019}
+SQL_REGION=${SQL_REGION:-us-west1}
+SQL_INSTANCE=${SQL_INSTANCE:-nick-org}
+SQL_CONN=$SQL_PROJECT:$SQL_REGION:$SQL_INSTANCE
+SQL_NAME=${NAME//-/_} # Postgres identifiers: no hyphens
 ADMIN_LOGIN=${ADMIN_LOGIN-}              # first platform admin; only read when creating the hub service
 ADMIN_EMAIL=${ADMIN_EMAIL-}
 # Standalone boards on the hub's Apps page (platform admins) (space-separated name=board URL);
@@ -40,8 +47,10 @@ HOME_HOST=${HOME_HOST-}
 STATS_SECRET=${STATS_SECRET:-STATS_TOKEN}
 
 g() { gcloud --project "$PROJECT" --quiet "$@"; }
+gs() { gcloud --project "$SQL_PROJECT" --quiet "$@"; }
 run_env() { # services|jobs NAME PREFIX: NAME's plain env vars starting with PREFIX, as A=1,B=2
-  g run "$1" describe "$2" --region "$REGION" --format json 2>/dev/null | python3 -c '
+  local region=$REGION; [ "$1" = services ] && region=$HUB_REGION
+  g run "$1" describe "$2" --region "$region" --format json 2>/dev/null | python3 -c '
 import json, sys
 try:
     spec = json.load(sys.stdin)["spec"]["template"]["spec"]
@@ -69,15 +78,40 @@ secret() { # name value: create once; later runs keep the value
     printf '%s' "$2" | g secrets create "$1" --replication-policy automatic --data-file -
 }
 
-log "database $NAME on $SQL_INSTANCE"
-g sql databases describe "$NAME" --instance "$SQL_INSTANCE" >/dev/null 2>&1 ||
-  g sql databases create "$NAME" --instance "$SQL_INSTANCE"
+log "database $SQL_NAME on $SQL_CONN"
+gs sql instances describe "$SQL_INSTANCE" >/dev/null 2>&1 || { echo "no instance $SQL_CONN" >&2; exit 1; }
+# sql STATEMENTS — run as postgres through cloud-sql-proxy (brew install cloud-sql-proxy).
+# The postgres password is reset to a throwaway value each time.
+sql() {
+  local port=54329 pw
+  pw=$(openssl rand -hex 24)
+  gs sql users set-password postgres --instance "$SQL_INSTANCE" --password "$pw" >/dev/null
+  cloud-sql-proxy --gcloud-auth --port "$port" "$SQL_CONN" >/dev/null 2>&1 &
+  local proxy=$!
+  for _ in $(seq 30); do pg_isready -q -h 127.0.0.1 -p "$port" && break; sleep 1; done
+  local rc=0
+  PGPASSWORD=$pw psql -q -v ON_ERROR_STOP=1 -h 127.0.0.1 -p "$port" -U postgres -d postgres -c "$1" || rc=$?
+  kill "$proxy"
+  return $rc
+}
+# Role and database are made in SQL, not gcloud: gcloud users join cloudsqlsuperuser,
+# which owns every gcloud-made database, so apps could read each other's data.
 if ! g secrets describe "$NAME-DATABASE_URL" >/dev/null 2>&1; then
   pw=$(openssl rand -hex 24)
-  g sql users create "$NAME" --instance "$SQL_INSTANCE" --password "$pw" 2>/dev/null ||
-    g sql users set-password "$NAME" --instance "$SQL_INSTANCE" --password "$pw"
-  secret "$NAME-DATABASE_URL" "postgres://$NAME:$pw@/$NAME?host=/cloudsql/$PROJECT:$REGION:$SQL_INSTANCE"
+  sql "DO \$\$BEGIN
+         IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = '$SQL_NAME') THEN CREATE ROLE $SQL_NAME LOGIN; END IF;
+       END\$\$;
+       ALTER ROLE $SQL_NAME PASSWORD '$pw';"
+  secret "$NAME-DATABASE_URL" "postgres://$SQL_NAME:$pw@/$SQL_NAME?host=/cloudsql/$SQL_CONN"
 fi
+# postgres administers the role but needs SET to hand it a database.
+sql "GRANT $SQL_NAME TO postgres WITH INHERIT FALSE, SET TRUE"
+gs sql databases describe "$SQL_NAME" --instance "$SQL_INSTANCE" >/dev/null 2>&1 ||
+  sql "CREATE DATABASE $SQL_NAME OWNER $SQL_NAME"
+# Only the owner can revoke PUBLIC's CONNECT; from postgres, REVOKE does nothing.
+sql "SET ROLE $SQL_NAME;
+     REVOKE ALL ON DATABASE $SQL_NAME FROM PUBLIC;
+     GRANT CONNECT ON DATABASE $SQL_NAME TO postgres"
 
 log "secrets"
 secret "$NAME-SESSION_KEY" "$(openssl rand -hex 32)"
@@ -117,6 +151,8 @@ log "service accounts"
 for a in server runner deployer provisioner; do
   g iam service-accounts describe "$(sa $a)" >/dev/null 2>&1 || g iam service-accounts create "$NAME-$a"
 done
+sql_client() { retry gs projects add-iam-policy-binding "$SQL_PROJECT" --member "serviceAccount:$(sa $1)" \
+  --role roles/cloudsql.client --condition None >/dev/null; }
 proj_role() { retry g projects add-iam-policy-binding "$PROJECT" --member "serviceAccount:$(sa $1)" \
   --role "$2" --condition None >/dev/null; }
 secret_access() { # account "ENV=SECRET ..."
@@ -132,7 +168,7 @@ act_as() { # who whom
 # The hub: its database and secrets, its bucket, starting both jobs,
 # reading the apps' services to mark merges shipped, and their request logs
 # (each app's <slug>-requests view) for boards' /logs.
-proj_role server roles/cloudsql.client
+sql_client server
 proj_role server roles/run.viewer
 proj_role server roles/logging.viewAccessor
 secret_access server "$SERVER_MOUNTS"
@@ -145,9 +181,10 @@ secret_access runner "$RUNNER_MOUNTS"
 # The provisioner creates each app's resources; the internet-facing hub never
 # holds these roles.
 for r in roles/run.admin roles/iam.serviceAccountAdmin roles/iam.serviceAccountUser \
-  roles/artifactregistry.admin roles/dns.admin roles/cloudsql.client roles/logging.configWriter; do
+  roles/artifactregistry.admin roles/dns.admin roles/logging.configWriter; do
   proj_role provisioner "$r"
 done
+sql_client provisioner
 secret_access provisioner "$PROVISION_MOUNTS"
 # Deploys update the existing service and jobs as their accounts.
 retry g artifacts repositories add-iam-policy-binding "$NAME" --location "$REGION" \
@@ -179,21 +216,21 @@ retry g iam service-accounts add-iam-policy-binding "$(sa deployer)" --role role
 # Placeholders until the platform repo's deploy pushes real images; deploys
 # change only the image and a few env vars, so this config persists.
 log "cloud run service $NAME"
-if ! g run services describe "$NAME" --region "$REGION" >/dev/null 2>&1; then
+if ! g run services describe "$NAME" --region "$HUB_REGION" >/dev/null 2>&1; then
   : "${ADMIN_LOGIN:?creating the hub: set ADMIN_LOGIN (and ADMIN_EMAIL)}"
-  g run deploy "$NAME" --region "$REGION" --image us-docker.pkg.dev/cloudrun/container/hello \
+  g run deploy "$NAME" --region "$HUB_REGION" --image us-docker.pkg.dev/cloudrun/container/hello \
     --service-account "$(sa server)" --allow-unauthenticated \
-    --add-cloudsql-instances "$PROJECT:$REGION:$SQL_INSTANCE" \
+    --add-cloudsql-instances "$SQL_CONN" \
     --set-env-vars "TENANCY=on,SIGNAL_URL=$SIGNAL_URL,REPO=$PLATFORM_REPO,TENANT_ORG=$ORG,BASE_URL=https://$DOMAIN,GCS_BUCKET=$PROJECT-$NAME,GCP_PROJECT=$PROJECT,GCP_REGION=$REGION,RUNNER_JOB=$NAME-runner,PROVISION_JOB=$NAME-provision,ADMIN_LOGIN=$ADMIN_LOGIN,ADMIN_EMAIL=$ADMIN_EMAIL,ISSUE_SYNC=on" \
     --set-secrets "$(mounts "$SERVER_MOUNTS")" \
     --min-instances 0 --max-instances 2 --memory 512Mi
 fi
 # Hubs created before the all-sites page and aliases lack these; ^;^ keeps SITES' spaces and REDIRECT_HOSTS' commas.
 aliases=$(echo $HUB_ALIASES | tr ' ' ,)
-g run services update "$NAME" --region "$REGION" \
+g run services update "$NAME" --region "$HUB_REGION" \
   --update-env-vars "^;^SITES=$SITES;CREATORS_FROM=$CREATORS_FROM;APP_DOMAIN=$DOMAIN;REDIRECT_HOSTS=$aliases${HUBS:+;HUBS=$HUBS}" \
   --update-secrets "$(mounts "STATS_TOKEN=$STATS_SECRET $HOME_MOUNT")" >/dev/null
-retry g run services add-iam-policy-binding "$NAME" --region "$REGION" \
+retry g run services add-iam-policy-binding "$NAME" --region "$HUB_REGION" \
   --member "serviceAccount:$(sa deployer)" --role roles/run.developer >/dev/null
 
 log "jobs $NAME-runner, $NAME-provision"
@@ -210,7 +247,7 @@ fi
 if ! g run jobs describe "$NAME-provision" --region "$REGION" >/dev/null 2>&1; then
   g run jobs create "$NAME-provision" --region "$REGION" --image us-docker.pkg.dev/cloudrun/container/job:latest \
     --service-account "$(sa provisioner)" --task-timeout 30m --max-retries 0 \
-    --set-cloudsql-instances "$PROJECT:$REGION:$SQL_INSTANCE" \
+    --set-cloudsql-instances "$SQL_CONN" \
     --set-env-vars "GCP_PROJECT=$PROJECT,GCP_REGION=$REGION,TENANT_ORG=$ORG,APP_DOMAIN=$DOMAIN,DNS_ZONE=$ZONE,WIF_POOL=$NAME,WIF_PROVIDER=github,PLATFORM_REPO=$PLATFORM_REPO,UPSTREAM=${UPSTREAM:-nkirsch/auto-builder}" \
     --set-secrets "$(mounts "$PROVISION_MOUNTS")"
 fi
@@ -230,11 +267,11 @@ if ! g scheduler jobs describe "$NAME-tick" --location "$REGION" >/dev/null 2>&1
 fi
 
 log "domain $DOMAIN"
-g beta run domain-mappings describe --domain "$DOMAIN" --region "$REGION" >/dev/null 2>&1 ||
-  g beta run domain-mappings create --service "$NAME" --domain "$DOMAIN" --region "$REGION"
+g beta run domain-mappings describe --domain "$DOMAIN" --region "$HUB_REGION" >/dev/null 2>&1 ||
+  g beta run domain-mappings create --service "$NAME" --domain "$DOMAIN" --region "$HUB_REGION"
 # The apex can't be a CNAME: copy the mapping's A/AAAA records into the zone.
 for type in A AAAA; do
-  rr=$(g beta run domain-mappings describe --domain "$DOMAIN" --region "$REGION" \
+  rr=$(g beta run domain-mappings describe --domain "$DOMAIN" --region "$HUB_REGION" \
     --format json | jq -r --arg t "$type" '[.status.resourceRecords[]? | select(.type == $t) | .rrdata] | join(",")')
   [ -n "$rr" ] || continue
   g dns record-sets describe "$DOMAIN." --type "$type" --zone "$ZONE" >/dev/null 2>&1 ||
@@ -243,8 +280,8 @@ done
 
 for host in $HUB_ALIASES $VISITORS_HOST; do
   log "alias $host"
-  g beta run domain-mappings describe --domain "$host" --region "$REGION" >/dev/null 2>&1 ||
-    g beta run domain-mappings create --service "$NAME" --domain "$host" --region "$REGION"
+  g beta run domain-mappings describe --domain "$host" --region "$HUB_REGION" >/dev/null 2>&1 ||
+    g beta run domain-mappings create --service "$NAME" --domain "$host" --region "$HUB_REGION"
   g dns record-sets describe "$host." --type CNAME --zone "$ZONE" >/dev/null 2>&1 ||
     g dns record-sets create "$host." --type CNAME --ttl 300 --rrdatas ghs.googlehosted.com. --zone "$ZONE"
 done
@@ -254,6 +291,7 @@ if gh auth status >/dev/null 2>&1; then
   set_var() { gh variable set "$1" -R "$PLATFORM_REPO" --body "$2" >/dev/null; }
   set_var GCP_PROJECT "$PROJECT"
   set_var GCP_REGION "$REGION"
+  set_var HUB_REGION "$HUB_REGION"
   set_var GCP_WIF_PROVIDER "projects/$NUMBER/locations/global/workloadIdentityPools/$NAME/providers/platform"
   set_var GCP_DEPLOYER "$(sa deployer)"
   set_var IMAGE "$REGION-docker.pkg.dev/$PROJECT/$NAME"

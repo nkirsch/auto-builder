@@ -263,6 +263,7 @@ func (h *hub) routes() http.Handler {
 		return h.reg.AllSignIns(ctx, "", "", since)
 	}, h.reg.AllSeen))) // an outside visitors report names visitors
 	mux.HandleFunc("POST /api/spend", h.apiSpend) // hubs in SPEND_REPORTERS report up
+	mux.HandleFunc("GET /api/spend", h.apiSpendTotal)
 	h.apiRoutes(mux)
 	mux.HandleFunc("GET /admin/traffic", h.platformAdmin(h.trafficAll))
 	mux.HandleFunc("GET /visitors", h.signedIn(h.visitorsAll))

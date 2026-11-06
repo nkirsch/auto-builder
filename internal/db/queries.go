@@ -558,6 +558,36 @@ func (s *Store) SetReplyIssueComment(ctx context.Context, id int, commentID int6
 	return s.execOne(ctx, `UPDATE responses SET issue_comment_id = $2 WHERE id = $1`, id, commentID)
 }
 
+// IssueAttachment is an attachment to link from a comment on Issue.
+type IssueAttachment struct {
+	Attachment
+	Issue int
+}
+
+// AttachmentsToMirror lists attachments, oldest first, that aren't on GitHub
+// yet, on active items with an open issue that aren't tagged private.
+func (s *Store) AttachmentsToMirror(ctx context.Context) ([]IssueAttachment, error) {
+	rows, err := s.Pool.Query(ctx, `SELECT a.id, a.item_id, a.name, a.content_type, a.size, a.object, a.uploaded_by, a.created_at, i.issue_number
+		FROM attachments a JOIN items i ON i.id = a.item_id
+		WHERE a.issue_comment_id IS NULL AND i.issue_number IS NOT NULL AND NOT i.issue_closed AND `+activeStatus+` AND `+mirrored+`
+		ORDER BY a.id`)
+	if err != nil {
+		return nil, err
+	}
+	return pgx.CollectRows(rows, func(r pgx.CollectableRow) (IssueAttachment, error) {
+		var ia IssueAttachment
+		a := &ia.Attachment
+		err := r.Scan(&a.ID, &a.ItemID, &a.Name, &a.ContentType, &a.Size, &a.Object, &a.UploadedBy, &a.CreatedAt, &ia.Issue)
+		return ia, err
+	})
+}
+
+// SetAttachmentsIssueComment records the GitHub comment the attachments were linked from.
+func (s *Store) SetAttachmentsIssueComment(ctx context.Context, ids []int, commentID int64) error {
+	_, err := s.Pool.Exec(ctx, `UPDATE attachments SET issue_comment_id = $2 WHERE id = ANY($1)`, ids, commentID)
+	return err
+}
+
 // IssuesSyncedAt is when the last issue sync started; nil before the first.
 func (s *Store) IssuesSyncedAt(ctx context.Context) (*time.Time, error) {
 	var t *time.Time

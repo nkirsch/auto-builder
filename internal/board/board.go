@@ -5,7 +5,9 @@ package board
 import (
 	"cmp"
 	"context"
+	"crypto/hmac"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -123,6 +125,9 @@ type Board struct {
 	// every board, this one's under Slug; else the board's store has them.
 	SignIns db.SignInLog
 	Slug    string
+	// LinkKey, when set, signs attachment links that work without signing in
+	// (AttachmentURL), for the items' GitHub issues.
+	LinkKey []byte
 
 	tmpl    map[string]*template.Template
 	version atomic.Pointer[string]
@@ -166,6 +171,7 @@ func (b *Board) Routes(mux *http.ServeMux) error {
 	mux.Handle("POST /items/{id}/unblock", admin(b.unblock))
 	mux.Handle("POST /items/{id}/escalate", member(b.escalate))
 	mux.Handle("GET /attachments/{id}", member(b.attachment))
+	mux.HandleFunc("GET /attachments/{id}/{sig}/{name}", b.linkedAttachment)
 	mux.HandleFunc("GET /inbox", func(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/", http.StatusMovedPermanently)
 	})
@@ -841,6 +847,47 @@ func (b *Board) attachment(w http.ResponseWriter, r *http.Request) {
 	a, err := b.Store.Attachment(r.Context(), id)
 	if err != nil {
 		b.fail(w, err)
+		return
+	}
+	b.serveObject(w, r, a.Object, a.Name, a.ContentType)
+}
+
+// AttachmentURL is a link to a that works without signing in, for a's item's
+// GitHub issue, or "" without a LinkKey. Tagging the item private revokes it.
+func (b *Board) AttachmentURL(a db.Attachment) string {
+	if len(b.LinkKey) == 0 {
+		return ""
+	}
+	return fmt.Sprintf("%s/attachments/%d/%s/%s", b.BaseURL, a.ID, b.linkSig(a.ID), url.PathEscape(unsafeName.ReplaceAllString(a.Name, "_")))
+}
+
+// linkSig signs an attachment ID for this board (BaseURL tells tenants apart).
+func (b *Board) linkSig(id int) string {
+	m := hmac.New(sha256.New, append([]byte("attachment-link\x00"), b.LinkKey...))
+	fmt.Fprintf(m, "%s\x00%d", b.BaseURL, id)
+	return hex.EncodeToString(m.Sum(nil)[:16])
+}
+
+// linkedAttachment serves an attachment by its AttachmentURL, unless its item
+// has since been tagged private.
+func (b *Board) linkedAttachment(w http.ResponseWriter, r *http.Request) {
+	id, ok := pathID(r)
+	if !ok || len(b.LinkKey) == 0 || !hmac.Equal([]byte(r.PathValue("sig")), []byte(b.linkSig(id))) {
+		http.NotFound(w, r)
+		return
+	}
+	a, err := b.Store.Attachment(r.Context(), id)
+	if err != nil {
+		b.fail(w, err)
+		return
+	}
+	it, err := b.Store.Item(r.Context(), a.ItemID)
+	if err != nil {
+		b.fail(w, err)
+		return
+	}
+	if slices.Contains(it.Tags, "private") {
+		http.NotFound(w, r)
 		return
 	}
 	b.serveObject(w, r, a.Object, a.Name, a.ContentType)

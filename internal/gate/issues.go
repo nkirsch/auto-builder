@@ -31,6 +31,9 @@ type IssueSync struct {
 	BaseURL string
 	// Notified creates in-app notifications for an imported comment.
 	Notified func(ctx context.Context, it db.Item, actor, body string)
+	// AttachmentURL, when set, is a link anyone can open to an attachment;
+	// attachments are then linked from their item's issue (images inline).
+	AttachmentURL func(a db.Attachment) string
 
 	mu        sync.Mutex // serialises Sync so overlapping syncs don't post a reply twice
 	welcomeMu sync.Mutex // serialises Welcome so it opens one Members issue
@@ -70,7 +73,7 @@ func (s *IssueSync) Sync(ctx context.Context) error {
 	if len(errs) == 0 {
 		errs = append(errs, s.Store.SetIssuesSyncedAt(ctx, started))
 	}
-	return errors.Join(append(errs, s.mirrorItems(ctx), s.reopenIssues(ctx), s.mirrorReplies(ctx), s.closeIssues(ctx))...)
+	return errors.Join(append(errs, s.mirrorItems(ctx), s.reopenIssues(ctx), s.mirrorReplies(ctx), s.mirrorAttachments(ctx), s.closeIssues(ctx))...)
 }
 
 // maxIssueBody keeps mirrored text under GitHub's 65,536-character limit.
@@ -160,6 +163,65 @@ func (s *IssueSync) mirrorReplies(ctx context.Context) error {
 		errs = append(errs, s.Store.SetReplyIssueComment(ctx, r.ID, id))
 	}
 	return errors.Join(errs...)
+}
+
+// mirrorAttachments links attachments that aren't on GitHub yet from a
+// comment on their item's issue, one per item and uploader in a row.
+func (s *IssueSync) mirrorAttachments(ctx context.Context) error {
+	if s.AttachmentURL == nil {
+		return nil
+	}
+	atts, err := s.Store.AttachmentsToMirror(ctx)
+	if err != nil {
+		return err
+	}
+	var errs []error
+	for len(atts) > 0 {
+		n := 1
+		for n < len(atts) && atts[n].ItemID == atts[0].ItemID && atts[n].UploadedBy == atts[0].UploadedBy {
+			n++
+		}
+		group := atts[:n]
+		atts = atts[n:]
+		a := group[0]
+		var b strings.Builder
+		fmt.Fprintf(&b, "**%s** attached to board item [#%d](%s/items/%d):\n", a.UploadedBy, a.ItemID, s.BaseURL, a.ItemID)
+		ids := make([]int, len(group))
+		for i, a := range group {
+			ids[i] = a.ID
+			b.WriteString("\n" + attachmentMarkdown(a.Attachment, s.AttachmentURL(a.Attachment)) + "\n")
+		}
+		id, err := s.GitHub.Comment(ctx, s.Repo, a.Issue, b.String())
+		if err != nil {
+			errs = append(errs, fmt.Errorf("mirror attachments of item %d: %w", a.ItemID, err))
+			continue
+		}
+		errs = append(errs, s.Store.SetAttachmentsIssueComment(ctx, ids, id))
+	}
+	return errors.Join(errs...)
+}
+
+// mdEscaper keeps a file name from breaking out of a markdown link's text.
+var mdEscaper = strings.NewReplacer(`\`, `\\`, `[`, `\[`, `]`, `\]`, "`", "\\`", "*", `\*`, "_", `\_`, "<", "&lt;", "\n", " ")
+
+// attachmentMarkdown shows an image inline and links anything else.
+func attachmentMarkdown(a db.Attachment, url string) string {
+	name := mdEscaper.Replace(a.Name)
+	switch a.ContentType {
+	case "image/png", "image/jpeg", "image/gif", "image/webp": // the board serves these inline
+		return fmt.Sprintf("[![%s](%s)](%s)", name, url, url)
+	}
+	return fmt.Sprintf("[%s](%s) (%s)", name, url, humanSize(a.Size))
+}
+
+func humanSize(n int64) string {
+	switch {
+	case n >= 1<<20:
+		return fmt.Sprintf("%.1f MB", float64(n)/(1<<20))
+	case n >= 1<<10:
+		return fmt.Sprintf("%d KB", n>>10)
+	}
+	return fmt.Sprintf("%d bytes", n)
 }
 
 // reopenIssues reopens the issue of an item reopened after its issue was closed.

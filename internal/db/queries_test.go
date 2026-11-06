@@ -27,41 +27,48 @@ func testStore(t *testing.T) *Store {
 func TestLastActivity(t *testing.T) {
 	ctx := context.Background()
 	s := testStore(t)
-	check := func(want string) {
+	check := func(wantAll, wantHuman string) {
 		t.Helper()
-		a, err := s.LastActivity(ctx)
+		all, human, err := s.LastActivity(ctx)
 		if err != nil {
 			t.Fatal(err)
 		}
-		switch {
-		case want == "" && a != nil:
-			t.Errorf("empty board: %+v", a)
-		case want != "" && (a == nil || a.Kind != want):
-			t.Errorf("activity %+v, want %s", a, want)
+		kind := func(a *Activity) string {
+			if a == nil {
+				return ""
+			}
+			return a.Kind
+		}
+		if kind(all) != wantAll || kind(human) != wantHuman {
+			t.Errorf("activity %q, human %q; want %q, %q", kind(all), kind(human), wantAll, wantHuman)
 		}
 	}
-	check("")
+	check("", "")
 	if err := s.UpsertMember(ctx, "alice", "member", "admin"); err != nil {
 		t.Fatal(err)
 	}
-	check("new user")
+	check("new user", "new user")
 	id, err := s.CreateItem(ctx, "Dark mode", "please", "alice")
 	if err != nil {
 		t.Fatal(err)
 	}
-	check("item")
+	check("item", "item")
 	if _, err := s.AddResponse(ctx, id, "alice", "any news?", true); err != nil {
 		t.Fatal(err)
 	}
-	check("reply")
+	check("reply", "reply")
+	if _, err := s.AddResponse(ctx, id, "bot", "working on it", false); err != nil {
+		t.Fatal(err)
+	}
+	check("reply", "reply")
 	if _, err := s.CreateRun(ctx, "tick", ""); err != nil {
 		t.Fatal(err)
 	}
-	check("run")
+	check("run", "reply")
 	if err := s.TouchMember(ctx, "alice", "Alice", ""); err != nil {
 		t.Fatal(err)
 	}
-	check("login")
+	check("login", "login")
 }
 
 func TestItemLifecycle(t *testing.T) {

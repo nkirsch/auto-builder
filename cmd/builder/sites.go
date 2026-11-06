@@ -44,14 +44,23 @@ type siteStats struct {
 	Failed7d   int `json:"failed_7d,omitempty"`
 	FailStreak int `json:"fail_streak,omitempty"`
 	// LastActivity is the newest thing to happen on the board: a login, item,
-	// reply, run, release or new user.
+	// reply, run, release or new user. LastHuman leaves out runs and the bot's
+	// items and replies.
 	LastActivity *db.Activity `json:"last_activity,omitempty"`
+	LastHuman    *db.Activity `json:"last_human_activity,omitempty"`
 }
 
-// noteActivity keeps kind at at as the last activity if it's the newest.
-func (s *siteStats) noteActivity(kind string, at time.Time) {
-	if !at.IsZero() && (s.LastActivity == nil || at.After(s.LastActivity.At)) {
-		s.LastActivity = &db.Activity{Kind: kind, At: at}
+// noteHuman keeps a person's kind at at as the last activity if it's the newest.
+func (s *siteStats) noteHuman(kind string, at time.Time) {
+	if at.IsZero() {
+		return
+	}
+	a := &db.Activity{Kind: kind, At: at}
+	if s.LastActivity == nil || at.After(s.LastActivity.At) {
+		s.LastActivity = a
+	}
+	if s.LastHuman == nil || at.After(s.LastHuman.At) {
+		s.LastHuman = a
 	}
 }
 
@@ -132,7 +141,7 @@ func statsFor(ctx context.Context, st *db.Store, version, sha string) (siteStats
 	}
 	s.FailStreak = failStreak(runs)
 	s.LastDone = lastDone(runs)
-	if s.LastActivity, err = st.LastActivity(ctx); err != nil {
+	if s.LastActivity, s.LastHuman, err = st.LastActivity(ctx); err != nil {
 		return s, err
 	}
 	since := time.Now().Add(-failedWindow)
@@ -196,7 +205,7 @@ func (s *server) stats(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if s.lastRelease != nil {
-		st.noteActivity("release", s.lastRelease(r.Context()))
+		st.noteHuman("release", s.lastRelease(r.Context()))
 	}
 	writeJSON(w, http.StatusOK, st)
 }
@@ -387,7 +396,7 @@ func (h *hub) siteRows(ctx context.Context) ([]siteRow, error) {
 			if at, err := h.reg.LastSignIn(ctx, t.Slug); err != nil {
 				slog.Warn("last sign-in", "tenant", t.Slug, "err", err)
 			} else {
-				row.Stats.noteActivity("login", at)
+				row.Stats.noteHuman("login", at)
 			}
 		}
 		rows = append(rows, row)

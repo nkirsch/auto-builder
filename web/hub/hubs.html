@@ -25,7 +25,7 @@
 </div>
 {{with .Sites}}
 <div class="table-wrap"><table class="sites">
-  <thead><tr><th>Board</th><th>Site</th><th>Health</th><th>Version</th><th>Release</th><th class="num">5xx (24h)</th><th class="num">Needs attention</th><th class="num">Other</th><th>Last run</th><th>Last activity</th><th></th></tr></thead>
+  <thead><tr><th>Board</th><th>Site</th><th>Health</th><th>Version</th><th>Release</th><th class="num">5xx (24h)</th><th class="num">Needs attention</th><th class="num">Other</th><th>Last run</th><th>Last activity</th><th>Last human</th><th></th></tr></thead>
   <tbody>
   {{range .}}
   <tr>
@@ -39,6 +39,7 @@
     <td class="num">{{if .Detail}}{{.Stats.Other}}{{else}}<span class="muted">–</span>{{end}}</td>
     <td class="wrap">{{with .Stats.LastRun}}{{.Status}} <span class="muted">{{when .At}}</span>{{else}}<span class="muted">–</span>{{end}}{{with .Stats.Failed7d}} · <span class="bad">{{.}} failed in 7d</span>{{end}}</td>
     <td class="wrap">{{with .Stats.LastActivity}}{{.Kind}} <span class="muted">{{when .At}}</span>{{else}}<span class="muted">–</span>{{end}}</td>
+    <td class="wrap">{{with .Stats.LastHuman}}{{.Kind}} <span class="muted">{{when .At}}</span>{{else}}<span class="muted">–</span>{{end}}</td>
     <td>{{with .Logs}}<a href="{{.}}">Traffic</a>{{end}}</td>
   </tr>
   {{end}}

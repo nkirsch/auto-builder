@@ -246,6 +246,8 @@ func TestIndexSections(t *testing.T) {
 		{ID: 5, Title: "Also unapproved", Status: "open"},
 		{ID: 6, Title: "Shipped, needs bootstrap", Status: "shipped", Approved: true, Blocked: "Re-run bootstrap."},
 		{ID: 7, Title: "Building, CI failed", Status: "building", Approved: true, Blocked: "CI failed on PR #9."},
+		{ID: 8, Title: "In the running run", Status: "open", Approved: true, InRun: true},
+		{ID: 9, Title: "Discussed in the running run", Status: "open", InRun: true},
 	}
 	got := sections(items, false)
 	var titles []string
@@ -261,13 +263,13 @@ func TestIndexSections(t *testing.T) {
 	if !slices.Equal(titles, []string{"Blocked", "Waiting for approval", "Approved, not started", "In progress"}) {
 		t.Fatalf("titles = %v", titles)
 	}
-	if fmt.Sprint(ids) != "[[6 7] [2 5] [3] [1 4]]" {
+	if fmt.Sprint(ids) != "[[6 7] [2 5 9] [3] [1 4 8]]" {
 		t.Fatalf("ids = %v", ids)
 	}
 	if got := sections(items[1:2], false); len(got) != 1 || got[0].Title != "Waiting for approval" {
 		t.Fatalf("empty sections kept: %+v", got)
 	}
-	if got := sections(items, true); len(got) != 1 || got[0].Title != "" || len(got[0].Items) != 7 {
+	if got := sections(items, true); len(got) != 1 || got[0].Title != "" || len(got[0].Items) != 9 {
 		t.Fatalf("done view = %+v", got)
 	}
 	if len(sections(nil, true)) != 0 || len(sections(nil, false)) != 0 {
@@ -284,8 +286,11 @@ func TestIndexSections(t *testing.T) {
 	if a < 0 || q < a || w < q || strings.Contains(out, "Nothing here.") {
 		t.Fatalf("sections out of order or missing:\n%s", out)
 	}
-	if !strings.Contains(out[q:w], `href="/items/3"`) || !strings.Contains(out[w:], `href="/items/4"`) {
+	if !strings.Contains(out[q:w], `href="/items/3"`) || !strings.Contains(out[w:], `href="/items/4"`) || !strings.Contains(out[w:], `href="/items/8"`) {
 		t.Fatalf("items in wrong section")
+	}
+	if n := strings.Count(out, `class="badge in-run"`); n != 2 {
+		t.Fatalf("in-run badges = %d, want 2", n)
 	}
 }
 

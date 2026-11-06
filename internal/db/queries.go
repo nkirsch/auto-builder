@@ -101,6 +101,7 @@ type Item struct {
 	EscalatedAt *time.Time
 	Assignees   []string // logins, or addresses for members who sign in with Google
 	Replies     int      // list queries only
+	InRun       bool     // list queries only: the running run has acted on it
 }
 
 type Response struct {
@@ -411,7 +412,8 @@ func (s *Store) Item(ctx context.Context, id int) (Item, error) {
 
 // Items lists items in the given statuses (all when empty), newest activity first.
 func (s *Store) Items(ctx context.Context, statuses ...string) ([]Item, error) {
-	rows, err := s.Pool.Query(ctx, `SELECT `+itemCols+`, (SELECT count(*) FROM responses r WHERE r.item_id = i.id)
+	rows, err := s.Pool.Query(ctx, `SELECT `+itemCols+`, (SELECT count(*) FROM responses r WHERE r.item_id = i.id),
+			EXISTS (SELECT 1 FROM run_items ri JOIN runs ru ON ru.id = ri.run_id WHERE ri.item_id = i.id AND ru.status = 'running')
 		FROM items i WHERE coalesce(cardinality($1::text[]), 0) = 0 OR i.status = ANY($1)
 		ORDER BY i.updated_at DESC`, statuses)
 	if err != nil {
@@ -419,8 +421,9 @@ func (s *Store) Items(ctx context.Context, statuses ...string) ([]Item, error) {
 	}
 	return pgx.CollectRows(rows, func(r pgx.CollectableRow) (Item, error) {
 		var replies int
-		it, err := scanItem(r, &replies)
-		it.Replies = replies
+		var inRun bool
+		it, err := scanItem(r, &replies, &inRun)
+		it.Replies, it.InRun = replies, inRun
 		return it, err
 	})
 }

@@ -65,7 +65,7 @@ form.inline button.link { color: var(--accent); font: inherit; }
 .items li.unread .title::before { content: "● "; color: var(--accent); }
 .meta { color: var(--muted); font-size: 14px; display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-top: 2px; }
 .status, .badge { font-size: 12px; padding: 1px 8px; border-radius: 10px; border: 1px solid var(--line); color: var(--muted); }
-.s-building, .r-running, .r-requested { color: var(--warn); border-color: currentColor; }
+.s-building, .r-running, .r-requested, .in-run { color: var(--warn); border-color: currentColor; }
 .s-merged, .s-shipped, .r-done, .approved { color: var(--ok); border-color: currentColor; }
 .r-failed, .blocked { color: var(--bad); border-color: currentColor; }
 .r-cancelled { color: var(--muted); border-color: currentColor; }

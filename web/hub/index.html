@@ -1,5 +1,6 @@
 {{define "content"}}
 <h1>Apps</h1>
+{{with .Data.TotalSpend}}<p class="muted">Agents have spent <b>{{.}}</b> building apps with auto-builder.</p>{{end}}
 {{with .Data.Rows}}
 <p class="hint">Every board: this hub's apps, and the standalone boards in <code>SITES</code>.
 {{if not $.Data.Token}}No <code>STATS_TOKEN</code>, so standalone boards show only their public version and health.{{end}}

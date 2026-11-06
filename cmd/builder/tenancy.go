@@ -262,6 +262,7 @@ func (h *hub) routes() http.Handler {
 	mux.Handle("GET /api/signins", auth.Bearer(h.cfg.StatsToken, serveSignIns(func(ctx context.Context, since time.Time) ([]db.SignIn, error) {
 		return h.reg.AllSignIns(ctx, "", "", since)
 	}, h.reg.AllSeen))) // an outside visitors report names visitors
+	mux.HandleFunc("POST /api/spend", h.apiSpend) // hubs in SPEND_REPORTERS report up
 	h.apiRoutes(mux)
 	mux.HandleFunc("GET /admin/traffic", h.platformAdmin(h.trafficAll))
 	mux.HandleFunc("GET /visitors", h.signedIn(h.visitorsAll))
@@ -368,6 +369,9 @@ func (h *hub) tick(w http.ResponseWriter, r *http.Request) {
 		if err := h.upstream.Check(r.Context()); err != nil {
 			errs = append(errs, fmt.Errorf("upstream: %w", err))
 		}
+	}
+	if err := h.syncSpend(r.Context()); err != nil {
+		errs = append(errs, fmt.Errorf("spend: %w", err))
 	}
 	if err := errors.Join(errs...); err != nil {
 		slog.Error("tick", "err", err)
@@ -702,7 +706,7 @@ func (h *hub) login(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, next, http.StatusFound)
 		return
 	}
-	h.render(w, r, "login", "Sign in", map[string]any{"Next": next, "GitHub": h.auth.GitHub(), "Google": h.auth.Google()})
+	h.render(w, r, "login", "Sign in", map[string]any{"Next": next, "GitHub": h.auth.GitHub(), "Google": h.auth.Google(), "TotalSpend": h.publicSpend(r.Context())})
 }
 
 func (h *hub) signedIn(next http.HandlerFunc) http.HandlerFunc {
@@ -910,7 +914,7 @@ func (h *hub) index(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 		}
-		h.render(w, r, "index", "Apps", map[string]any{"Rows": rows, "Spend30d": total, "Token": h.cfg.StatsToken != ""})
+		h.render(w, r, "index", "Apps", map[string]any{"Rows": rows, "Spend30d": total, "Token": h.cfg.StatsToken != "", "TotalSpend": h.publicSpend(ctx)})
 		return
 	}
 	tenants, err := h.reg.Tenants(ctx)
@@ -940,7 +944,7 @@ func (h *hub) index(w http.ResponseWriter, r *http.Request) {
 		}
 		apps = append(apps, a)
 	}
-	h.render(w, r, "index", "Apps", map[string]any{"Apps": apps})
+	h.render(w, r, "index", "Apps", map[string]any{"Apps": apps, "TotalSpend": h.publicSpend(ctx)})
 }
 
 func (h *hub) newApp(w http.ResponseWriter, r *http.Request) {

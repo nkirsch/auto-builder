@@ -30,6 +30,10 @@ CLAUDE_FEDERATION=${CLAUDE_FEDERATION-}
 # A DNS name (dynamic DNS) whose IPs' visits /logs leaves out, kept in secret
 # HOME_HOST; empty keeps the secret's value.
 HOME_HOST=${HOME_HOST-}
+# Reporting spend to a hub (TENANCY.md): its URL and this board's token, kept
+# in secret SPEND_REPORT_TOKEN. Empty keeps the service's or the secret's.
+SPEND_REPORT_TO=${SPEND_REPORT_TO-}
+SPEND_REPORT_TOKEN=${SPEND_REPORT_TOKEN-}
 # DEPLOY_ON from app.env over app.defaults.env, as the workflows read it.
 DEPLOY_ON=$(cd "$(dirname "$0")/.." && awk -F= '/^DEPLOY_ON=/ {v=$2} END {print v}' app.defaults.env app.env 2>/dev/null)
 
@@ -149,6 +153,14 @@ if [ -n "$HOME_HOST" ]; then
   fi
 fi
 if g secrets describe HOME_HOST >/dev/null 2>&1; then SERVER_SECRETS="$SERVER_SECRETS HOME_HOST"; fi
+if [ -n "$SPEND_REPORT_TOKEN" ]; then
+  if ! g secrets describe SPEND_REPORT_TOKEN >/dev/null 2>&1; then
+    printf '%s' "$SPEND_REPORT_TOKEN" | g secrets create SPEND_REPORT_TOKEN --replication-policy automatic --data-file -
+  elif [ "$(g secrets versions access latest --secret SPEND_REPORT_TOKEN)" != "$SPEND_REPORT_TOKEN" ]; then
+    printf '%s' "$SPEND_REPORT_TOKEN" | g secrets versions add SPEND_REPORT_TOKEN --data-file - >/dev/null
+  fi
+fi
+if g secrets describe SPEND_REPORT_TOKEN >/dev/null 2>&1; then SERVER_SECRETS="$SERVER_SECRETS SPEND_REPORT_TOKEN"; fi
 # The runner gets GitHub tokens and its RUN_TOKEN from the server: no GH_APP_*
 # secrets, and no RUNNER_TOKEN (a shared bearer older runners used).
 RUNNER_SECRETS="$KEY_SECRET"
@@ -232,6 +244,11 @@ fi
 # ...as do boards from before HOME_HOST, once it's set...
 if [[ " $SERVER_SECRETS " == *" HOME_HOST "* ]] && ! g run services describe "$SERVICE" --region "$HUB_REGION" --format json | grep -q '"HOME_HOST"'; then
   g run services update "$SERVICE" --region "$HUB_REGION" --update-secrets "$(mounts HOME_HOST)" >/dev/null
+fi
+# ...or reporting spend, once it's set...
+if [[ " $SERVER_SECRETS " == *" SPEND_REPORT_TOKEN "* ]]; then
+  g run services update "$SERVICE" --region "$HUB_REGION" --update-secrets "$(mounts SPEND_REPORT_TOKEN)" \
+    ${SPEND_REPORT_TO:+--update-env-vars "SPEND_REPORT_TO=$SPEND_REPORT_TO"} >/dev/null
 fi
 # ...and boards from before the hub's all-sites page lack STATS_TOKEN.
 if ! g run services describe "$SERVICE" --region "$HUB_REGION" --format json | grep -q STATS_TOKEN; then

@@ -533,3 +533,17 @@ func (r *Registry) PruneSeen(ctx context.Context, before time.Time) error {
 func (r *Registry) AllSignIns(ctx context.Context, board, identity string, since time.Time) ([]db.SignIn, error) {
 	return db.AllSignIns(ctx, r.Control, board, identity, since)
 }
+
+// SetSpendReport replaces hub's lifetime spend; "" is this hub's own.
+func (r *Registry) SetSpendReport(ctx context.Context, hub string, total float64) error {
+	_, err := r.Control.Exec(ctx, `INSERT INTO spend_reports (hub, total_usd) VALUES ($1, $2)
+		ON CONFLICT (hub) DO UPDATE SET total_usd = EXCLUDED.total_usd, reported_at = now()`, hub, total)
+	return err
+}
+
+// SpendTotal sums the latest reports; ok is false before the first one.
+func (r *Registry) SpendTotal(ctx context.Context) (total float64, ok bool, err error) {
+	var n int
+	err = r.Control.QueryRow(ctx, `SELECT coalesce(sum(total_usd), 0)::float8, count(*) FROM spend_reports`).Scan(&total, &n)
+	return total, n > 0, err
+}

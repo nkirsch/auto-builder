@@ -26,6 +26,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
 	"sync"
@@ -444,6 +445,9 @@ func (c *client) overview(ctx context.Context, hubs []hub, only string) ([]byte,
 	}
 	// Each hub's own total can't be summed when hubs list each other, but the boards' can.
 	for _, h := range v.Hubs {
+		slices.SortStableFunc(h.Sites, func(a, b hubSite) int {
+			return strings.Compare(strings.ToLower(a.Name), strings.ToLower(b.Name))
+		})
 		for _, s := range h.Sites {
 			v.Other += s.Stats.Other
 		}
@@ -594,7 +598,7 @@ func printHubs(w io.Writer, v hubsView, now time.Time) {
 			continue
 		}
 		tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
-		fmt.Fprintln(tw, "  BOARD\tHEALTH\tVERSION\tRELEASE\t5XX\tATTN\tOTHER\tLAST RUN")
+		fmt.Fprintln(tw, "  BOARD\tHEALTH\tVERSION\t5XX\tATTN\tOTHER\tLAST RUN")
 		for _, s := range h.Sites {
 			name := s.Name
 			if !s.App {
@@ -603,16 +607,6 @@ func printHubs(w io.Writer, v hubsView, now time.Time) {
 			health := s.Health
 			if s.HealthErr != "" && health != "ok" && health != "ready" {
 				health += ": " + s.HealthErr
-			}
-			version := cmp.Or(s.Stats.Version, short(s.Stats.GitSHA), "–")
-			release := "–"
-			switch {
-			case s.Releases && s.Unreleased > 0:
-				release = fmt.Sprintf("%d unreleased", s.Unreleased)
-			case s.Releases:
-				release = "released"
-			case s.App:
-				release = "on push"
 			}
 			errs := "–"
 			if s.ErrorsKnown {
@@ -629,10 +623,23 @@ func printHubs(w io.Writer, v hubsView, now time.Time) {
 			if s.Stats.Failed7d > 0 {
 				last += fmt.Sprintf(" · %d failed in 7d", s.Stats.Failed7d)
 			}
-			fmt.Fprintf(tw, "  %s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n", name, health, version, release, errs, attn, other, last)
+			fmt.Fprintf(tw, "  %s\t%s\t%s\t%s\t%s\t%s\t%s\n", name, health, versionCell(s), errs, attn, other, last)
 		}
 		tw.Flush()
 	}
+}
+
+// describeSuffix is what git describe adds to a tag: commits since it and the commit.
+var describeSuffix = regexp.MustCompile(`-\d+-g[0-9a-f]+$`)
+
+// versionCell is the version, with +N for N commits since the last release. That
+// count replaces git describe's suffix; a suffix with no count stays visible.
+func versionCell(s hubSite) string {
+	v := cmp.Or(s.Stats.Version, short(s.Stats.GitSHA), "–")
+	if s.Releases && s.Unreleased > 0 {
+		return fmt.Sprintf("%s +%d", describeSuffix.ReplaceAllString(v, ""), s.Unreleased)
+	}
+	return v
 }
 
 func ago(now, t time.Time) string {

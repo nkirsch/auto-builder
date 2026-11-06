@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/nkirsch/auto-builder/internal/auth"
+	"github.com/nkirsch/auto-builder/internal/board"
 	"github.com/nkirsch/auto-builder/internal/db"
 )
 
@@ -20,6 +21,9 @@ func (h *hub) apiRoutes(mux *http.ServeMux) {
 	mux.Handle("POST /api/tenants", api(h.apiCreate))
 	mux.Handle("GET /api/tenants/{slug}", api(h.apiTenant))
 	mux.Handle("POST /api/tenants/{slug}/members", api(h.apiAddMember))
+	mux.Handle("POST /api/tenants/{slug}/items", api(h.apiFile))
+	mux.Handle("POST /api/tenants/{slug}/run", api(h.apiRun))
+	mux.Handle("GET /api/hubs", api(h.apiHubs))
 }
 
 // apiActor is who API calls act as: the first platform admin from ADMIN_LOGIN.
@@ -119,4 +123,52 @@ func (h *hub) apiAddMember(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"login": login, "role": m.Role, "email": email, "github": email == "" || m.GitHub})
+}
+
+// apiFile files an ask on a board like its New ask form: {"title", "body",
+// "approve"}, approved by the API's actor when "approve". 201 with its id and URL.
+func (h *hub) apiFile(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		Title   string `json:"title"`
+		Body    string `json:"body"`
+		Approve bool   `json:"approve"`
+	}
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 64<<10)).Decode(&in); err != nil {
+		apiError(w, http.StatusBadRequest, err)
+		return
+	}
+	rt, err := h.tenantFor(r.Context(), r.PathValue("slug"))
+	if err != nil {
+		apiError(w, http.StatusNotFound, err)
+		return
+	}
+	id, err := rt.b.File(r.Context(), h.apiActor(), in.Title, in.Body, in.Approve)
+	if errors.Is(err, board.ErrBadItem) {
+		apiError(w, http.StatusBadRequest, err)
+		return
+	} else if err != nil {
+		apiError(w, http.StatusInternalServerError, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, map[string]any{"id": id, "url": rt.b.ItemURL(id), "approved": in.Approve})
+}
+
+// apiRun starts a board's run now, like its admin page's Run now: 201 with
+// the run's id and the runs page; 409 when a run is active, held or over the
+// spend limit.
+func (h *hub) apiRun(w http.ResponseWriter, r *http.Request) {
+	rt, err := h.tenantFor(r.Context(), r.PathValue("slug"))
+	if err != nil {
+		apiError(w, http.StatusNotFound, err)
+		return
+	}
+	id, err := rt.gate.RunNow(r.Context(), h.apiActor())
+	switch {
+	case errors.Is(err, db.ErrRunActive), errors.Is(err, db.ErrHeld), errors.Is(err, db.ErrSpendLimit):
+		apiError(w, http.StatusConflict, err)
+	case err != nil:
+		apiError(w, http.StatusBadGateway, err)
+	default:
+		writeJSON(w, http.StatusCreated, map[string]any{"run": id, "runs": h.cfg.BaseURL + "/" + rt.slug + "/runs"})
+	}
 }

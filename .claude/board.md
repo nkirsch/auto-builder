@@ -12,6 +12,7 @@ CI; the server marks items shipped once its own `GIT_SHA` contains the merge.
 
 - `cmd/builder` — server: board UI, `/mcp`, runner API, `/api/gate/tick`, `/health` under `BASE_URL`'s path; the static site from `SITE_DIR` at every other path (`site.go`); with `TENANCY=on`, the multi-tenant hub (`tenancy.go`, pages in `web/hub/`) mounting each tenant's board at `/<slug>/`
 - `cmd/provision` — multi-tenant mode's provision job: one app's repo, accounts, service, domain (`gcloud` + the App)
+- `cmd/hub` — CLI over hubs' tenant API (bearer `ADMIN_TOKEN`): `hub` (`/admin/hubs` in a terminal), `hub add [-run] BOARD TITLE [BODY]`, `hub run BOARD`; hubs from `~/.config/hub/hubs` (`go install ./cmd/hub`)
 - `cmd/runner` — job entrypoint: claim → App token → clone → `claude -p /build-board` → finish (installs `commands.go`'s embedded `/build-board` when the repo has none)
 - `internal/db` — pgx pool, embedded migrations (`migrations/NNN_*.sql`, append-only), all queries
 - `internal/tenant` — multi-tenant mode: control schema (own migrations), tenant registry, a pool per tenant schema `t_<slug>`

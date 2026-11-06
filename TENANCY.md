@@ -128,7 +128,8 @@ the provisioner SA is added as an owner in Search Console (manual, once).
   (`title`, `body`, `approve`) and answers 201 with its `id` and `url`; `POST
   /api/tenants/{slug}/run` is the board's Run now (201 with the `run`, 409
   when a run is active, held or over the spend limit); `GET /api/hubs` is
-  `/admin/hubs` as JSON. `cmd/hub` is a CLI over these (`hub`, across every
+  `/admin/hubs` as JSON, where each board's `last_activity` is its newest
+  login, item, reply, run, release or new user. `cmd/hub` is a CLI over these (`hub`, across every
   configured hub, with `-csv` and `-hub NAME`; `hub add -run BOARD TITLE`,
   `hub run BOARD`).
 - `/admin/traffic` (platform admin): every ready app's last 30 days (visitors, views, a per-day spark, top page) from the same cached reports as each board's `/logs`.

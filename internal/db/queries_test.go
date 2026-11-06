@@ -24,6 +24,46 @@ func testStore(t *testing.T) *Store {
 	return &Store{Pool: pool}
 }
 
+func TestLastActivity(t *testing.T) {
+	ctx := context.Background()
+	s := testStore(t)
+	check := func(want string) {
+		t.Helper()
+		a, err := s.LastActivity(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		switch {
+		case want == "" && a != nil:
+			t.Errorf("empty board: %+v", a)
+		case want != "" && (a == nil || a.Kind != want):
+			t.Errorf("activity %+v, want %s", a, want)
+		}
+	}
+	check("")
+	if err := s.UpsertMember(ctx, "alice", "member", "admin"); err != nil {
+		t.Fatal(err)
+	}
+	check("new user")
+	id, err := s.CreateItem(ctx, "Dark mode", "please", "alice")
+	if err != nil {
+		t.Fatal(err)
+	}
+	check("item")
+	if _, err := s.AddResponse(ctx, id, "alice", "any news?", true); err != nil {
+		t.Fatal(err)
+	}
+	check("reply")
+	if _, err := s.CreateRun(ctx, "tick", ""); err != nil {
+		t.Fatal(err)
+	}
+	check("run")
+	if err := s.TouchMember(ctx, "alice", "Alice", ""); err != nil {
+		t.Fatal(err)
+	}
+	check("login")
+}
+
 func TestItemLifecycle(t *testing.T) {
 	ctx := context.Background()
 	s := testStore(t)

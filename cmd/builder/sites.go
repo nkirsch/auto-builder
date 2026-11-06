@@ -43,6 +43,16 @@ type siteStats struct {
 	// in a row.
 	Failed7d   int `json:"failed_7d,omitempty"`
 	FailStreak int `json:"fail_streak,omitempty"`
+	// LastActivity is the newest thing to happen on the board: a login, item,
+	// reply, run, release or new user.
+	LastActivity *db.Activity `json:"last_activity,omitempty"`
+}
+
+// noteActivity keeps kind at at as the last activity if it's the newest.
+func (s *siteStats) noteActivity(kind string, at time.Time) {
+	if !at.IsZero() && (s.LastActivity == nil || at.After(s.LastActivity.At)) {
+		s.LastActivity = &db.Activity{Kind: kind, At: at}
+	}
 }
 
 // failedWindow and streakRuns bound what statsFor reads of a board's runs.
@@ -122,6 +132,9 @@ func statsFor(ctx context.Context, st *db.Store, version, sha string) (siteStats
 	}
 	s.FailStreak = failStreak(runs)
 	s.LastDone = lastDone(runs)
+	if s.LastActivity, err = st.LastActivity(ctx); err != nil {
+		return s, err
+	}
 	since := time.Now().Add(-failedWindow)
 	for _, r := range runs {
 		if r.Status == "done" {
@@ -181,6 +194,9 @@ func (s *server) stats(w http.ResponseWriter, r *http.Request) {
 		slog.Error("stats", "err", err)
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
+	}
+	if s.lastRelease != nil {
+		st.noteActivity("release", s.lastRelease(r.Context()))
 	}
 	writeJSON(w, http.StatusOK, st)
 }
@@ -368,6 +384,11 @@ func (h *hub) siteRows(ctx context.Context) ([]siteRow, error) {
 			row.Health = err.Error()
 		} else {
 			row.Detail = true
+			if at, err := h.reg.LastSignIn(ctx, t.Slug); err != nil {
+				slog.Warn("last sign-in", "tenant", t.Slug, "err", err)
+			} else {
+				row.Stats.noteActivity("login", at)
+			}
 		}
 		rows = append(rows, row)
 	}

@@ -592,6 +592,9 @@ func (h *hub) tenantFor(ctx context.Context, slug string) (*tenantRT, error) {
 	tools := &mcp.Board{Store: st, BotLogin: h.cfg.BotLogin, BaseURL: h.cfg.BaseURL, GitSHA: h.cfg.GitSHA, Deployed: deployed, Reply: b.BotReply}
 	if h.app != nil && h.cfg.IssueSync {
 		g.Issues = &gate.IssueSync{Store: st, GitHub: gh, Repo: t.Repo, BaseURL: base, Notified: b.Notified}
+		if len(h.cfg.SessionKey) >= 16 { // a random one wouldn't survive a restart
+			b.LinkKey, g.Issues.AttachmentURL = []byte(h.cfg.SessionKey), b.AttachmentURL
+		}
 		b.Filer, b.Welcomer, tools.Filer = g.Issues, g.Issues, g.Issues
 		if ship := h.shipper(t, st, gh, b.BotReply, deployed); ship != nil {
 			g.Ship = ship

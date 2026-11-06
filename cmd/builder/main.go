@@ -272,6 +272,9 @@ func run() error {
 	}
 	if app != nil && cfg.IssueSync {
 		g.Issues = &gate.IssueSync{Store: st, GitHub: gh, Repo: cfg.Repo, BaseURL: cfg.BaseURL, Notified: b.Notified}
+		if len(cfg.SessionKey) >= 16 { // a random one wouldn't survive a restart
+			b.LinkKey, g.Issues.AttachmentURL = []byte(cfg.SessionKey), b.AttachmentURL
+		}
 		b.Filer, b.Welcomer = g.Issues, g.Issues
 	}
 	if app != nil && cfg.Upstream != "" {

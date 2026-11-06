@@ -26,7 +26,7 @@ steps are the manual ones below.
 | Forks | A fork is a site plus this board: it overrides `app.defaults.env` in `app.env` (site name and URL, Hugo version, `SERVE_SITE`, `DEPLOY_ON` push, release or none, `ISSUE_SYNC`, local Postgres), branding, `.claude/site.md` (the agent's per-site instructions) and the Hugo tree; everything else comes from upstream. Upstream's own site is a redirect to `iterate/`. |
 | Branding | `web/templates/brand.html` (site name, description, head extras, nav brand, footer extras, login blurb; upstream's footer links NICK LLC) and `web/static/brand.css` (loaded after `style.css`) hold everything a fork restyles; forks replace those two files and the icons, not the layout. |
 | Database | Cloud SQL Postgres (smallest tier, Postgres 16/17), via the Cloud Run Cloud SQL connector (`host=/cloudsql/PROJECT:REGION:INSTANCE`). pgx v5. Embedded SQL migrations + `schema_migrations` table. |
-| Storage | GCS bucket: item attachments (`attachments/…`) and run logs (`runs/{id}.log`). Private; the server proxies reads. Local dev uses a directory. Plain JSON API + `google.DefaultTokenSource`, no heavy client libs. |
+| Storage | GCS bucket: item attachments (`attachments/…`) and run logs (`runs/{id}.log`). Private; the server proxies reads. Attachments on items mirrored to GitHub issues also have signed links (see GitHub issues). Local dev uses a directory. Plain JSON API + `google.DefaultTokenSource`, no heavy client libs. |
 | Agent auth | Workload Identity Federation when the runner job sets `ANTHROPIC_FEDERATION_RULE_ID`, `ANTHROPIC_ORGANIZATION_ID`, `ANTHROPIC_SERVICE_ACCOUNT_ID` and `ANTHROPIC_WORKSPACE_ID`: the runner writes the job's Google ID token (audience `https://api.anthropic.com`) to a file, refreshes it every 20 min, and Claude Code exchanges it for a short-lived token; `ANTHROPIC_API_KEY` is then withheld from the agent. Without those vars, `ANTHROPIC_API_KEY` from Secret Manager. The rule matches the `builder-runner` SA's `sub` and `email`. |
 | Autonomy | Agent opens a PR, watches its checks and squash-merges once every check is green (no branch protection needed); merge → deploy. |
 | CI/CD | GitHub Actions: `hugo --minify` + `go vet` + `go test` on PRs; on push to `master` (or a published release, per `DEPLOY_ON`) run tests and build amd64-only server and runner images in parallel (pushed to Artifact Registry, layer-cached, Claude Code refreshed weekly), then tag the commit `vYY.M.D-N`, `gcloud run deploy` the server with `GIT_SHA`, `VERSION`, `SITE_DIR`, `RELEASES` and `ISSUE_SYNC`, `gcloud run jobs update` the runner, and send a Pushover. Auth via Workload Identity Federation (no JSON keys). |
@@ -246,6 +246,14 @@ syncs issues (the App needs Issues read & write):
   notes (PR opened, shipped, blocked) reach issues filed on GitHub too. In
   mirrored text `#N` becomes a link to board item N (not after "PR "). The
   App's own issues and comments aren't imported back (it isn't a member).
+- Attachments on such an item (active, issue still open) are linked from a
+  comment on its issue once (`attachments.issue_comment_id`; consecutive
+  files by one uploader share a comment; PNG, JPEG, GIF and WebP inline).
+  GitHub has no API to upload files to issues, so the links are the board's:
+  `/attachments/{id}/{sig}/{name}` serves without sign-in when `sig` is an
+  HMAC of the board's `BASE_URL` and the ID under a key derived from
+  `SESSION_KEY` (rotating it breaks old links), and 404s once the item is
+  tagged `#private`. Without a `SESSION_KEY` attachments stay on the board.
 - When the item ships or closes, the App comments with the board link and
   closes the issue (completed / not planned) once (`items.issue_closed`); if
   an admin reopens the item, the issue is reopened.

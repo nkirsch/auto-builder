@@ -317,3 +317,61 @@ func TestWelcome(t *testing.T) {
 		t.Errorf("members issue %d, want 52", n)
 	}
 }
+
+// Attachments on a mirrored item are linked from its issue once, an uploader's
+// files in one comment (images inline); a private item's never are.
+func TestMirrorAttachments(t *testing.T) {
+	ctx := context.Background()
+	st := testStore(t)
+	st.UpsertMember(ctx, "nkirsch", "admin", "bootstrap")
+	pub, _ := st.CreateItem(ctx, "Crash", "", "nkirsch")
+	priv, _ := st.CreateItem(ctx, "Secret", "", "nkirsch")
+	st.SetTags(ctx, priv, []string{"private"}, false)
+	st.SetItemIssue(ctx, pub, 70)
+	st.SetItemIssue(ctx, priv, 71)
+	add := func(item int, name, ctype, by string, size int64) {
+		if _, err := st.AddAttachment(ctx, db.Attachment{ItemID: item, Name: name, ContentType: ctype, Size: size, Object: "o", UploadedBy: by}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	add(pub, "shot [1].png", "image/png", "nkirsch", 3)
+	add(pub, "log.txt", "text/plain; charset=utf-8", "nkirsch", 2048)
+	add(priv, "secret.png", "image/png", "nkirsch", 3)
+	add(pub, "a.svg", "image/svg+xml", "alice", 10)
+
+	var comments []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method + " " + r.URL.Path {
+		case "GET /repos/o/r/issues", "GET /repos/o/r/issues/comments":
+			w.Write([]byte(`[]`))
+		case "POST /repos/o/r/issues/70/comments":
+			var in map[string]string
+			json.NewDecoder(r.Body).Decode(&in)
+			comments = append(comments, in["body"])
+			fmt.Fprintf(w, `{"id":%d}`, 900+len(comments))
+		default:
+			t.Errorf("unexpected %s %s", r.Method, r.URL.Path)
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+	s := &IssueSync{Store: st, GitHub: github.New(srv.URL, ""), Repo: "o/r", BaseURL: "https://b",
+		AttachmentURL: func(a db.Attachment) string { return fmt.Sprintf("https://b/attachments/%d/sig/f", a.ID) }}
+	for range 2 { // nothing twice
+		if err := s.Sync(ctx); err != nil {
+			t.Fatal(err)
+		}
+	}
+	want := []string{
+		"**nkirsch** attached to board item [#1](https://b/items/1):\n\n" +
+			"[![shot \\[1\\].png](https://b/attachments/1/sig/f)](https://b/attachments/1/sig/f)\n\n" +
+			"[log.txt](https://b/attachments/2/sig/f) (2 KB)\n",
+		"**alice** attached to board item [#1](https://b/items/1):\n\n[a.svg](https://b/attachments/4/sig/f) (10 bytes)\n",
+	}
+	if fmt.Sprint(comments) != fmt.Sprint(want) {
+		t.Fatalf("comments =\n%q\nwant\n%q", comments, want)
+	}
+	if left, _ := st.AttachmentsToMirror(ctx); len(left) != 0 {
+		t.Errorf("left to mirror: %+v", left)
+	}
+}

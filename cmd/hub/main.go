@@ -459,6 +459,12 @@ func (c *client) overview(ctx context.Context, hubs []hub, only string) ([]byte,
 	return raw, v, err
 }
 
+// activity is the newest thing to happen on a board.
+type activity struct {
+	Kind string    `json:"kind"`
+	At   time.Time `json:"at"`
+}
+
 // hubSite is one board in GET /api/hubs.
 type hubSite struct {
 	Name        string `json:"name"`
@@ -481,6 +487,8 @@ type hubSite struct {
 			Status string    `json:"status"`
 			At     time.Time `json:"at"`
 		} `json:"last_run"`
+		LastActivity *activity `json:"last_activity"`
+		LastHuman    *activity `json:"last_human_activity"`
 	} `json:"stats"`
 }
 
@@ -488,10 +496,10 @@ type hubSite struct {
 func writeCSV(w io.Writer, v hubsView) error {
 	cw := csv.NewWriter(w)
 	cw.Write([]string{"hub", "board", "health", "health_error", "version", "standalone", "unreleased",
-		"errors_24h", "attention", "other", "last_run", "last_run_at", "failed_7d", "site", "hub_url", "hub_error"})
+		"errors_24h", "attention", "other", "last_run", "last_run_at", "failed_7d", "site", "hub_url", "hub_error", "last_activity", "last_activity_at", "last_human", "last_human_at"})
 	for _, h := range v.Hubs {
 		if h.Error != "" {
-			cw.Write([]string{h.Name, "", "", "", "", "", "", "", "", "", "", "", "", "", h.URL, h.Error})
+			cw.Write([]string{h.Name, "", "", "", "", "", "", "", "", "", "", "", "", "", h.URL, h.Error, "", "", "", ""})
 		}
 		for _, s := range h.Sites {
 			// Blank means unknown, so a count of 0 stays distinct.
@@ -508,8 +516,16 @@ func writeCSV(w io.Writer, v hubsView) error {
 			if r := s.Stats.LastRun; r != nil {
 				last, at = r.Status, r.At.Format(time.RFC3339)
 			}
+			cells := func(a *activity) (string, string) {
+				if a == nil {
+					return "", ""
+				}
+				return a.Kind, a.At.Format(time.RFC3339)
+			}
+			kind, at := cells(s.Stats.LastActivity)
+			human, humanAt := cells(s.Stats.LastHuman)
 			cw.Write([]string{h.Name, s.Name, s.Health, s.HealthErr, cmp.Or(s.Stats.Version, short(s.Stats.GitSHA)),
-				fmt.Sprint(!s.App), unreleased, errs, attn, other, last, at, fmt.Sprint(s.Stats.Failed7d), s.Site, h.URL, ""})
+				fmt.Sprint(!s.App), unreleased, errs, attn, other, last, at, fmt.Sprint(s.Stats.Failed7d), s.Site, h.URL, "", kind, at, human, humanAt})
 		}
 	}
 	cw.Flush()
@@ -598,7 +614,7 @@ func printHubs(w io.Writer, v hubsView, now time.Time) {
 			continue
 		}
 		tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
-		fmt.Fprintln(tw, "  BOARD\tHEALTH\tVERSION\t5XX\tATTN\tOTHER\tLAST RUN")
+		fmt.Fprintln(tw, "  BOARD\tHEALTH\tVERSION\t5XX\tATTN\tOTHER\tLAST RUN\tLAST ACTIVITY\tLAST HUMAN")
 		for _, s := range h.Sites {
 			name := s.Name
 			if !s.App {
@@ -623,7 +639,14 @@ func printHubs(w io.Writer, v hubsView, now time.Time) {
 			if s.Stats.Failed7d > 0 {
 				last += fmt.Sprintf(" · %d failed in 7d", s.Stats.Failed7d)
 			}
-			fmt.Fprintf(tw, "  %s\t%s\t%s\t%s\t%s\t%s\t%s\n", name, health, versionCell(s), errs, attn, other, last)
+			cell := func(a *activity) string {
+				if a == nil {
+					return "–"
+				}
+				return a.Kind + " " + ago(now, a.At)
+			}
+			fmt.Fprintf(tw, "  %s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n", name, health, versionCell(s), errs, attn, other, last,
+				cell(s.Stats.LastActivity), cell(s.Stats.LastHuman))
 		}
 		tw.Flush()
 	}

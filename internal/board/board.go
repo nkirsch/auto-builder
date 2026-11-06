@@ -129,10 +129,11 @@ type Board struct {
 	// (AttachmentURL), for the items' GitHub issues.
 	LinkKey []byte
 
-	tmpl    map[string]*template.Template
-	version atomic.Pointer[string]
-	history historyCache
-	pending pendingCache
+	tmpl        map[string]*template.Template
+	version     atomic.Pointer[string]
+	history     historyCache
+	pending     pendingCache
+	lastRelease lastReleaseCache
 }
 
 // SetVersion sets the release name shown next to the brand, e.g. "v26.10.25-2".

@@ -86,6 +86,7 @@ func (h *hub) overview(ctx context.Context) (hubOverview, error) {
 			if s.Healthy() {
 				if rt, err := h.tenantFor(ctx, r.Slug); err == nil {
 					s.Unreleased, s.Releases = rt.b.PendingRelease(ctx)
+					s.Stats.noteHuman("release", rt.b.LastRelease(ctx))
 				}
 			}
 		}

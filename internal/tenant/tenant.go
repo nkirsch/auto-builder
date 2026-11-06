@@ -29,7 +29,7 @@ var (
 	repoRE = regexp.MustCompile(`^[A-Za-z0-9-]+/[A-Za-z0-9._-]+$`)
 	// reserved are hub paths a slug would shadow, and hub, the hub's own
 	// host. www is free: the hub is the apex, so www.<domain> can be an app.
-	reserved = []string{"api", "auth", "oauth", "admin", "mcp", "static", "health", "x", "new", "hub", "visitors",
+	reserved = []string{"api", "auth", "oauth", "admin", "mcp", "static", "health", "x", "new", "hub", "iterate", "visitors",
 		// names an app could pass off as the platform's own: infrastructure,
 		// environments, branches, mail and DNS hosts, and account pages
 		"prod", "production", "staging", "stage", "dev", "test", "master", "main",

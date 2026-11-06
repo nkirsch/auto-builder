@@ -73,6 +73,9 @@ func TestSpendPublicPages(t *testing.T) {
 	h := testHub(t)
 	srv := h.routes()
 	const shown = "Agents have spent"
+	if w := do(h, srv, "", "GET", "/api/spend", nil); w.Code != 404 {
+		t.Errorf("GET /api/spend with SPEND_PUBLIC off = %d", w.Code)
+	}
 	if err := h.reg.SetSpendReport(ctx, "child", 2.5); err != nil {
 		t.Fatal(err)
 	}
@@ -87,6 +90,10 @@ func TestSpendPublicPages(t *testing.T) {
 	srv.ServeHTTP(w, tick)
 	if w.Code != 200 || strings.Contains(w.Body.String(), "partial") {
 		t.Fatalf("tick: %d %s", w.Code, w.Body)
+	}
+	w = do(h, srv, "", "GET", "/api/spend", nil)
+	if w.Code != 200 || w.Header().Get("Access-Control-Allow-Origin") != "*" || !strings.Contains(w.Body.String(), `"total_usd":2.5`) {
+		t.Errorf("GET /api/spend = %d %q", w.Code, w.Body)
 	}
 	for _, c := range []struct{ who, path string }{{"", "/auth/login"}, {"nkirsch", "/"}, {"mallory", "/"}} {
 		if body := do(h, srv, c.who, "GET", c.path, nil).Body.String(); !strings.Contains(body, "<b>$2.50</b>") {

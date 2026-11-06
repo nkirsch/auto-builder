@@ -203,6 +203,8 @@ All done for extreme.org (2026-10-25):
    reporter, and each report replaces its last. With `SPEND_PUBLIC=on`, the
    hub's sign-in and Apps pages show its own total plus those reports as one
    number: reported `runs.cost_usd`, deleted apps included, no per-hub figures.
+   Public `GET /api/spend` serves it as `{"total_usd": N}` with open CORS, for
+   an app's own pages (404 without `SPEND_PUBLIC` or before the first report).
    `infra/tenancy.sh` and `infra/bootstrap.sh` take these settings.
 8. Hubs page (`/admin/hubs`, platform admins): every hub's boards in one place.
    Each hub serves `GET /api/overview` behind `STATS_TOKEN`: its Apps rows

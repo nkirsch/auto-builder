@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"math"
 	"net/http"
 	"strings"
 	"time"
@@ -138,6 +139,28 @@ func (h *hub) publicSpend(ctx context.Context) string {
 		return ""
 	}
 	return fmt.Sprintf("$%.2f", total)
+}
+
+// apiSpendTotal serves the public total to other sites' pages, such as the
+// apps' home pages: GET /api/spend, 404 unless it's shown here.
+func (h *hub) apiSpendTotal(w http.ResponseWriter, r *http.Request) {
+	total := 0.0
+	ok := false
+	if h.cfg.SpendPublic {
+		var err error
+		if total, ok, err = h.reg.SpendTotal(r.Context()); err != nil {
+			slog.Warn("spend total", "err", err)
+			http.Error(w, "internal error", http.StatusInternalServerError)
+			return
+		}
+	}
+	if !ok {
+		http.NotFound(w, r)
+		return
+	}
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	w.Header().Set("Cache-Control", "public, max-age=300")
+	writeJSON(w, http.StatusOK, map[string]float64{"total_usd": math.Round(total*100) / 100})
 }
 
 // pushSpend reports a cumulative total to the hub at base.

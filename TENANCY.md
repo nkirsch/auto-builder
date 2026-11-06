@@ -9,7 +9,7 @@ limit. The shared agent builds the repo, and the result is deployed to
 Artifact Registry. `DESIGN.md` still describes how a single board behaves.
 This file covers only what changes for multiple tenants.
 
-Status (2026-10-26): build order steps 1–4 done, plus existing repos (below) (`internal/tenant`, `cmd/builder/tenancy.go`). The code lives here, off unless `TENANCY=on`,
+Status (2026-11-06): live on extreme.org, iterate.nick.org and iterate.kirsch.org; build order done, plus existing repos (below) (`internal/tenant`, `cmd/builder/tenancy.go`). The code lives here, off unless `TENANCY=on`,
 so single-board deploys and site forks are unchanged. `extreme-dot-org/extreme` is a
 fork that owns only its settings and docs and deploys this mode. Done for it:
 GitHub org `extreme-dot-org` and its App, Cloud DNS zone `extreme-org`,
@@ -226,11 +226,11 @@ All done for extreme.org (2026-10-25):
 3a. Item numbers follow issue numbers, on every board. Done (`IssueSync.File`).
 4. Provisioner + template repo. Done: `cmd/provision`, the hub starts it
    (`PROVISION_JOB`), tenant shipping reads the app's serving `GIT_SHA`.
-5. Bootstrap, DNS cutover, first tenant. `infra/tenancy.sh` sets up the
+5. Bootstrap, DNS cutover, first tenant. Done. `infra/tenancy.sh` sets up the
    platform (hub service, runner and provision jobs, accounts, WIF pool with
    `github` and `platform` providers, tick, apex domain, the platform repo's
    deploy variables); the platform repo then sets `TENANCY=on` and
-   `DEPLOY_ON=push` in its `app.env`.
+   `DEPLOY_ON` in its `app.env` (`release` on today's hubs).
 
 ## Open risks
 

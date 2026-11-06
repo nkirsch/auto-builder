@@ -112,7 +112,7 @@ func TestCLI(t *testing.T) {
 		"urgent  Site down  extreme.org · kenko · #7 by nkirsch",
 		"4 other unfinished items",
 		"EXTREME.ORG V26.10.29-1 · RELEASED  https://extreme.org",
-		"kenko  ok      v26.10.28-1  2 unreleased  3    1     4      done",
+		"kenko  ok      v26.10.28-1 +2  3    1     4      done",
 		"couldn't read https://hub.example.net/api/overview: HTTP 401",
 	} {
 		if !strings.Contains(out, want) {
@@ -142,7 +142,8 @@ func TestOverviewAllHubs(t *testing.T) {
 		{"name":"kirsch.org","url":"https://iterate.kirsch.org","error":"peer down"}],
 		"attention":[{"id":1,"title":"Down","kind":"urgent","hub":"nick.org","site":"kenko","url":"https://iterate.nick.org/kenko/items/1"}],"other":2}`)
 	b := overviewHub(t, `{"hubs":[{"name":"kirsch.org","url":"https://iterate.kirsch.org",
-		"sites":[{"name":"momo","app":true,"health":"ok,\"odd\"","detail":true,"stats":{"sha":"abcdef123456","other":3}}]}],"other":3}`)
+		"sites":[{"name":"momo","app":true,"health":"ok,\"odd\"","detail":true,"stats":{"sha":"abcdef123456","other":3}}]},
+		{"name":"sorted","url":"https://sorted.example","sites":[{"name":"zebra"},{"name":"Banana"},{"name":"apple"}]}],"other":3}`)
 	down := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, `{"error":"unauthorized"}`, http.StatusUnauthorized)
 	}))
@@ -158,6 +159,9 @@ func TestOverviewAllHubs(t *testing.T) {
 	out, err := hub()
 	if err != nil {
 		t.Fatal(err)
+	}
+	if strings.Index(out, "apple") > strings.Index(out, "Banana") || strings.Index(out, "Banana") > strings.Index(out, "zebra") {
+		t.Errorf("boards not sorted ignoring case:\n%s", out)
 	}
 	for _, want := range []string{"── NICK.ORG", "── KIRSCH.ORG", "momo", "HTTP 401", "5 other unfinished items"} {
 		if !strings.Contains(out, want) {
@@ -176,8 +180,8 @@ func TestOverviewAllHubs(t *testing.T) {
 	if err != nil {
 		t.Fatalf("csv: %v\n%s", err, out)
 	}
-	if len(rows) != 4 || rows[0][0] != "hub" || rows[1][0] != "nick.org" || rows[1][1] != "kenko" ||
-		rows[2][4] != "abcdef1" || rows[2][2] != `ok,"odd"` || !strings.Contains(rows[3][15], "HTTP 401") {
+	if len(rows) != 7 || rows[0][0] != "hub" || rows[1][0] != "nick.org" || rows[1][1] != "kenko" ||
+		rows[2][4] != "abcdef1" || rows[2][2] != `ok,"odd"` || rows[3][1] != "apple" || !strings.Contains(rows[6][15], "HTTP 401") {
 		t.Errorf("csv rows: %q", rows)
 	}
 
@@ -186,7 +190,7 @@ func TestOverviewAllHubs(t *testing.T) {
 		Other int               `json:"other"`
 	}
 	out, err = hub("-json")
-	if err != nil || json.Unmarshal([]byte(out), &merged) != nil || len(merged.Hubs) != 3 || merged.Other != 5 {
+	if err != nil || json.Unmarshal([]byte(out), &merged) != nil || len(merged.Hubs) != 4 || merged.Other != 5 {
 		t.Errorf("-json: %v %q", err, out)
 	}
 
@@ -205,6 +209,28 @@ func TestOverviewAllHubs(t *testing.T) {
 	}
 	if _, err := hub("-json", "-csv"); err == nil {
 		t.Error("-json -csv should be refused")
+	}
+}
+
+func TestVersionCell(t *testing.T) {
+	site := func(version string, releases bool, unreleased int) hubSite {
+		var s hubSite
+		s.Stats.Version, s.Releases, s.Unreleased = version, releases, unreleased
+		return s
+	}
+	for _, c := range []struct {
+		site hubSite
+		want string
+	}{
+		{site("v26.11.6-1", true, 0), "v26.11.6-1"},
+		{site("v26.11.6-1", true, 4), "v26.11.6-1 +4"},
+		{site("v26.11.6-1-2-gba6e69f", true, 2), "v26.11.6-1 +2"},
+		{site("v26.11.2-2-1-gf04b820", true, 0), "v26.11.2-2-1-gf04b820"},
+		{site("", false, 0), "–"},
+	} {
+		if got := versionCell(c.site); got != c.want {
+			t.Errorf("versionCell(%+v) = %q, want %q", c.site.Stats.Version, got, c.want)
+		}
 	}
 }
 

@@ -28,6 +28,44 @@ func TestNextTag(t *testing.T) {
 	}
 }
 
+func TestNewestVersion(t *testing.T) {
+	for _, c := range []struct {
+		tags []string
+		want string
+	}{
+		{nil, ""},
+		{[]string{"v1.2.3", "vnext", "v26.11.6-beta"}, ""},
+		{[]string{"v26.11.2-2", "v26.11.3-1", "v26.11.6-1"}, "v26.11.6-1"},
+		{[]string{"v26.11.10-1", "v26.11.9-3"}, "v26.11.10-1"}, // numeric, not lexical
+		{[]string{"v26.11.6-10", "v26.11.6-9"}, "v26.11.6-10"},
+		{[]string{"v26.11.6-1", "v26.11.6"}, "v26.11.6-1"},
+		{[]string{"v26.11.6", "v2.0.0"}, "v26.11.6"},
+	} {
+		if got := NewestVersion(c.tags); got != c.want {
+			t.Errorf("NewestVersion(%v) = %q, want %q", c.tags, got, c.want)
+		}
+	}
+}
+
+// A push deploy tags head without publishing a release; that tag, not the
+// older release, is what the release section compares against (item 214).
+func TestLatestReleasePrefersDeployTag(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/repos/o/r/git/matching-refs/tags/v":
+			w.Write([]byte(`[{"ref":"refs/tags/v26.11.2-2"},{"ref":"refs/tags/v26.11.3-1"},{"ref":"refs/tags/v26.11.6-1"}]`))
+		case "/repos/o/r/releases/latest":
+			w.Write([]byte(`{"tag_name":"v26.11.3-1"}`))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+	if got, err := New(srv.URL, "").LatestRelease(context.Background(), "o/r"); err != nil || got != "v26.11.6-1" {
+		t.Fatalf("LatestRelease = %q, %v", got, err)
+	}
+}
+
 func TestReleaseDayPacific(t *testing.T) {
 	// 2026-10-25 03:00 UTC is still Oct 24 in Pacific time.
 	if got := ReleaseDay(time.Date(2026, 10, 25, 3, 0, 0, 0, time.UTC)); got != "v26.10.24" {

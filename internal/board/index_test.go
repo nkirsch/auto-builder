@@ -350,8 +350,8 @@ func TestReleaseInfoNoCommits(t *testing.T) {
 	if ri := b.releaseInfo(context.Background(), "/runs"); ri == nil || !ri.NoRepo || ri.Err != "" {
 		t.Fatalf("releaseInfo = %+v, want NoRepo", ri)
 	}
-	if calls != 2 {
-		t.Fatalf("GitHub calls = %d, want 2", calls)
+	if calls != 3 { // v* tags, releases/latest, commits/HEAD
+		t.Fatalf("GitHub calls = %d, want 3", calls)
 	}
 
 	calls = 0

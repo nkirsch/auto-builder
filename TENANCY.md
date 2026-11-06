@@ -195,7 +195,16 @@ All done for extreme.org (2026-10-25):
    `gcloud secrets versions access latest --secret STATS_TOKEN | gcloud secrets
    create STATS_TOKEN --project OTHER --data-file=-`, then mount it on each
    service as `STATS_TOKEN`.
-7. Hubs page (`/admin/hubs`, platform admins): every hub's boards in one place.
+7. Public spend: a hub or standalone board with `SPEND_REPORT_TO` (a hub's URL)
+   and `SPEND_REPORT_TOKEN` posts its lifetime agent cost, what's reported to it
+   included, to that hub's `POST /api/spend` on each tick. Unset, it reports
+   nothing. The parent's `SPEND_REPORTERS` (space-separated `name=token`, in
+   secret `$NAME-SPEND_REPORTERS`) says who may report; the token names the
+   reporter, and each report replaces its last. With `SPEND_PUBLIC=on`, the
+   hub's sign-in and Apps pages show its own total plus those reports as one
+   number: reported `runs.cost_usd`, deleted apps included, no per-hub figures.
+   `infra/tenancy.sh` and `infra/bootstrap.sh` take these settings.
+8. Hubs page (`/admin/hubs`, platform admins): every hub's boards in one place.
    Each hub serves `GET /api/overview` behind `STATS_TOKEN`: its Apps rows
    (absolute board, site and `/logs` URLs; health, version, unreleased
    commits when `RELEASES=true`, last run, failed runs in the last 7 days,

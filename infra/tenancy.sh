@@ -45,6 +45,14 @@ HOME_HOST=${HOME_HOST-}
 # The secret this hub's STATS_TOKEN comes from. Give a hub its own when hubs
 # share a project but shouldn't read each other's /api/overview and /api/signins.
 STATS_SECRET=${STATS_SECRET:-STATS_TOKEN}
+# Spend reporting (TENANCY.md). A hub reporting up: the parent's URL and this
+# hub's token, kept in secret $NAME-SPEND_REPORT_TOKEN. A parent: the name=token
+# list, kept in secret $NAME-SPEND_REPORTERS, and SPEND_PUBLIC=on to show the
+# total. Empty keeps the service's or the secret's.
+SPEND_REPORT_TO=${SPEND_REPORT_TO-}
+SPEND_REPORT_TOKEN=${SPEND_REPORT_TOKEN-}
+SPEND_REPORTERS=${SPEND_REPORTERS-}
+SPEND_PUBLIC=${SPEND_PUBLIC-}
 
 g() { gcloud --project "$PROJECT" --quiet "$@"; }
 gs() { gcloud --project "$SQL_PROJECT" --quiet "$@"; }
@@ -138,6 +146,18 @@ if [ -n "$HOME_HOST" ]; then
 fi
 HOME_MOUNT=$(g secrets describe "$NAME-HOME_HOST" >/dev/null 2>&1 && echo "HOME_HOST=$NAME-HOME_HOST" || true)
 SERVER_MOUNTS="$SERVER_MOUNTS $HOME_MOUNT"
+SPEND_MOUNTS=""
+for s in SPEND_REPORT_TOKEN SPEND_REPORTERS; do
+  if [ -n "${!s}" ]; then
+    if ! g secrets describe "$NAME-$s" >/dev/null 2>&1; then
+      secret "$NAME-$s" "${!s}"
+    elif [ "$(g secrets versions access latest --secret "$NAME-$s")" != "${!s}" ]; then
+      printf '%s' "${!s}" | g secrets versions add "$NAME-$s" --data-file - >/dev/null
+    fi
+  fi
+  if g secrets describe "$NAME-$s" >/dev/null 2>&1; then SPEND_MOUNTS="$SPEND_MOUNTS $s=$NAME-$s"; fi
+done
+SERVER_MOUNTS="$SERVER_MOUNTS $SPEND_MOUNTS"
 PROVISION_MOUNTS="$(prefixed "DATABASE_URL $APP_SECRETS")"
 
 log "artifact registry $NAME, bucket $PROJECT-$NAME"
@@ -228,8 +248,8 @@ fi
 # Hubs created before the all-sites page and aliases lack these; ^;^ keeps SITES' spaces and REDIRECT_HOSTS' commas.
 aliases=$(echo $HUB_ALIASES | tr ' ' ,)
 g run services update "$NAME" --region "$HUB_REGION" \
-  --update-env-vars "^;^SITES=$SITES;CREATORS_FROM=$CREATORS_FROM;APP_DOMAIN=$DOMAIN;REDIRECT_HOSTS=$aliases${HUBS:+;HUBS=$HUBS}" \
-  --update-secrets "$(mounts "STATS_TOKEN=$STATS_SECRET $HOME_MOUNT")" >/dev/null
+  --update-env-vars "^;^SITES=$SITES;CREATORS_FROM=$CREATORS_FROM;APP_DOMAIN=$DOMAIN;REDIRECT_HOSTS=$aliases${HUBS:+;HUBS=$HUBS}${SPEND_REPORT_TO:+;SPEND_REPORT_TO=$SPEND_REPORT_TO}${SPEND_PUBLIC:+;SPEND_PUBLIC=$SPEND_PUBLIC}" \
+  --update-secrets "$(mounts "STATS_TOKEN=$STATS_SECRET $HOME_MOUNT $SPEND_MOUNTS")" >/dev/null
 retry g run services add-iam-policy-binding "$NAME" --region "$HUB_REGION" \
   --member "serviceAccount:$(sa deployer)" --role roles/run.developer >/dev/null
 

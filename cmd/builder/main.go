@@ -61,6 +61,11 @@ type config struct {
 	AdminToken string       // multi mode: ADMIN_TOKEN, bearer for the tenant API (/api/tenants); unset leaves it off
 	Sites      []remoteSite // multi mode: SITES, standalone boards on the hub's Apps page
 	Hubs       []remoteSite // multi mode: HUBS, other hubs whose /api/overview /admin/hubs gathers
+	// SPEND_REPORT_TO, a hub's URL to report lifetime agent spend to with
+	// SPEND_REPORT_TOKEN; unset reports nothing.
+	SpendReportTo, SpendReportToken string
+	SpendReporters                  []spendReporter // multi mode: SPEND_REPORTERS, hubs that may report here
+	SpendPublic                     bool            // multi mode: SPEND_PUBLIC=on shows the total on the hub's pages
 	// multi mode: CREATORS_FROM, names in SITES whose members may create an app
 	CreatorsFrom []string
 	// single mode: CREATE_APP_URL, a hub's New app page linked for members
@@ -136,6 +141,15 @@ func loadConfig() (config, error) {
 	if c.Hubs, err = parseSites(env("HUBS", "")); err != nil {
 		return c, fmt.Errorf("HUBS: %w", err)
 	}
+	c.SpendReportTo = strings.TrimSuffix(env("SPEND_REPORT_TO", ""), "/")
+	c.SpendReportToken = env("SPEND_REPORT_TOKEN", "")
+	if c.SpendReportTo != "" && c.SpendReportToken == "" {
+		return c, errors.New("SPEND_REPORT_TO needs SPEND_REPORT_TOKEN")
+	}
+	if c.SpendReporters, err = parseSpendReporters(env("SPEND_REPORTERS", "")); err != nil {
+		return c, fmt.Errorf("SPEND_REPORTERS: %w", err)
+	}
+	c.SpendPublic = env("SPEND_PUBLIC", "") == "on"
 	c.CreatorsFrom = strings.FieldsFunc(env("CREATORS_FROM", ""), func(r rune) bool { return r == ',' || r == ' ' })
 	c.CreateAppURL = env("CREATE_APP_URL", "")
 	for _, h := range strings.Split(env("REDIRECT_HOSTS", ""), ",") {
@@ -598,6 +612,9 @@ func (s *server) tick(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := db.PruneSeen(r.Context(), s.store.Pool, time.Now().Add(-db.SignInKeep)); err != nil {
 		slog.Error("prune seen", "err", err)
+	}
+	if err := s.syncSpend(r.Context()); err != nil {
+		slog.Error("report spend", "err", err)
 	}
 	if err := s.gate.Tick(r.Context()); err != nil {
 		slog.Error("tick", "err", err)

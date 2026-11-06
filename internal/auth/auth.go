@@ -188,6 +188,13 @@ func (a *Auth) member(ctx context.Context, identity string) (db.Member, error) {
 	return m, err
 }
 
+// Resolve is a signed-in identity's member on this board, by the same rules as
+// a session: db.ErrNotFound for a non-member, an error for a GitHub identity
+// on a Google-only member.
+func (a *Auth) Resolve(ctx context.Context, identity string) (db.Member, error) {
+	return a.member(ctx, identity)
+}
+
 // touch refreshes a multi-mode member's name, avatar and last_seen daily.
 func (a *Auth) touch(ctx context.Context, identity string, m db.Member) {
 	if a.cfg.Users == nil || (m.LastSeen != nil && time.Since(*m.LastSeen) < 24*time.Hour) {

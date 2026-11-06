@@ -601,35 +601,15 @@ func (b *Board) reply(w http.ResponseWriter, r *http.Request) {
 		b.fail(w, err)
 		return
 	}
-	// An admin replying on a finished item wants more work done on it.
-	reopened := false
-	if me.IsAdmin() && (it.Status == "closed" || it.Status == "shipped") {
-		if err := b.Store.ReopenItem(r.Context(), id); err != nil {
-			b.fail(w, err)
-			return
+	reopened, reopensOnShip, err := b.respond(r.Context(), me, it, body, func() {
+		if err := b.saveUploads(r, id, me.Login); err != nil {
+			slog.Warn("upload", "item", id, "err", err)
 		}
-		reopened = true
+	})
+	if err != nil {
+		b.fail(w, err)
+		return
 	}
-	// A merged item reopens once it ships, so the ship-checker keeps its merge.
-	reopensOnShip := me.IsAdmin() && it.Status == "merged"
-	if reopensOnShip {
-		if err := b.Store.ReopenOnShip(r.Context(), id); err != nil {
-			b.fail(w, err)
-			return
-		}
-	}
-	if body != "" {
-		if _, err := b.Store.AddResponse(r.Context(), id, me.Login, body, true); err != nil {
-			b.fail(w, err)
-			return
-		}
-	}
-	if err := b.saveUploads(r, id, me.Login); err != nil {
-		slog.Warn("upload", "item", id, "err", err)
-	}
-	b.Notified(r.Context(), it, me.Login, body)
-	b.pushover(r.Context(), me.Login, me.Login+" replied: "+it.Title, body, b.itemURL(id))
-	b.Gate.Activity()
 	msg := ""
 	if reopened {
 		msg = "Reopened"
@@ -637,6 +617,53 @@ func (b *Board) reply(w http.ResponseWriter, r *http.Request) {
 		msg = "Reopens once shipped"
 	}
 	redirect(w, r, fmt.Sprintf("/items/%d#end", id), msg)
+}
+
+// respond posts me's reply, then runs uploads before anyone is notified. An
+// admin replying on a finished item wants more work done on it.
+func (b *Board) respond(ctx context.Context, me db.Member, it db.Item, body string, uploads func()) (reopened, reopensOnShip bool, err error) {
+	if me.IsAdmin() && (it.Status == "closed" || it.Status == "shipped") {
+		if err := b.Store.ReopenItem(ctx, it.ID); err != nil {
+			return false, false, err
+		}
+		reopened = true
+	}
+	// A merged item reopens once it ships, so the ship-checker keeps its merge.
+	reopensOnShip = me.IsAdmin() && it.Status == "merged"
+	if reopensOnShip {
+		if err := b.Store.ReopenOnShip(ctx, it.ID); err != nil {
+			return reopened, false, err
+		}
+	}
+	if body != "" {
+		if _, err := b.Store.AddResponse(ctx, it.ID, me.Login, body, true); err != nil {
+			return reopened, reopensOnShip, err
+		}
+	}
+	if uploads != nil {
+		uploads()
+	}
+	b.Notified(ctx, it, me.Login, body)
+	b.pushover(ctx, me.Login, me.Login+" replied: "+it.Title, body, b.itemURL(it.ID))
+	b.Gate.Activity()
+	return reopened, reopensOnShip, nil
+}
+
+// Reply is the item page's reply form without a browser.
+func (b *Board) Reply(ctx context.Context, me db.Member, id int, body string) error {
+	body = strings.TrimSpace(body)
+	if body == "" {
+		return fmt.Errorf("%w: empty reply", ErrBadItem)
+	}
+	if len(body) > 50_000 {
+		return fmt.Errorf("%w: reply too long", ErrBadItem)
+	}
+	it, err := b.Store.Item(ctx, id)
+	if err != nil {
+		return err
+	}
+	_, _, err = b.respond(ctx, me, it, body, nil)
+	return err
 }
 
 // Notified creates in-app notifications for a reply: the item's author and
@@ -679,31 +706,54 @@ func (b *Board) notify(ctx context.Context, login string, itemID int, actor, kin
 	}
 }
 
+// ErrForbidden means the member's role doesn't allow the action.
+var ErrForbidden = errors.New("not allowed")
+
+// CloseItem closes an item for its author or an admin.
+func (b *Board) CloseItem(ctx context.Context, me db.Member, id int, note string) error {
+	it, err := b.Store.Item(ctx, id)
+	if err != nil {
+		return err
+	}
+	if !me.IsAdmin() && !strings.EqualFold(me.Login, it.Author) {
+		return fmt.Errorf("%w: only the author or an admin can close this", ErrForbidden)
+	}
+	if note = strings.TrimSpace(note); note == "" {
+		note = "Closed by " + me.Login
+	}
+	return b.Store.CloseItem(ctx, id, note, true)
+}
+
 func (b *Board) closeItem(w http.ResponseWriter, r *http.Request) {
 	id, ok := pathID(r)
 	if !ok {
 		http.NotFound(w, r)
 		return
 	}
-	me := auth.Member(r.Context())
-	it, err := b.Store.Item(r.Context(), id)
-	if err != nil {
-		b.fail(w, err)
+	if err := b.CloseItem(r.Context(), auth.Member(r.Context()), id, r.FormValue("note")); errors.Is(err, ErrForbidden) {
+		http.Error(w, strings.TrimPrefix(err.Error(), ErrForbidden.Error()+": "), http.StatusForbidden)
 		return
-	}
-	if !me.IsAdmin() && !strings.EqualFold(me.Login, it.Author) {
-		http.Error(w, "only the author or an admin can close this", http.StatusForbidden)
-		return
-	}
-	note := strings.TrimSpace(r.FormValue("note"))
-	if note == "" {
-		note = "Closed by " + me.Login
-	}
-	if err := b.Store.CloseItem(r.Context(), id, note, true); err != nil {
+	} else if err != nil {
 		b.fail(w, err)
 		return
 	}
 	redirect(w, r, fmt.Sprintf("/items/%d", id), "Closed")
+}
+
+// ReopenItem reopens an item for its author or an admin.
+func (b *Board) ReopenItem(ctx context.Context, me db.Member, id int) error {
+	it, err := b.Store.Item(ctx, id)
+	if err != nil {
+		return err
+	}
+	if !me.IsAdmin() && !strings.EqualFold(me.Login, it.Author) {
+		return fmt.Errorf("%w: only the author or an admin can reopen this", ErrForbidden)
+	}
+	if err := b.Store.ReopenItem(ctx, id); err != nil {
+		return err
+	}
+	b.Gate.Activity()
+	return nil
 }
 
 func (b *Board) reopenItem(w http.ResponseWriter, r *http.Request) {
@@ -712,22 +762,31 @@ func (b *Board) reopenItem(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	me := auth.Member(r.Context())
-	it, err := b.Store.Item(r.Context(), id)
-	if err != nil {
+	if err := b.ReopenItem(r.Context(), auth.Member(r.Context()), id); errors.Is(err, ErrForbidden) {
+		http.Error(w, strings.TrimPrefix(err.Error(), ErrForbidden.Error()+": "), http.StatusForbidden)
+		return
+	} else if err != nil {
 		b.fail(w, err)
 		return
 	}
-	if !me.IsAdmin() && !strings.EqualFold(me.Login, it.Author) {
-		http.Error(w, "only the author or an admin can reopen this", http.StatusForbidden)
-		return
-	}
-	if err := b.Store.ReopenItem(r.Context(), id); err != nil {
-		b.fail(w, err)
-		return
-	}
-	b.Gate.Activity()
 	redirect(w, r, fmt.Sprintf("/items/%d", id), "Reopened")
+}
+
+// Approve sets an item's approval for an admin; approving lets the agent build it.
+func (b *Board) Approve(ctx context.Context, me db.Member, id int, approved bool) error {
+	if !me.IsAdmin() {
+		return fmt.Errorf("%w: admins only", ErrForbidden)
+	}
+	if err := b.Store.SetApproved(ctx, id, approved, me.Login); err != nil {
+		return err
+	}
+	if approved {
+		if it, err := b.Store.Item(ctx, id); err == nil {
+			b.pushover(ctx, me.Login, me.Login+" approved: "+it.Title, "The agent will build it on its next run.", b.itemURL(id))
+		}
+		b.Gate.Activity()
+	}
+	return nil
 }
 
 func (b *Board) approve(w http.ResponseWriter, r *http.Request) {
@@ -737,35 +796,40 @@ func (b *Board) approve(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	approved := r.FormValue("approved") != "false"
-	if err := b.Store.SetApproved(r.Context(), id, approved, auth.Member(r.Context()).Login); err != nil {
+	if err := b.Approve(r.Context(), auth.Member(r.Context()), id, approved); err != nil {
 		b.fail(w, err)
 		return
 	}
 	msg := "Unapproved"
 	if approved {
 		msg = "Approved"
-		me := auth.Member(r.Context()).Login
-		if it, err := b.Store.Item(r.Context(), id); err == nil {
-			b.pushover(r.Context(), me, me+" approved: "+it.Title, "The agent will build it on its next run.", b.itemURL(id))
-		}
-		b.Gate.Activity()
 	}
 	redirect(w, r, fmt.Sprintf("/items/%d", id), msg)
 }
 
-// unblock clears an item's blocked flag; it's human activity, so the gate
-// picks the item up again.
+// Unblock clears an item's blocked flag for an admin; it's human activity, so
+// the gate picks the item up again.
+func (b *Board) Unblock(ctx context.Context, me db.Member, id int) error {
+	if !me.IsAdmin() {
+		return fmt.Errorf("%w: admins only", ErrForbidden)
+	}
+	if err := b.Store.SetBlocked(ctx, id, "", true); err != nil {
+		return err
+	}
+	b.Gate.Activity()
+	return nil
+}
+
 func (b *Board) unblock(w http.ResponseWriter, r *http.Request) {
 	id, ok := pathID(r)
 	if !ok {
 		http.NotFound(w, r)
 		return
 	}
-	if err := b.Store.SetBlocked(r.Context(), id, "", true); err != nil {
+	if err := b.Unblock(r.Context(), auth.Member(r.Context()), id); err != nil {
 		b.fail(w, err)
 		return
 	}
-	b.Gate.Activity()
 	redirect(w, r, fmt.Sprintf("/items/%d", id), "Unblocked")
 }
 

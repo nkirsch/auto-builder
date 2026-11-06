@@ -204,33 +204,52 @@ func (b *Board) itemOut(ctx context.Context, it db.Item, roles map[string]string
 }
 
 func (b *Board) listItems(ctx context.Context, _ *mcp.CallToolRequest, in ListIn) (*mcp.CallToolResult, ListOut, error) {
+	out, err := b.Items(ctx, in.Status)
+	return nil, out, err
+}
+
+// Items is list_items: open, building, merged, shipped, closed or all.
+func (b *Board) Items(ctx context.Context, status string) (ListOut, error) {
 	var statuses []string
-	switch in.Status {
+	switch status {
 	case "", "open":
 		statuses = []string{"open"}
 	case "all":
 	case "building", "merged", "shipped", "closed":
-		statuses = []string{in.Status}
+		statuses = []string{status}
 	default:
-		return nil, ListOut{}, fmt.Errorf("unknown status %q", in.Status)
+		return ListOut{}, fmt.Errorf("unknown status %q", status)
 	}
 	items, err := b.Store.Items(ctx, statuses...)
 	if err != nil {
-		return nil, ListOut{}, err
+		return ListOut{}, err
 	}
 	roles, err := b.roles(ctx)
 	if err != nil {
-		return nil, ListOut{}, err
+		return ListOut{}, err
 	}
 	out := ListOut{Items: []ItemOut{}}
 	for _, it := range items {
 		o, err := b.itemOut(ctx, it, roles, false)
 		if err != nil {
-			return nil, ListOut{}, err
+			return ListOut{}, err
 		}
 		out.Items = append(out.Items, o)
 	}
-	return nil, out, nil
+	return out, nil
+}
+
+// Item is one item with its thread, without the runner's attachment URLs.
+func (b *Board) Item(ctx context.Context, id int) (ItemOut, error) {
+	it, err := b.Store.Item(ctx, id)
+	if err != nil {
+		return ItemOut{}, fmt.Errorf("item %d: %w", id, err)
+	}
+	roles, err := b.roles(ctx)
+	if err != nil {
+		return ItemOut{}, err
+	}
+	return b.itemOut(ctx, it, roles, false)
 }
 
 func (b *Board) getItem(ctx context.Context, _ *mcp.CallToolRequest, in IDIn) (*mcp.CallToolResult, ItemOut, error) {

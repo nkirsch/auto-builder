@@ -559,6 +559,18 @@ func (c *Client) Deploying(ctx context.Context, repo string) (bool, error) {
 	return false, nil
 }
 
+// LastPublished is when repo's latest release was published, zero if it has none.
+func (c *Client) LastPublished(ctx context.Context, repo string) (time.Time, error) {
+	var rel struct {
+		At time.Time `json:"published_at"`
+	}
+	err := c.do(ctx, http.MethodGet, fmt.Sprintf("/repos/%s/releases/latest", repo), nil, &rel)
+	if IsNotFound(err) {
+		return time.Time{}, nil
+	}
+	return rel.At, err
+}
+
 // Unreleased returns the default branch's head and how many commits it is
 // ahead of tag (all of them when tag is "").
 func (c *Client) Unreleased(ctx context.Context, repo, tag string) (head string, ahead int, err error) {

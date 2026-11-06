@@ -172,6 +172,8 @@ type server struct {
 	version func() string // release name, "" until resolved
 	notify  *notify.Pushover
 	slug    string // multi-tenant mode: the tenant
+	// lastRelease is when the board's repo last published a release, zero if unknown.
+	lastRelease func(context.Context) time.Time
 }
 
 // runID is the run named in the request path, or 0.
@@ -296,7 +298,7 @@ func run() error {
 		tools.Filer = g.Issues
 	}
 
-	s := &server{cfg: cfg, store: st, storage: storage, gate: g, app: app, version: b.Version, notify: push}
+	s := &server{cfg: cfg, store: st, storage: storage, gate: g, app: app, lastRelease: b.LastRelease, version: b.Version, notify: push}
 	mux := http.NewServeMux()
 	a.Routes(mux)
 	if err := b.Routes(mux); err != nil {

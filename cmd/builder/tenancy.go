@@ -161,6 +161,7 @@ type tenantRT struct {
 	srv   *server // runner API, against this tenant's store and repo
 	mcp   http.Handler
 	b     *board.Board
+	tools *mcp.Board
 }
 
 func newHub(ctx context.Context, cfg config, reg *tenant.Registry, storage store.Storage) (*hub, error) {
@@ -213,7 +214,7 @@ func newHub(ctx context.Context, cfg config, reg *tenant.Registry, storage store
 
 func (h *hub) parse() error {
 	h.tmpl = map[string]*template.Template{}
-	for _, p := range []string{"login", "index", "new", "admin", "urgent", "traffic", "signins", "hubs", "visitors"} {
+	for _, p := range []string{"login", "index", "new", "admin", "urgent", "traffic", "signins", "hubs", "visitors", "oauth"} {
 		t, err := template.New("").Funcs(template.FuncMap{
 			"short": func(s string) string { return s[:min(7, len(s))] },
 			"ago":   func(t time.Time) string { return t.Format("Jan 2, 2006") },
@@ -271,12 +272,12 @@ func (h *hub) routes() http.Handler {
 	})
 	mux.HandleFunc("/{slug}/", h.board)
 
-	// The runner's endpoints take its run's RUN_TOKEN, which names the tenant.
+	h.oauthRoutes(mux)
+	// /mcp serves a build or a person, by token: see mcpEndpoint.
 	for _, m := range []string{"GET", "POST", "DELETE"} {
-		mux.HandleFunc(m+" /mcp", h.runner(func(rt *tenantRT, _ int, w http.ResponseWriter, r *http.Request) {
-			rt.mcp.ServeHTTP(w, r)
-		}))
+		mux.HandleFunc(m+" /mcp", h.mcpEndpoint)
 	}
+	// The runner's endpoints take its run's RUN_TOKEN, which names the tenant.
 	run := func(f func(*server, http.ResponseWriter, *http.Request)) http.HandlerFunc {
 		return h.runner(func(rt *tenantRT, id int, w http.ResponseWriter, r *http.Request) {
 			if r.PathValue("id") != fmt.Sprint(id) {
@@ -611,6 +612,7 @@ func (h *hub) tenantFor(ctx context.Context, slug string) (*tenantRT, error) {
 	scfg.Repo, scfg.BaseURL = t.Repo, base
 	rt := &tenantRT{
 		slug:  slug,
+		tools: tools,
 		board: http.StripPrefix(prefix, prefixLocation(prefix, mux)),
 		gate:  g,
 		srv: &server{cfg: scfg, store: st, storage: storage, gate: g, app: h.app, version: b.Version,

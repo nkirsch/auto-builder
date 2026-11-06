@@ -29,7 +29,7 @@ var (
 	repoRE = regexp.MustCompile(`^[A-Za-z0-9-]+/[A-Za-z0-9._-]+$`)
 	// reserved are hub paths a slug would shadow, and hub, the hub's own
 	// host. www is free: the hub is the apex, so www.<domain> can be an app.
-	reserved = []string{"api", "auth", "admin", "mcp", "static", "health", "x", "new", "hub", "visitors",
+	reserved = []string{"api", "auth", "oauth", "admin", "mcp", "static", "health", "x", "new", "hub", "visitors",
 		// names an app could pass off as the platform's own: infrastructure,
 		// environments, branches, mail and DNS hosts, and account pages
 		"prod", "production", "staging", "stage", "dev", "test", "master", "main",
@@ -464,6 +464,16 @@ func (r *Registry) RecordSignIn(ctx context.Context, s db.SignIn, within time.Du
 
 func (r *Registry) SignIns(ctx context.Context, board string, identities []string, only bool, since time.Time) ([]db.SignIn, error) {
 	return db.SignIns(ctx, r.Control, board, identities, only, since)
+}
+
+// LastSignIn is when someone last signed in to board, zero if nobody has.
+func (r *Registry) LastSignIn(ctx context.Context, board string) (time.Time, error) {
+	var at *time.Time
+	err := r.Control.QueryRow(ctx, `SELECT max(at) FROM signins WHERE board = $1 AND result = $2`, board, db.SignInOK).Scan(&at)
+	if err != nil || at == nil {
+		return time.Time{}, err
+	}
+	return *at, nil
 }
 
 func (r *Registry) PruneSignIns(ctx context.Context, before time.Time) error {

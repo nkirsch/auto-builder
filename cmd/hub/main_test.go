@@ -138,7 +138,7 @@ func TestOverviewAllHubs(t *testing.T) {
 	ctx := context.Background()
 	a := overviewHub(t, `{"hubs":[{"name":"nick.org","url":"https://iterate.nick.org","release_known":true,
 		"sites":[{"name":"kenko","app":true,"health":"ok","detail":true,"releases":true,"unreleased":0,"site":"https://kenko.nick.org",
-		"stats":{"version":"v1","other":2,"attention":[{}],"last_run":{"status":"done","at":"2026-11-06T10:00:00Z"}}}]},
+		"stats":{"version":"v1","other":2,"attention":[{}],"last_run":{"status":"done","at":"2026-11-06T10:00:00Z"},"last_activity":{"kind":"run","at":"2026-11-06T12:00:00Z"},"last_human_activity":{"kind":"reply","at":"2026-11-06T11:00:00Z"}}}]},
 		{"name":"kirsch.org","url":"https://iterate.kirsch.org","error":"peer down"}],
 		"attention":[{"id":1,"title":"Down","kind":"urgent","hub":"nick.org","site":"kenko","url":"https://iterate.nick.org/kenko/items/1"}],"other":2}`)
 	b := overviewHub(t, `{"hubs":[{"name":"kirsch.org","url":"https://iterate.kirsch.org",
@@ -163,7 +163,7 @@ func TestOverviewAllHubs(t *testing.T) {
 	if strings.Index(out, "apple") > strings.Index(out, "Banana") || strings.Index(out, "Banana") > strings.Index(out, "zebra") {
 		t.Errorf("boards not sorted ignoring case:\n%s", out)
 	}
-	for _, want := range []string{"── NICK.ORG", "── KIRSCH.ORG", "momo", "HTTP 401", "5 other unfinished items"} {
+	for _, want := range []string{"── NICK.ORG", "── KIRSCH.ORG", "momo", "HTTP 401", "5 other unfinished items", "LAST ACTIVITY", "LAST HUMAN", "run ", "reply "} {
 		if !strings.Contains(out, want) {
 			t.Errorf("missing %q:\n%s", want, out)
 		}
@@ -181,7 +181,7 @@ func TestOverviewAllHubs(t *testing.T) {
 		t.Fatalf("csv: %v\n%s", err, out)
 	}
 	if len(rows) != 7 || rows[0][0] != "hub" || rows[1][0] != "nick.org" || rows[1][1] != "kenko" ||
-		rows[2][4] != "abcdef1" || rows[2][2] != `ok,"odd"` || rows[3][1] != "apple" || !strings.Contains(rows[6][15], "HTTP 401") {
+		rows[2][4] != "abcdef1" || rows[2][2] != `ok,"odd"` || rows[1][16] != "run" || rows[1][18] != "reply" || rows[1][19] != "2026-11-06T11:00:00Z" || rows[3][1] != "apple" || !strings.Contains(rows[6][15], "HTTP 401") {
 		t.Errorf("csv rows: %q", rows)
 	}
 

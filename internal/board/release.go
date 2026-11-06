@@ -107,6 +107,37 @@ func (b *Board) releaseState(ctx context.Context) (ahead int, deploying bool) {
 	return b.pending.ahead, b.pending.deploying || time.Since(b.pending.cut) < cutGrace
 }
 
+// lastReleaseTTL is how long LastRelease reuses its answer.
+const lastReleaseTTL = 10 * time.Minute
+
+type lastReleaseCache struct {
+	mu sync.Mutex
+	at time.Time // when it was read
+	v  time.Time
+}
+
+// LastRelease is when the board's repo last published a release, zero if it
+// hasn't or GitHub can't say. Read at most once per lastReleaseTTL.
+func (b *Board) LastRelease(ctx context.Context) time.Time {
+	if b.GitHub == nil || (b.Ready != nil && !b.Ready(ctx)) {
+		return time.Time{}
+	}
+	b.lastRelease.mu.Lock()
+	defer b.lastRelease.mu.Unlock()
+	if !b.lastRelease.at.IsZero() && time.Since(b.lastRelease.at) < lastReleaseTTL {
+		return b.lastRelease.v
+	}
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	v, err := b.GitHub.LastPublished(ctx, b.Repo)
+	if err != nil {
+		slog.Warn("last release", "err", err)
+		return b.lastRelease.v
+	}
+	b.lastRelease.at, b.lastRelease.v = time.Now(), v
+	return v
+}
+
 // forgetReleases makes the next page read the unreleased count and the
 // history afresh, after a release.
 func (b *Board) forgetReleases() {

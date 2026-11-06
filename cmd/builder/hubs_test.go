@@ -256,6 +256,21 @@ func TestFailedClearedByDone(t *testing.T) {
 	}
 }
 
+func TestNoteActivity(t *testing.T) {
+	var s siteStats
+	t1, t2 := time.Unix(100, 0), time.Unix(200, 0)
+	s.noteHuman("login", t1)
+	s.noteActivity("release", t2)
+	if s.LastActivity.Kind != "release" || s.LastHuman.Kind != "login" {
+		t.Errorf("activity %+v, human %+v", s.LastActivity, s.LastHuman)
+	}
+	s.noteHuman("login", time.Time{})
+	s.noteActivity("run", t1)
+	if s.LastActivity.Kind != "release" || !s.LastHuman.At.Equal(t1) {
+		t.Errorf("older or unknown times should change nothing: %+v, %+v", s.LastActivity, s.LastHuman)
+	}
+}
+
 // lastDone is the newest successful run's finish time, else its creation time.
 func TestLastDone(t *testing.T) {
 	t1, t2 := time.Unix(100, 0), time.Unix(200, 0)

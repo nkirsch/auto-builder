@@ -51,7 +51,7 @@
 {{with .Flash}}<p class="flash">{{.}}</p>{{end}}
 {{template "content" .}}
 </main>
-<footer>{{if and .Version .Repo}}<a href="https://github.com/{{.Repo}}/tree/{{.Version}}">{{.Version}}</a> · {{end}}{{with .GitSHA}}{{if $.Repo}}<a href="https://github.com/{{$.Repo}}/commit/{{.}}" title="{{.}}">{{short .}}</a>{{else}}{{short .}}{{end}}{{end}}{{template "brand-footer" .}}</footer>
+<footer>auto-builder {{if and .Version .Repo}}<a href="https://github.com/{{.Repo}}/tree/{{.Version}}">{{.Version}}</a> · {{end}}{{with .GitSHA}}{{if $.Repo}}<a href="https://github.com/{{$.Repo}}/commit/{{.}}" title="{{.}}">{{short .}}</a>{{else}}{{short .}}{{end}}{{end}}{{template "brand-footer" .}}</footer>
 </body>
 </html>{{end}}
 

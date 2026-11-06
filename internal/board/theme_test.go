@@ -134,8 +134,8 @@ func TestLayoutFooterCommitLink(t *testing.T) {
 		t.Fatal(err)
 	}
 	for repo, want := range map[string]string{
-		"nkirsch/auto-builder": `<footer><a href="https://github.com/nkirsch/auto-builder/commit/abc1234def" title="abc1234def">abc1234</a>`,
-		"":                     `<footer>abc1234`,
+		"nkirsch/auto-builder": `<footer>auto-builder <a href="https://github.com/nkirsch/auto-builder/commit/abc1234def" title="abc1234def">abc1234</a>`,
+		"":                     `<footer>auto-builder abc1234`,
 	} {
 		var sb strings.Builder
 		p := page{Me: db.Member{Login: "alice"}, GitSHA: "abc1234def", Repo: repo}
@@ -158,7 +158,7 @@ func TestLayoutFooterTagLink(t *testing.T) {
 	if err := b.tmpl["new"].ExecuteTemplate(&sb, "layout", p); err != nil {
 		t.Fatal(err)
 	}
-	if want := `<footer><a href="https://github.com/nkirsch/auto-builder/tree/v26.10.25-3">v26.10.25-3</a> · <a href="https://github.com/nkirsch/auto-builder/commit/abc1234def"`; !strings.Contains(sb.String(), want) {
+	if want := `<footer>auto-builder <a href="https://github.com/nkirsch/auto-builder/tree/v26.10.25-3">v26.10.25-3</a> · <a href="https://github.com/nkirsch/auto-builder/commit/abc1234def"`; !strings.Contains(sb.String(), want) {
 		t.Errorf("layout missing %s", want)
 	}
 }

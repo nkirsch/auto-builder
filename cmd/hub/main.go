@@ -583,6 +583,7 @@ func printHubs(w io.Writer, v hubsView, now time.Time) {
 	}
 	tw.Flush()
 	fmt.Fprintf(w, "  %d other unfinished item%s\n", v.Other, plural(v.Other))
+	tables := boardTables(v, now)
 	for _, h := range v.Hubs {
 		head := h.Name
 		if h.Version != "" {
@@ -613,7 +614,21 @@ func printHubs(w io.Writer, v hubsView, now time.Time) {
 			fmt.Fprintln(w, "  no boards")
 			continue
 		}
-		tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
+		n := len(h.Sites) + 1
+		io.WriteString(w, strings.Join(tables[:n], ""))
+		tables = tables[n:]
+	}
+}
+
+// boardTables renders every hub's board table through one tabwriter, so columns line
+// up across hubs. It returns the lines in order, each hub's header then its boards.
+func boardTables(v hubsView, now time.Time) []string {
+	var b strings.Builder
+	tw := tabwriter.NewWriter(&b, 0, 0, 2, ' ', 0)
+	for _, h := range v.Hubs {
+		if h.Error != "" || len(h.Sites) == 0 {
+			continue
+		}
 		fmt.Fprintln(tw, "  BOARD\tHEALTH\tVERSION\t5XX\tATTN\tOTHER\tLAST RUN\tLAST ACTIVITY\tLAST HUMAN")
 		for _, s := range h.Sites {
 			name := s.Name
@@ -648,8 +663,9 @@ func printHubs(w io.Writer, v hubsView, now time.Time) {
 			fmt.Fprintf(tw, "  %s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n", name, health, versionCell(s), errs, attn, other, last,
 				cell(s.Stats.LastActivity), cell(s.Stats.LastHuman))
 		}
-		tw.Flush()
 	}
+	tw.Flush()
+	return strings.SplitAfter(b.String(), "\n")
 }
 
 // describeSuffix is what git describe adds to a tag: commits since it and the commit.

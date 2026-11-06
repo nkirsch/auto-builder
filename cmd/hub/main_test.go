@@ -6,8 +6,10 @@ import (
 	"encoding/csv"
 	"encoding/json"
 	"io"
+	"maps"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -170,6 +172,15 @@ func TestOverviewAllHubs(t *testing.T) {
 	}
 	if strings.Contains(out, "peer down") {
 		t.Errorf("a peer's error should give way to the hub's own answer:\n%s", out)
+	}
+	headers := map[string]bool{}
+	for line := range strings.Lines(out) {
+		if strings.HasPrefix(line, "  BOARD") {
+			headers[line] = true
+		}
+	}
+	if len(headers) != 1 {
+		t.Errorf("hubs' tables should share columns, got headers %q:\n%s", slices.Collect(maps.Keys(headers)), out)
 	}
 
 	out, err = hub("-csv")

@@ -53,7 +53,7 @@ func TestHistoryPage(t *testing.T) {
 	}
 	out := sb.String()
 	for _, want := range []string{
-		`<a href="/history">History</a>`,
+		`<a href="/history">Releases</a>`,
 		`<b>Not released yet</b>`,
 		`Next &lt;thing&gt;`,
 		`<a class="tag" href="https://github.com/o/r/tree/v26.10.27-1">v26.10.27-1</a>`,

@@ -54,36 +54,57 @@ func (b *Board) releaseInfo(ctx context.Context, back string) *releaseInfo {
 const pendingTTL = time.Minute
 
 type pendingCache struct {
-	mu    sync.Mutex
-	at    time.Time
-	ahead int
+	mu        sync.Mutex
+	at        time.Time
+	ahead     int
+	deploying bool
+	cut       time.Time // when this board last cut a release
 }
+
+// cutGrace is how long after cutting a release the nav calls it deploying
+// even before GitHub lists the workflow run it triggers.
+const cutGrace = 30 * time.Second
 
 // PendingRelease is pendingRelease, for the hub's multi-hub view; ok is false
 // when this board doesn't deploy on release.
 func (b *Board) PendingRelease(ctx context.Context) (ahead int, ok bool) {
-	return b.pendingRelease(ctx), b.Releases && b.GitHub != nil
+	ahead, _ = b.releaseState(ctx)
+	return ahead, b.Releases && b.GitHub != nil
 }
 
-// pendingRelease is the number of default-branch commits since the latest
-// release, for the History badge: 0 when releases are off, the repo isn't
-// ready, or GitHub can't say. Read at most once per pendingTTL.
+// pendingRelease is releaseState's count of unreleased commits.
 func (b *Board) pendingRelease(ctx context.Context) int {
+	ahead, _ := b.releaseState(ctx)
+	return ahead
+}
+
+// releaseState is the number of default-branch commits since the latest
+// release, for the Releases badge (0 when releases are off, the repo isn't
+// ready, or GitHub can't say), and whether a release is deploying (its
+// workflow is queued or running, or this board cut one in the last
+// cutGrace). Read at most once per pendingTTL.
+func (b *Board) releaseState(ctx context.Context) (ahead int, deploying bool) {
 	if !b.Releases || b.GitHub == nil {
-		return 0
+		return 0, false
 	}
 	b.pending.mu.Lock()
 	defer b.pending.mu.Unlock()
-	if !b.pending.at.IsZero() && time.Since(b.pending.at) < pendingTTL {
-		return b.pending.ahead
+	if b.pending.at.IsZero() || time.Since(b.pending.at) >= pendingTTL {
+		ri := b.releaseInfo(ctx, "")
+		b.pending.ahead, b.pending.deploying = 0, false
+		if ri != nil && ri.Err == "" && !ri.NoRepo {
+			b.pending.ahead = ri.Ahead
+			dctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+			var err error
+			b.pending.deploying, err = b.GitHub.Deploying(dctx, b.Repo)
+			cancel()
+			if err != nil && !github.IsNotFound(err) {
+				slog.Warn("release deploying", "err", err)
+			}
+		}
+		b.pending.at = time.Now()
 	}
-	ri := b.releaseInfo(ctx, "")
-	b.pending.ahead = 0
-	if ri != nil && ri.Err == "" && !ri.NoRepo {
-		b.pending.ahead = ri.Ahead
-	}
-	b.pending.at = time.Now()
-	return b.pending.ahead
+	return b.pending.ahead, b.pending.deploying || time.Since(b.pending.cut) < cutGrace
 }
 
 // forgetReleases makes the next page read the unreleased count and the
@@ -97,11 +118,12 @@ func (b *Board) forgetReleases() {
 	b.history.mu.Unlock()
 }
 
-// releaseBack is where the release form returns: the history page if it
-// came from there, else the runs page.
+// releaseBack is where the release form returns: the board page it came
+// from (the nav's badge posts from any), else the runs page.
 func releaseBack(r *http.Request) string {
-	if r.FormValue("back") == "/history" {
-		return "/history"
+	back := r.FormValue("back")
+	if p := backPath(back); p != "/" || back == "/" {
+		return p
 	}
 	return "/runs"
 }
@@ -142,6 +164,9 @@ func (b *Board) Release(ctx context.Context) (tag string, ahead int, err error) 
 	tag, ahead, err = b.GitHub.ReleaseHead(ctx, b.Repo, time.Now())
 	if err == nil && tag != "" {
 		b.forgetReleases()
+		b.pending.mu.Lock()
+		b.pending.cut = time.Now()
+		b.pending.mu.Unlock()
 	}
 	return tag, ahead, err
 }

@@ -81,6 +81,11 @@ form.inline button.link { color: var(--accent); font: inherit; }
 .step-running .muted { color: var(--warn); }
 .blocked-note { border-left: 3px solid var(--bad); padding: 8px 12px; margin-top: 12px; background: var(--card); }
 .count { background: var(--accent); color: #fff; border-radius: 9px; padding: 0 6px; font-size: 12px; }
+button.count { border: 0; font: inherit; font-size: 12px; line-height: inherit; cursor: pointer; }
+.spinner { display: inline-block; width: 0.8em; height: 0.8em; vertical-align: -0.05em; border: 2px solid var(--warn);
+  border-right-color: transparent; border-radius: 50%; animation: spin 0.9s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .spinner { animation: none; border-right-color: var(--warn); } }
 .post { background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px; margin: 12px 0; }
 .post.bot { background: var(--bot); }
 .post .by { font-size: 14px; color: var(--muted); }

@@ -377,12 +377,26 @@ func TestHistoryBadgeAndReleaseForm(t *testing.T) {
 		return sb.String()
 	}
 	admin := db.Member{Login: "x", Role: "admin"}
-	out := render("runs", page{Title: "Runs", Me: admin, Pending: 3, Data: map[string]any{"Runs": []runRow{}}})
-	if !strings.Contains(out, `History <span class="count" title="3 commits since the latest release: a release needs cutting">3</span></a>`) {
-		t.Errorf("nav missing History badge:\n%s", out)
+	out := render("runs", page{Title: "Runs", Me: admin, Pending: 3, Path: "/runs?x=1", Data: map[string]any{"Runs": []runRow{}}})
+	// The badge is a button that cuts a release and comes back here.
+	if !strings.Contains(out, `<a href="/history">Releases</a> <form method="post" action="/admin/release" class="inline"><input type="hidden" name="back" value="/runs?x=1"><button class="count" title="3 commits since the latest release: click to release them now">3</button></form>`) {
+		t.Errorf("nav missing Releases badge:\n%s", out)
 	}
-	if out := render("runs", page{Title: "Runs", Me: admin, Data: map[string]any{"Runs": []runRow{}}}); !strings.Contains(out, `<a href="/history">History</a>`) {
-		t.Errorf("History badge shown with nothing to release")
+	if out := render("runs", page{Title: "Runs", Me: admin, Data: map[string]any{"Runs": []runRow{}}}); !strings.Contains(out, `<span><a href="/history">Releases</a></span>`) {
+		t.Errorf("Releases badge shown with nothing to release")
+	}
+	// While a release deploys, a spinner replaces the badge.
+	out = render("runs", page{Title: "Runs", Me: admin, Pending: 3, Releasing: true, Data: map[string]any{"Runs": []runRow{}}})
+	if !strings.Contains(out, `title="A release is deploying"`) || strings.Contains(out, `class="count"`) {
+		t.Errorf("nav while releasing:\n%s", out)
+	}
+	// A run in progress spins next to Runs, for members too.
+	member := db.Member{Login: "m"}
+	if out := render("runs", page{Title: "Runs", Me: member, Running: true, Data: map[string]any{"Runs": []runRow{}}}); !strings.Contains(out, `Runs <span class="spinner" role="img" title="A run is in progress"`) {
+		t.Errorf("nav missing the run spinner:\n%s", out)
+	}
+	if out := render("runs", page{Title: "Runs", Me: member, Data: map[string]any{"Runs": []runRow{}}}); strings.Contains(out, "spinner") {
+		t.Errorf("run spinner with no run")
 	}
 
 	data := map[string]any{"Repo": "o/r", "Depth": 100, "Release": &releaseInfo{Latest: "v26.10.24", Ahead: 1, Back: "/history"}}
@@ -400,9 +414,19 @@ func TestHistoryBadgeAndReleaseForm(t *testing.T) {
 
 func TestPendingReleaseCached(t *testing.T) {
 	var calls, ahead int
+	var running bool
 	gh := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		calls++
 		switch r.URL.Path {
+		case "/repos/o/r/actions/runs":
+			if r.URL.Query().Get("event") != "release" {
+				t.Errorf("runs query %s", r.URL.RawQuery)
+			}
+			status := "completed"
+			if running {
+				status = "in_progress"
+			}
+			fmt.Fprintf(w, `{"workflow_runs":[{"status":"completed"},{"status":%q}]}`, status)
 		case "/repos/o/r/releases/latest":
 			w.Write([]byte(`{"tag_name":"v26.10.24-1"}`))
 		case "/repos/o/r/commits/HEAD":
@@ -431,10 +455,25 @@ func TestPendingReleaseCached(t *testing.T) {
 	if n := b.pendingRelease(ctx); n != 0 || calls == 0 {
 		t.Fatalf("pending after release = %d after %d calls, want 0 read afresh", n, calls)
 	}
+	if _, deploying := b.releaseState(ctx); deploying {
+		t.Fatal("deploying with no release workflow running")
+	}
+	b.forgetReleases()
+	running = true
+	if _, deploying := b.releaseState(ctx); !deploying {
+		t.Fatal("not deploying while a release workflow runs")
+	}
+	running = false
+	b.forgetReleases()
+	b.pending.cut = time.Now()
+	if _, deploying := b.releaseState(ctx); !deploying {
+		t.Fatal("not deploying just after cutting a release")
+	}
 }
 
 func TestReleaseBack(t *testing.T) {
-	for back, want := range map[string]string{"/history": "/history", "/runs": "/runs", "": "/runs", "https://evil.example/": "/runs"} {
+	for back, want := range map[string]string{"/history": "/history", "/runs": "/runs", "": "/runs", "https://evil.example/": "/runs",
+		"/": "/", "/items/3?m=Saved": "/items/3", "//evil.example/": "/runs"} {
 		r := httptest.NewRequest(http.MethodPost, "/admin/release", strings.NewReader("back="+back))
 		r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 		if got := releaseBack(r); got != want {

@@ -29,8 +29,8 @@
     <a href="{{base}}/" class="brand">{{if .AppName}}{{.AppName}}{{else}}{{template "brand-name" .}}{{with .Version}} <span class="version" title="{{$.GitSHA}}">{{.}}</span>{{end}}{{end}}</a>{{if .SiteURL}}<a href="{{.SiteURL}}">Site</a>{{else}}{{template "brand-nav" .}}{{end}}
     <a href="{{base}}/">Board{{if .Unread}} <span class="count" title="Items with unread updates">{{.Unread}}</span>{{end}}</a>
     <a href="{{base}}/items/new">New</a>
-    <a href="{{base}}/runs">Runs</a>
-    <a href="{{base}}/history">History{{with .Pending}} <span class="count" title="{{.}} commit{{if ne . 1}}s{{end}} since the latest release: a release needs cutting">{{.}}</span>{{end}}</a>
+    <a href="{{base}}/runs">Runs{{if .Running}} <span class="spinner" role="img" title="A run is in progress" aria-label="A run is in progress"></span>{{end}}</a>
+    <span><a href="{{base}}/history">Releases</a>{{if .Releasing}} <span class="spinner" role="img" title="A release is deploying" aria-label="A release is deploying"></span>{{else}}{{with .Pending}} <form method="post" action="{{base}}/admin/release" class="inline"><input type="hidden" name="back" value="{{$.Path}}"><button class="count" title="{{.}} commit{{if ne . 1}}s{{end}} since the latest release: click to release {{if ne . 1}}them{{else}}it{{end}} now">{{.}}</button></form>{{end}}{{end}}</span>
     {{with .NewApp}}<a href="{{.}}" title="Your own app, built the same way, or make one">Your app</a>{{end}}
     {{if .Me.IsAdmin}}<a href="{{base}}/admin">Admin</a>{{end}}
     <form method="post" action="{{base}}/theme" class="theme">

@@ -540,6 +540,25 @@ func (c *Client) LatestRelease(ctx context.Context, repo string) (string, error)
 	return rel.Tag, nil
 }
 
+// Deploying reports whether a workflow run triggered by a release is queued
+// or in progress: a release on its way out.
+func (c *Client) Deploying(ctx context.Context, repo string) (bool, error) {
+	var out struct {
+		Runs []struct {
+			Status string `json:"status"`
+		} `json:"workflow_runs"`
+	}
+	if err := c.do(ctx, http.MethodGet, "/repos/"+repo+"/actions/runs?event=release&per_page=10", nil, &out); err != nil {
+		return false, err
+	}
+	for _, r := range out.Runs {
+		if r.Status != "completed" {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
 // Unreleased returns the default branch's head and how many commits it is
 // ahead of tag (all of them when tag is "").
 func (c *Client) Unreleased(ctx context.Context, repo, tag string) (head string, ahead int, err error) {

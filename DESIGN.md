@@ -316,6 +316,8 @@ syncs issues (the App needs Issues read & write):
 Image: Go toolchain + git + gh + Node + `@anthropic-ai/claude-code`.
 Job timeout 60 min, max retries 0.
 
+In multi-tenant mode `/mcp` also serves people, signed in with OAuth, with their own tools: see `TENANCY.md`.
+
 ## MCP tools (agent-facing, bearer `RUN_TOKEN`)
 
 | Tool | Does |

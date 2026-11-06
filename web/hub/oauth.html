@@ -1,0 +1,17 @@
+{{define "content"}}
+<section class="signin">
+  <h1>Connect {{.Data.Client}}?</h1>
+  <p>It will act on this hub as <strong>{{.Me}}</strong>: read your boards, reply, file and approve items, and, on boards you admin, start runs and release to production.</p>
+  <p class="muted">After connecting you'll return to <strong>{{.Data.RedirectHost}}</strong>. Only continue if you started this yourself.</p>
+  <form method="post" action="/oauth/authorize">
+    <input type="hidden" name="client_id" value="{{.Data.ClientID}}">
+    <input type="hidden" name="redirect_uri" value="{{.Data.RedirectURI}}">
+    <input type="hidden" name="state" value="{{.Data.State}}">
+    <input type="hidden" name="code_challenge" value="{{.Data.Challenge}}">
+    <input type="hidden" name="code_challenge_method" value="S256">
+    <input type="hidden" name="resource" value="{{.Data.Resource}}">
+    <button name="decision" value="allow">Connect</button>
+    <button name="decision" value="deny" class="secondary">Cancel</button>
+  </form>
+</section>
+{{end}}

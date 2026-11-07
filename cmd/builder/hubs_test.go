@@ -11,6 +11,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -398,5 +399,28 @@ func TestAlertServerErrors(t *testing.T) {
 	h.alertServerErrors(context.Background(), tenants, at.Add(30*time.Minute))
 	if len(sent) != 4 {
 		t.Errorf("the next window didn't alert: %v", sent)
+	}
+}
+
+// eachLimited runs everything, side by side, never over the limit.
+func TestEachLimited(t *testing.T) {
+	var running, most, done atomic.Int32
+	release := make(chan struct{})
+	go func() {
+		for running.Load() < 3 { // reaches the limit only if they overlap
+			time.Sleep(time.Millisecond)
+		}
+		close(release)
+	}()
+	eachLimited(9, 3, func(int) {
+		n := running.Add(1)
+		for m := most.Load(); n > m && !most.CompareAndSwap(m, n); m = most.Load() {
+		}
+		<-release
+		running.Add(-1)
+		done.Add(1)
+	})
+	if done.Load() != 9 || most.Load() != 3 {
+		t.Errorf("done=%d most=%d, want 9 and 3", done.Load(), most.Load())
 	}
 }

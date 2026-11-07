@@ -11,12 +11,14 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/nkirsch/auto-builder/internal/db"
+	"github.com/nkirsch/auto-builder/internal/tenant"
 )
 
 // started approximates the deploy time: Cloud Run starts a fresh instance per revision.
@@ -380,13 +382,12 @@ func (h *hub) siteRows(ctx context.Context) ([]siteRow, error) {
 	if err != nil {
 		return nil, err
 	}
-	var rows []siteRow
+	tenants = slices.DeleteFunc(slices.Clone(tenants), func(t tenant.Tenant) bool { return t.Status == "deleted" })
+	rows := make([]siteRow, len(tenants))
 	var wg sync.WaitGroup
 	client := &http.Client{Timeout: 5 * time.Second}
-	for _, t := range tenants {
-		if t.Status == "deleted" {
-			continue
-		}
+	eachLimited(len(tenants), overviewReads, func(i int) {
+		t := tenants[i]
 		row := siteRow{Name: t.Name, Slug: t.Slug, Site: h.appURL(t.Slug), Board: "/" + t.Slug + "/", App: true, Health: t.Status}
 		if st, err := h.reg.Store(ctx, t.Slug); err != nil {
 			row.Health = err.Error()
@@ -400,8 +401,8 @@ func (h *hub) siteRows(ctx context.Context) ([]siteRow, error) {
 				row.Stats.noteHuman("login", at)
 			}
 		}
-		rows = append(rows, row)
-	}
+		rows[i] = row
+	})
 	// A ready app's health and version are its own service's, like a board's.
 	for i := range rows {
 		if rows[i].Health != "ready" {

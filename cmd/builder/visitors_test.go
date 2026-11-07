@@ -63,7 +63,7 @@ func TestBuildVisitors(t *testing.T) {
 		get("1.1.1.1", chrome, "/a.css", "", "r1", 1),
 		get("1.1.1.1", chrome, "/", "https://extreme.org/delta/", "r2", 3600),
 		get("1.1.1.1", chrome, "/", "https://echo.extreme.org/", "r2", 3700),
-		get("2.2.2.2", chrome, "/", "", "r1", 0), // no CSS/JS
+		get("2.2.2.2", chrome, "/", "", "r1", 0), // no assets
 		get("3.3.3.3", "GPTBot/1.0", "/", "", "r1", 0),
 		get("4.4.4.4", chrome, "/", "", "r1", 0), // an admin
 		get("4.4.4.4", chrome, "/a.css", "", "r1", 0),

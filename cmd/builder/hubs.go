@@ -8,10 +8,13 @@ import (
 	"log/slog"
 	"net/http"
 	"net/url"
+	"os"
 	"slices"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/nkirsch/auto-builder/internal/tenant"
 )
 
 // hubOverview is one hub's state for the multi-hub view: every board it
@@ -184,8 +187,10 @@ type errCount struct {
 }
 
 const (
-	errorsWindow = 24 * time.Hour
-	errorsTTL    = 10 * time.Minute
+	errorsWindow    = 24 * time.Hour
+	errorsTTL       = 10 * time.Minute
+	errorAlertEvery = 30 * time.Minute // the window each alert covers
+	errorAlertLag   = 5 * time.Minute  // Logging's ingest delay
 )
 
 // serverErrors counts an app's 5xx responses over the last errorsWindow from
@@ -222,6 +227,55 @@ func (h *hub) serverErrors(ctx context.Context, slug string) (n int, ok bool) {
 	h.errs[slug] = c
 	h.errsMu.Unlock()
 	return c.n, c.ok
+}
+
+// alertServerErrors pushes when an app or the hub served 5xx in the last whole
+// errorAlertEvery (late enough for the log to have it), read from each one's
+// <name>-requests view. A view it can't read is only logged: the hub's own is
+// set up by infra/tenancy.sh.
+func (h *hub) alertServerErrors(ctx context.Context, tenants []tenant.Tenant, now time.Time) {
+	end := now.Add(-errorAlertLag).Truncate(errorAlertEvery)
+	h.errsMu.Lock()
+	seen := !h.alertedAt.Before(end)
+	if !seen {
+		h.alertedAt = end
+	}
+	h.errsMu.Unlock()
+	if seen || h.cfg.LogProject == "" {
+		return
+	}
+	count := h.countErrsIn
+	if count == nil {
+		count = func(ctx context.Context, view string, since, before time.Time) (int, error) {
+			return logView{name: view, client: &http.Client{Timeout: 10 * time.Second}}.serverErrorsIn(ctx, since, before)
+		}
+	}
+	send := h.sendOnce
+	if send == nil {
+		send = h.notify.Once
+	}
+	base := strings.TrimRight(h.cfg.BaseURL, "/")
+	check := func(name, view, link string) {
+		ctx, cancel := context.WithTimeout(ctx, 6*time.Second)
+		defer cancel()
+		n, err := count(ctx, logViewName(h.cfg.LogProject, view), end.Add(-errorAlertEvery), end)
+		if err != nil {
+			slog.Warn("server error alert", "view", view, "err", err)
+			return
+		}
+		if n > 0 {
+			send(ctx, fmt.Sprintf("5xx:%s:%d", view, end.Unix()), name+" served server errors",
+				fmt.Sprintf("%d 5xx responses in the %s to %s", n, errorAlertEvery, end.In(pacific).Format("3:04 PM")), link)
+		}
+	}
+	for _, t := range tenants {
+		if t.Status == "ready" {
+			check(t.Slug, t.Slug+"-requests", base+"/"+t.Slug+"/logs")
+		}
+	}
+	if s := os.Getenv("K_SERVICE"); s != "" {
+		check(h.host+" hub", s+"-requests", base+"/admin/hubs")
+	}
 }
 
 func (h *hub) apiOverview(w http.ResponseWriter, r *http.Request) {

@@ -37,7 +37,17 @@ func (p *Notifier) Alert(ctx context.Context, title, message, link string) {
 	p.send(ctx, title, message, link, 1)
 }
 
+// Once is Send with a stable id: signal delivers an id only once, so several
+// instances (or a restart) reporting the same thing send one push.
+func (p *Notifier) Once(ctx context.Context, id, title, message, link string) {
+	p.sendID(ctx, id, title, message, link, 0)
+}
+
 func (p *Notifier) send(ctx context.Context, title, message, link string, priority int) {
+	p.sendID(ctx, "", title, message, link, priority)
+}
+
+func (p *Notifier) sendID(ctx context.Context, id, title, message, link string, priority int) {
 	if p != nil && p.signal != nil {
 		event := "board.notify"
 		if priority > 0 {
@@ -45,7 +55,7 @@ func (p *Notifier) send(ctx context.Context, title, message, link string, priori
 		}
 		ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
 		defer cancel()
-		p.signal.Send(ctx, signal.Event{Event: event, Title: title, Message: message, URL: link, App: "deployments", Priority: signal.P(priority)})
+		p.signal.Send(ctx, signal.Event{ID: id, Event: event, Title: title, Message: message, URL: link, App: "deployments", Priority: signal.P(priority)})
 		return
 	}
 	slog.Info("notify", "title", title, "message", message, "url", link)

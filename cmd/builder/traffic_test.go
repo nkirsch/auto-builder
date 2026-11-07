@@ -22,6 +22,9 @@ func TestBuildReport(t *testing.T) {
 	get := func(ip, ua, path, ref string) hit {
 		return hit{At: at, IP: ip, UA: ua, Path: path, Ref: ref, Method: "GET", Status: 200}
 	}
+	missing := func(ip, path string) hit {
+		return hit{At: at, IP: ip, UA: chrome, Path: path, Method: "GET", Status: 404}
+	}
 	hits := []hit{
 		get("1.1.1.1", chrome, "/", "https://www.google.com/"),
 		get("1.1.1.1", chrome, "/css/style.css", "https://site.example/"),
@@ -31,12 +34,25 @@ func TestBuildReport(t *testing.T) {
 		get("4.4.4.4", chrome, "/", ""),       // home
 		get("4.4.4.4", chrome, "/css/style.css", ""),
 		get("1.1.1.1", chrome, "/iterate/", ""), // board, not site
+		get("5.5.5.5", chrome, "/", ""),         // a page with only an image: reader
+		get("5.5.5.5", chrome, "/photo.JPG", ""),
+		get("6.6.6.6", chrome, "/", ""), // scanner: its asset 404s, and a favicon proves nothing
+		{At: at, IP: "6.6.6.6", UA: chrome, Path: "/js/x.js", Method: "GET", Status: 404},
+		get("6.6.6.6", chrome, "/favicon.ico", ""),
+		get("7.7.7.7", chrome, "/", ""), // favicon misses aren't probing: reader
+		get("7.7.7.7", chrome, "/a.css", ""),
+		missing("7.7.7.7", "/favicon.ico"), missing("7.7.7.7", "/favicon.ico"), missing("7.7.7.7", "/favicon.ico"), missing("7.7.7.7", "/apple-touch-icon.png"),
+		get("8.8.4.4", chrome, "/", ""), // probes for secrets, then loads an asset: scanner
+		get("8.8.4.4", chrome, "/a.css", ""),
+		missing("8.8.4.4", "/.env"), missing("8.8.4.4", "/.git/config"), missing("8.8.4.4", "/wp-login.php"),
+		get("34.62.82.207", chrome, "/", ""), // headless browser on Google Cloud: scanner
+		get("34.62.82.207", chrome, "/a.css", ""),
 	}
 	r := buildReport(hits, "site.example", at.AddDate(0, 0, -2), at, map[string]bool{"4.4.4.4": true})
-	if r.Visitors != 1 || r.Views != 2 || r.Dropped != 3 {
-		t.Errorf("visitors=%d views=%d dropped=%d, want 1 2 3", r.Visitors, r.Views, r.Dropped)
+	if r.Visitors != 3 || r.Views != 4 || r.Dropped != 6 {
+		t.Errorf("visitors=%d views=%d dropped=%d, want 3 4 6", r.Visitors, r.Views, r.Dropped)
 	}
-	if len(r.Days) != 3 || r.Days[0].Key != "2026-10-24" || r.Days[0].Views != 2 || r.Days[1].Views != 0 {
+	if len(r.Days) != 3 || r.Days[0].Key != "2026-10-24" || r.Days[0].Views != 4 || r.Days[1].Views != 0 {
 		t.Errorf("days = %+v", r.Days)
 	}
 	if len(r.Referrers) != 1 || r.Referrers[0].Key != "www.google.com" {
@@ -146,9 +162,9 @@ func TestLogViewListRetries429(t *testing.T) {
 			Body: io.NopCloser(strings.NewReader(body))}
 	}
 	for _, tc := range []struct {
-		fails   int
-		wantErr bool
-	}{{2, false}, {logRetries + 1, true}} {
+		code, fails int
+		wantErr     bool
+	}{{429, 2, false}, {500, 2, false}, {429, logRetries + 1, true}, {500, logRetries + 1, true}} {
 		calls := 0
 		l := logView{name: "v", client: &http.Client{Transport: rtFunc(func(r *http.Request) (*http.Response, error) {
 			if r.URL.Host == "metadata.google.internal" {
@@ -156,7 +172,7 @@ func TestLogViewListRetries429(t *testing.T) {
 			}
 			calls++
 			if calls <= tc.fails {
-				return reply(429, `{}`), nil
+				return reply(tc.code, `{"error":{"message":"backend hiccup"}}`), nil
 			}
 			return reply(200, `{"entries":[{},{}]}`), nil
 		})}}
@@ -164,12 +180,15 @@ func TestLogViewListRetries429(t *testing.T) {
 		err := l.list(context.Background(), "", "entries(timestamp)", 1, func(json.RawMessage) error { n++; return nil })
 		if tc.wantErr {
 			if err == nil || calls != logRetries+1 {
-				t.Errorf("fails=%d: err=%v calls=%d, want an error after %d calls", tc.fails, err, calls, logRetries+1)
+				t.Errorf("code=%d fails=%d: err=%v calls=%d, want an error after %d calls", tc.code, tc.fails, err, calls, logRetries+1)
+			}
+			if tc.code == 500 && !strings.Contains(err.Error(), "backend hiccup") {
+				t.Errorf("err = %v, want Logging's message", err)
 			}
 			continue
 		}
 		if err != nil || n != 2 || calls != tc.fails+1 {
-			t.Errorf("fails=%d: err=%v entries=%d calls=%d", tc.fails, err, n, calls)
+			t.Errorf("code=%d fails=%d: err=%v entries=%d calls=%d", tc.code, tc.fails, err, n, calls)
 		}
 	}
 }

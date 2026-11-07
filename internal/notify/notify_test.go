@@ -22,7 +22,7 @@ func TestSendsThroughSignal(t *testing.T) {
 	}))
 	defer srv.Close()
 	t.Setenv("SIGNAL_TOKEN", "tok")
-	p := New(srv.URL, "", "")
+	p := New(srv.URL)
 	p.Send(context.Background(), "New ask", "m", "https://x")
 	p.Alert(context.Background(), "Out of credits", "m", "")
 	if len(got) != 2 || got[0]["event"] != "board.notify" || got[1]["event"] != "board.alert" || got[1]["priority"] != 1.0 || got[0]["app"] != "deployments" {

@@ -2,23 +2,15 @@ package main
 
 import (
 	"context"
-	"io"
+	"encoding/json"
 	"net/http"
-	"strings"
+	"net/http/httptest"
 	"testing"
 	"time"
 
 	"github.com/nkirsch/auto-builder/internal/notify"
 	"github.com/nkirsch/auto-builder/internal/store"
 )
-
-type pushRecorder struct{ priorities []string }
-
-func (r *pushRecorder) RoundTrip(req *http.Request) (*http.Response, error) {
-	req.ParseForm()
-	r.priorities = append(r.priorities, req.PostForm.Get("priority"))
-	return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader("{}")), Header: http.Header{}}, nil
-}
 
 func TestOutOfCredits(t *testing.T) {
 	if !outOfCredits(`{"type":"result","is_error":true,"result":"Credit balance is too low"}`) {
@@ -33,18 +25,25 @@ func TestOutOfCredits(t *testing.T) {
 }
 
 func TestAlertCreditsOncePerDay(t *testing.T) {
-	rec := &pushRecorder{}
-	orig := http.DefaultTransport
-	http.DefaultTransport = rec
-	defer func() { http.DefaultTransport = orig }()
+	var priorities []float64
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var ev struct {
+			Priority float64 `json:"priority"`
+		}
+		json.NewDecoder(r.Body).Decode(&ev)
+		priorities = append(priorities, ev.Priority)
+		w.Write([]byte(`{"status":"delivered","delivered":true}`))
+	}))
+	defer srv.Close()
+	t.Setenv("SIGNAL_TOKEN", "tok")
 
-	s := &server{storage: store.Dir(t.TempDir()), notify: notify.NewPushover("tok", "usr")}
+	s := &server{storage: store.Dir(t.TempDir()), notify: notify.New(srv.URL)}
 	now := time.Date(2026, 10, 25, 12, 0, 0, 0, time.UTC)
 	ctx := context.Background()
 	s.alertCredits(ctx, now)
 	s.alertCredits(ctx, now.Add(30*time.Minute))
 	s.alertCredits(ctx, now.Add(25*time.Hour))
-	if len(rec.priorities) != 2 || rec.priorities[0] != "1" {
-		t.Errorf("sent %q, want two priority-1 alerts a day apart", rec.priorities)
+	if len(priorities) != 2 || priorities[0] != 1 {
+		t.Errorf("sent %v, want two priority-1 alerts a day apart", priorities)
 	}
 }

@@ -100,7 +100,7 @@ func (b *Board) escalate(w http.ResponseWriter, r *http.Request) {
 			b.fail(w, err)
 			return
 		}
-		b.pushover(ctx, me.Login, me.Login+" escalated: "+it.Title, "Escalated to the admins.", b.itemURL(id))
+		b.push(ctx, me.Login, me.Login+" escalated: "+it.Title, "Escalated to the admins.", b.itemURL(id))
 		redirect(w, r, back, "Escalated to the admins")
 	}
 }

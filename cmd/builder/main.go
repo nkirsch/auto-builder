@@ -29,19 +29,19 @@ import (
 const maxLog = 20 << 20
 
 type config struct {
-	Port, DatabaseURL, BaseURL, GitSHA, Repo      string
-	AdminLogin, BotLogin, DevLogin                string
-	SessionKey, ClientID, ClientSecret            string
-	HomeHost                                      string // HOME_HOST (a secret): a DNS name whose IPs' visits /logs and /visitors leave out
-	TickToken                                     string
-	Bucket, DataDir, SiteDir                      string
-	Launcher, Project, Region, Job                string
-	AppID, AppInstallation, AppKey                string
-	SignalURL, PushoverToken, PushoverUser, Quiet string
-	Releases                                      bool
-	Version                                       string // set by a deploy that tags the commit
-	IdleHours                                     int
-	IssueSync                                     bool // ISSUE_SYNC=off disables importing GitHub issues
+	Port, DatabaseURL, BaseURL, GitSHA, Repo string
+	AdminLogin, BotLogin, DevLogin           string
+	SessionKey, ClientID, ClientSecret       string
+	HomeHost                                 string // HOME_HOST (a secret): a DNS name whose IPs' visits /logs and /visitors leave out
+	TickToken                                string
+	Bucket, DataDir, SiteDir                 string
+	Launcher, Project, Region, Job           string
+	AppID, AppInstallation, AppKey           string
+	SignalURL, Quiet                         string
+	Releases                                 bool
+	Version                                  string // set by a deploy that tags the commit
+	IdleHours                                int
+	IssueSync                                bool // ISSUE_SYNC=off disables importing GitHub issues
 
 	AdminEmail                         string // Google sign-in addresses, paired with ADMIN_LOGIN
 	GoogleClientID, GoogleClientSecret string
@@ -103,9 +103,7 @@ func loadConfig() (config, error) {
 		AppInstallation: env("GH_APP_INSTALLATION_ID", ""),
 		AppKey:          env("GH_APP_PRIVATE_KEY", ""),
 		SignalURL:       env("SIGNAL_URL", ""),
-		PushoverToken:   env("PUSHOVER_TOKEN", ""),
-		PushoverUser:    env("PUSHOVER_USER", ""),
-		Quiet:           env("PUSHOVER_QUIET", "nkirsch"),
+		Quiet:           env("NOTIFY_QUIET", "nkirsch"),
 		Releases:        env("RELEASES", "false") == "true",
 		IdleHours:       idle,
 		IssueSync:       env("ISSUE_SYNC", "on") != "off",
@@ -184,7 +182,7 @@ type server struct {
 	gate    *gate.Gate
 	app     *github.App   // nil when the GitHub App isn't configured
 	version func() string // release name, "" until resolved
-	notify  *notify.Pushover
+	notify  *notify.Notifier
 	slug    string // multi-tenant mode: the tenant
 	// lastRelease is when the board's repo last published a release, zero if unknown.
 	lastRelease func(context.Context) time.Time
@@ -272,10 +270,10 @@ func run() error {
 	}
 
 	g := &gate.Gate{Store: st, Launcher: launcher, Idle: time.Duration(cfg.IdleHours) * time.Hour}
-	push := notify.New(cfg.SignalURL, cfg.PushoverToken, cfg.PushoverUser)
+	push := notify.New(cfg.SignalURL)
 	b := &board.Board{
 		Store: st, Storage: storage, Auth: a, Gate: g,
-		Pushover: push, Quiet: cfg.Quiet,
+		Push: push, Quiet: cfg.Quiet,
 		BaseURL: cfg.BaseURL, BotLogin: cfg.BotLogin, GitSHA: cfg.GitSHA, Repo: cfg.Repo,
 		GitHub: gh, Releases: cfg.Releases, CreateAppURL: cfg.CreateAppURL, Traffic: cfg.SiteDir != "",
 	}

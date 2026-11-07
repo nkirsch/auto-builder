@@ -29,7 +29,7 @@ steps are the manual ones below.
 | Storage | GCS bucket: item attachments (`attachments/…`) and run logs (`runs/{id}.log`). Private; the server proxies reads. Attachments on items mirrored to GitHub issues also have signed links (see GitHub issues). Local dev uses a directory. Plain JSON API + `google.DefaultTokenSource`, no heavy client libs. |
 | Agent auth | Workload Identity Federation when the runner job sets `ANTHROPIC_FEDERATION_RULE_ID`, `ANTHROPIC_ORGANIZATION_ID`, `ANTHROPIC_SERVICE_ACCOUNT_ID` and `ANTHROPIC_WORKSPACE_ID`: the runner writes the job's Google ID token (audience `https://api.anthropic.com`) to a file, refreshes it every 20 min, and Claude Code exchanges it for a short-lived token; `ANTHROPIC_API_KEY` is then withheld from the agent. Without those vars, `ANTHROPIC_API_KEY` from Secret Manager. The rule matches the `builder-runner` SA's `sub` and `email`. |
 | Autonomy | Agent opens a PR, watches its checks and squash-merges once every check is green (no branch protection needed); merge → deploy. |
-| CI/CD | GitHub Actions: `hugo --minify` + `go vet` + `go test` on PRs; on push to `master` (or a published release, per `DEPLOY_ON`) run tests and build amd64-only server and runner images in parallel (pushed to Artifact Registry, layer-cached, Claude Code refreshed weekly), then tag the commit `vYY.M.D-N`, `gcloud run deploy` the server with `GIT_SHA`, `VERSION`, `SITE_DIR`, `RELEASES` and `ISSUE_SYNC`, `gcloud run jobs update` the runner, and send a Pushover. Auth via Workload Identity Federation (no JSON keys). |
+| CI/CD | GitHub Actions: `hugo --minify` + `go vet` + `go test` on PRs; on push to `master` (or a published release, per `DEPLOY_ON`) run tests and build amd64-only server and runner images in parallel (pushed to Artifact Registry, layer-cached, Claude Code refreshed weekly), then tag the commit `vYY.M.D-N`, `gcloud run deploy` the server with `GIT_SHA`, `VERSION`, `SITE_DIR`, `RELEASES` and `ISSUE_SYNC`, `gcloud run jobs update` the runner, and send a deploy event to signal. Auth via Workload Identity Federation (no JSON keys). |
 
 ## Components
 
@@ -42,7 +42,7 @@ internal/board  item/response/attachment handlers, mentions, markdown (goldmark,
 internal/gate   decides whether a run is warranted; launches the Job
 internal/mcp    MCP tools for the agent (modelcontextprotocol/go-sdk, Stateless streamable HTTP)
 internal/store  Storage interface: GCS or local dir
-internal/notify admin push via signal.nick.org or Pushover (optional) + in-app notifications
+internal/notify admin push via signal.nick.org + in-app notifications
 web/            templates + static CSS
 .claude/commands/build-board.md   the agent's instructions
 infra/bootstrap.sh                idempotent gcloud setup
@@ -110,10 +110,9 @@ non-bot change (create, reply, approve) and drives the gate.
   issue sync don't reopen items.
 - New items, replies and approvals push to the admin through signal.nick.org
   when `SIGNAL_URL` is set (bearer `SIGNAL_TOKEN`, else the Cloud Run
-  identity; events `board.notify`/`board.alert`, app `deployments`), else
-  Pushover directly when `PUSHOVER_TOKEN` / `PUSHOVER_USER` are set (otherwise
-  log only), except
-  those by `PUSHOVER_QUIET` (default `nkirsch`), the person receiving them.
+  identity; events `board.notify`/`board.alert`, app `deployments`), otherwise
+  log only, except those by `NOTIFY_QUIET` (default `nkirsch`), the person
+  receiving them.
 - Auto-approve (`members.auto_approve`) is on by default; admins can turn it
   off for themselves on `/admin`. An auto-approving admin's new asks start
   approved by them, as do GitHub issues they open when GitHub reports them
@@ -135,7 +134,7 @@ non-bot change (create, reply, approve) and drives the gate.
   to those admins: GitHub logins, which also become the item's GitHub issue's
   assignees when it has one, or the address of a member who signs in with
   Google only (their login may be made up). Board admins get an in-app
-  notification; platform admins a hub Pushover and the hub's `/admin/urgent`
+  notification; platform admins a hub push and the hub's `/admin/urgent`
   list, where they re-assign an item back to one of its board's admins.
   Admins clear an escalation; escalating and clearing are human activity.
 
@@ -378,7 +377,7 @@ are filled with `gcloud secrets versions add`.
 
 `DATABASE_URL`, `SESSION_KEY`, `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET`,
 `TICK_TOKEN`, `ANTHROPIC_API_KEY`, `GH_APP_ID`, `GH_APP_INSTALLATION_ID`,
-`GH_APP_PRIVATE_KEY`; env `SIGNAL_URL` (default https://signal.nick.org) for admin pushes, optional `PUSHOVER_TOKEN` / `PUSHOVER_USER` secrets only without it.
+`GH_APP_PRIVATE_KEY`; env `SIGNAL_URL` (default https://signal.nick.org) for admin pushes.
 
 ## GCP resources (`infra/bootstrap.sh`, idempotent)
 

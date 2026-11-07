@@ -466,10 +466,16 @@ func (r *Registry) SignIns(ctx context.Context, board string, identities []strin
 	return db.SignIns(ctx, r.Control, board, identities, only, since)
 }
 
-// LastSignIn is when someone last signed in to board, zero if nobody has.
-func (r *Registry) LastSignIn(ctx context.Context, board string) (time.Time, error) {
+// LastSignIn is when someone other than exclude (logins or emails) last
+// signed in to board, zero if nobody has.
+func (r *Registry) LastSignIn(ctx context.Context, board string, exclude ...string) (time.Time, error) {
+	ex := make([]string, len(exclude))
+	for i, e := range exclude {
+		ex[i] = strings.ToLower(e)
+	}
 	var at *time.Time
-	err := r.Control.QueryRow(ctx, `SELECT max(at) FROM signins WHERE board = $1 AND result = $2`, board, db.SignInOK).Scan(&at)
+	err := r.Control.QueryRow(ctx, `SELECT max(at) FROM signins WHERE board = $1 AND result = $2
+		AND lower(identity) <> ALL($3)`, board, db.SignInOK, ex).Scan(&at)
 	if err != nil || at == nil {
 		return time.Time{}, err
 	}

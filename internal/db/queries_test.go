@@ -71,6 +71,77 @@ func TestLastActivity(t *testing.T) {
 	check("login", "login")
 }
 
+func TestLastActivityExcludes(t *testing.T) {
+	ctx := context.Background()
+	s := testStore(t)
+	for _, m := range []string{"alice", "nkirsch"} {
+		if err := s.UpsertMember(ctx, m, "admin", "nkirsch"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := s.SetMemberEmail(ctx, "nkirsch", "Nick@example.com"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.TouchMember(ctx, "alice", "Alice", ""); err != nil {
+		t.Fatal(err)
+	}
+	_, alice, err := s.LastActivity(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(10 * time.Millisecond)
+	// The platform admin's visit, item, reply and sign-in, and a bot's item
+	// that a person then touched.
+	if err := s.TouchMember(ctx, "nkirsch", "Nick", ""); err != nil {
+		t.Fatal(err)
+	}
+	id, err := s.CreateItem(ctx, "Tweak", "", "nkirsch")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.AddResponse(ctx, id, "nkirsch", "done?", true); err != nil {
+		t.Fatal(err)
+	}
+	bot, err := s.CreateBotItem(ctx, "Found a bug", "", "builder-bot")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetApproved(ctx, bot, true, "nkirsch"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.RecordSignIn(ctx, SignIn{Provider: "google", Identity: "nick@example.com", Result: SignInOK}, 0); err != nil {
+		t.Fatal(err)
+	}
+	_, human, err := s.LastActivity(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !human.At.After(alice.At) {
+		t.Errorf("without exclude: human %+v, want newer than %+v", human, alice)
+	}
+	_, human, err = s.LastActivity(ctx, "nkirsch", "nick@example.com")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if human == nil || human.Kind != "login" || !human.At.Equal(alice.At) {
+		t.Errorf("excluding the admin: human %+v, want alice's %+v", human, alice)
+	}
+	// A member's own item and reply still count.
+	mine, err := s.CreateItem(ctx, "Mine", "", "alice")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, human, _ = s.LastActivity(ctx, "nkirsch"); human == nil || human.Kind != "item" {
+		t.Errorf("member's item: human %+v", human)
+	}
+	if _, err := s.AddResponse(ctx, mine, "alice", "any news?", true); err != nil {
+		t.Fatal(err)
+	}
+	if _, human, _ = s.LastActivity(ctx, "nkirsch"); human == nil || human.Kind != "reply" {
+		t.Errorf("member's reply: human %+v", human)
+	}
+}
+
 func TestItemLifecycle(t *testing.T) {
 	ctx := context.Background()
 	s := testStore(t)

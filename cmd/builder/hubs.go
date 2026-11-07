@@ -69,15 +69,23 @@ func (h *hub) overview(ctx context.Context) (hubOverview, error) {
 		return hubOverview{}, err
 	}
 	o := hubOverview{Name: h.host, URL: h.cfg.BaseURL, Version: h.cfg.Version, Sites: make([]overviewSite, len(rows))}
-	if h.upstream != nil {
-		if lag := h.lag(ctx); lag.Known {
-			o.Upstream, o.Behind, o.More = h.cfg.Upstream, lag.N, lag.More
-		}
-	}
-	if rel := h.unreleased(ctx); rel.Known {
-		o.Unreleased, o.ReleaseKnown = rel.N, true
-	}
 	var wg sync.WaitGroup
+	if h.upstream != nil {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if lag := h.lag(ctx); lag.Known {
+				o.Upstream, o.Behind, o.More = h.cfg.Upstream, lag.N, lag.More
+			}
+		}()
+	}
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		if rel := h.unreleased(ctx); rel.Known {
+			o.Unreleased, o.ReleaseKnown = rel.N, true
+		}
+	}()
 	for i, r := range rows {
 		s := overviewSite{Name: r.Name, Board: r.Board, Site: r.Site, App: r.App, Health: r.Health, HealthErr: r.HealthErr,
 			Detail: r.Detail, Stats: r.Stats}
@@ -86,14 +94,21 @@ func (h *hub) overview(ctx context.Context) (hubOverview, error) {
 			if h.cfg.LogProject != "" {
 				s.Logs = s.Board + "logs"
 			}
-			if s.Healthy() {
-				if rt, err := h.tenantFor(ctx, r.Slug); err == nil {
-					s.Unreleased, s.Releases = rt.b.PendingRelease(ctx)
-					s.Stats.noteActivity("release", rt.b.LastRelease(ctx))
-				}
-			}
 		}
 		o.Sites[i] = s
+	}
+	// Each app's GitHub and Logging reads run side by side; they touch different fields.
+	eachLimited(len(rows), overviewReads, func(i int) {
+		s := &o.Sites[i]
+		if !rows[i].App || !s.Healthy() {
+			return
+		}
+		if rt, err := h.tenantFor(ctx, rows[i].Slug); err == nil {
+			s.Unreleased, s.Releases = rt.b.PendingRelease(ctx)
+			s.Stats.noteActivity("release", rt.b.LastRelease(ctx))
+		}
+	})
+	for i, r := range rows {
 		if r.App {
 			wg.Add(1)
 			go func() {
@@ -104,6 +119,26 @@ func (h *hub) overview(ctx context.Context) (hubOverview, error) {
 	}
 	wg.Wait()
 	return o, nil
+}
+
+// overviewReads caps an overview's concurrent reads per app: enough to stop
+// its time growing with the number of apps, without crowding the database.
+const overviewReads = 4
+
+// eachLimited runs f(0..n-1), at most limit at once, and waits for them.
+func eachLimited(n, limit int, f func(int)) {
+	sem := make(chan struct{}, limit)
+	var wg sync.WaitGroup
+	for i := range n {
+		wg.Add(1)
+		sem <- struct{}{}
+		go func() {
+			defer wg.Done()
+			defer func() { <-sem }()
+			f(i)
+		}()
+	}
+	wg.Wait()
 }
 
 // AppsUnreleased is how many of the hub's apps have unreleased commits.

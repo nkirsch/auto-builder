@@ -84,7 +84,7 @@ func runTenancy(ctx context.Context, cfg config) error {
 			h.upstream.Release = releaser(github.ForApp(app), cfg.Repo)
 		}
 	}
-	h.notify = notify.New(cfg.SignalURL, cfg.PushoverToken, cfg.PushoverUser)
+	h.notify = notify.New(cfg.SignalURL)
 	srv := &http.Server{Addr: ":" + cfg.Port, Handler: logRequests(h.routes(), h.auth.SignedIn), ReadHeaderTimeout: 10 * time.Second}
 	go func() {
 		<-ctx.Done()
@@ -115,7 +115,7 @@ type hub struct {
 	upstream    *gate.Upstream           // nil unless the platform repo has an upstream
 	appBase     func(slug string) string // tests: where apps are served instead of <slug>.<host>
 	app         *github.App              // nil when the GitHub App isn't configured
-	notify      *notify.Pushover
+	notify      *notify.Notifier
 
 	mu      sync.Mutex
 	tenants map[string]*tenantRT

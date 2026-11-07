@@ -132,7 +132,7 @@ jobs:
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       # Name the commit vYY.M.D-N (a v* tag already on it, else a new tag) and hand
-      # it to the server as VERSION, so board, site footer, tag and Pushover agree.
+      # it to the server as VERSION, so board, site footer, tag and signal agree.
       - id: version
         run: |
           tags=$(git ls-remote --tags origin 'v*' 2>/dev/null | sed 's/\^{}$//' || true)

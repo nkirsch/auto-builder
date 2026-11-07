@@ -66,11 +66,11 @@ type Mailer interface {
 
 // Board holds the board's dependencies.
 type Board struct {
-	Store    *db.Store
-	Storage  store.Storage
-	Auth     *auth.Auth
-	Pushover *notify.Pushover
-	// Quiet is the login whose own actions don't Pushover (the person receiving them).
+	Store   *db.Store
+	Storage store.Storage
+	Auth    *auth.Auth
+	Push    *notify.Notifier
+	// Quiet is the login whose own actions don't push (the person receiving them).
 	Quiet string
 	// GitHub and Releases enable the runs page's Release button.
 	GitHub   *github.Client
@@ -327,18 +327,18 @@ type page struct {
 	Version string // "vYY.MM.DD-N", or "" until known
 	Flash   string
 	BotName string
-	Theme   string            // "light", "dark" or "" (system)
-	Path    string            // current page, for forms that return here
-	BaseURL string            // absolute links for link previews
-	AppName string            // a multi-tenant app's name, shown instead of the brand's
-	SiteURL string            // the app's site, linked from the nav
-	NewApp  string            // a hub's New app page, for members to make their own app
-	Refresh int               // seconds until the page reloads itself; 0 never
-	Pending int               // commits awaiting a release, for an admin's Releases badge; 0 none
+	Theme   string // "light", "dark" or "" (system)
+	Path    string // current page, for forms that return here
+	BaseURL string // absolute links for link previews
+	AppName string // a multi-tenant app's name, shown instead of the brand's
+	SiteURL string // the app's site, linked from the nav
+	NewApp  string // a hub's New app page, for members to make their own app
+	Refresh int    // seconds until the page reloads itself; 0 never
+	Pending int    // commits awaiting a release, for an admin's Releases badge; 0 none
 	// Releasing: a release is deploying (admins only); the nav shows it instead of Pending.
 	Releasing bool
-	Running   bool // a run is requested or running
-	Names   map[string]string // member logins to names, for who
+	Running   bool              // a run is requested or running
+	Names     map[string]string // member logins to names, for who
 	// LinkGitHub offers Google members connecting their GitHub accounts.
 	LinkGitHub bool
 	Data       any
@@ -553,7 +553,7 @@ func (b *Board) File(ctx context.Context, login, title, body string, approve boo
 		}
 	}
 	b.mention(ctx, id, login, body)
-	b.pushover(ctx, login, "New ask from "+login, title, b.itemURL(id))
+	b.push(ctx, login, "New ask from "+login, title, b.itemURL(id))
 	b.Gate.Activity()
 	return id, nil
 }
@@ -664,7 +664,7 @@ func (b *Board) respond(ctx context.Context, me db.Member, it db.Item, body stri
 		uploads()
 	}
 	b.Notified(ctx, it, me.Login, body)
-	b.pushover(ctx, me.Login, me.Login+" replied: "+it.Title, body, b.itemURL(it.ID))
+	b.push(ctx, me.Login, me.Login+" replied: "+it.Title, body, b.itemURL(it.ID))
 	b.Gate.Activity()
 	return reopened, reopensOnShip, nil
 }
@@ -802,7 +802,7 @@ func (b *Board) Approve(ctx context.Context, me db.Member, id int, approved bool
 	}
 	if approved {
 		if it, err := b.Store.Item(ctx, id); err == nil {
-			b.pushover(ctx, me.Login, me.Login+" approved: "+it.Title, "The agent will build it on its next run.", b.itemURL(id))
+			b.push(ctx, me.Login, me.Login+" approved: "+it.Title, "The agent will build it on its next run.", b.itemURL(id))
 		}
 		b.Gate.Activity()
 	}
@@ -1537,12 +1537,12 @@ func (b *Board) prefix() string {
 	return strings.TrimSuffix(u.Path, "/")
 }
 
-// pushover sends board activity by anyone but Quiet.
-func (b *Board) pushover(ctx context.Context, actor, title, msg, url string) {
+// push sends board activity by anyone but Quiet.
+func (b *Board) push(ctx context.Context, actor, title, msg, url string) {
 	if strings.EqualFold(actor, b.Quiet) {
 		return
 	}
-	b.Pushover.Send(context.WithoutCancel(ctx), title, msg, url)
+	b.Push.Send(context.WithoutCancel(ctx), title, msg, url)
 }
 
 func (b *Board) itemURL(id int) string {

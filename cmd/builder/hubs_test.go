@@ -3,9 +3,12 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -13,6 +16,7 @@ import (
 
 	"github.com/nkirsch/auto-builder/internal/db"
 	"github.com/nkirsch/auto-builder/internal/github"
+	"github.com/nkirsch/auto-builder/internal/tenant"
 )
 
 // /admin/hubs puts every hub's urgent, escalated and blocked items first,
@@ -349,5 +353,50 @@ func TestAPISignInsSeen(t *testing.T) {
 	}
 	if len(out) != 1 || out[0].Identity != "pat@example.com" || out[0].IP != "9.9.9.9" || out[0].UA != "Phone" {
 		t.Errorf("signins: %+v", out)
+	}
+}
+
+// Each whole window alerts once, per app with 5xx and the hub, whatever the
+// number of ticks; its id is stable so another instance's push dedupes.
+func TestAlertServerErrors(t *testing.T) {
+	t.Setenv("K_SERVICE", "hubsvc")
+	var counted []string
+	var sent []string
+	h := &hub{host: "hub.example", cfg: config{LogProject: "logs", BaseURL: "https://hub.example"}}
+	h.countErrsIn = func(_ context.Context, view string, since, before time.Time) (int, error) {
+		counted = append(counted, view)
+		if before.Sub(since) != errorAlertEvery {
+			t.Errorf("window %v to %v", since, before)
+		}
+		switch {
+		case strings.Contains(view, "/alpha-requests"), strings.Contains(view, "/hubsvc-requests"):
+			return 2, nil
+		case strings.Contains(view, "/beta-requests"):
+			return 0, nil
+		}
+		return 0, errors.New("no view")
+	}
+	h.sendOnce = func(_ context.Context, id, _, _, link string) { sent = append(sent, id+" "+link) }
+	tenants := []tenant.Tenant{{Slug: "alpha", Status: "ready"}, {Slug: "beta", Status: "ready"}, {Slug: "gamma", Status: "ready"}, {Slug: "new", Status: "provisioning"}}
+	at := time.Date(2026, 11, 7, 17, 40, 0, 0, time.UTC)
+	h.alertServerErrors(context.Background(), tenants, at)
+	end := at.Truncate(errorAlertEvery).Unix()
+	want := []string{
+		fmt.Sprintf("5xx:alpha-requests:%d https://hub.example/alpha/logs", end),
+		fmt.Sprintf("5xx:hubsvc-requests:%d https://hub.example/admin/hubs", end),
+	}
+	if !slices.Equal(sent, want) {
+		t.Errorf("sent = %v, want %v", sent, want)
+	}
+	if len(counted) != 4 {
+		t.Errorf("counted %v, want the three ready apps and the hub", counted)
+	}
+	h.alertServerErrors(context.Background(), tenants, at.Add(10*time.Minute)) // same window
+	if len(sent) != 2 || len(counted) != 4 {
+		t.Errorf("a second tick in the window read or sent again: %v %v", counted, sent)
+	}
+	h.alertServerErrors(context.Background(), tenants, at.Add(30*time.Minute))
+	if len(sent) != 4 {
+		t.Errorf("the next window didn't alert: %v", sent)
 	}
 }

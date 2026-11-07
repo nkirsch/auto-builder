@@ -191,6 +191,10 @@ act_as() { # who whom
 sql_client server
 proj_role server roles/run.viewer
 proj_role server roles/logging.viewAccessor
+# The hub's own request log, for its 5xx alerts (each app's view comes from provisioning).
+g logging views describe "$NAME-requests" --bucket _Default --location global >/dev/null 2>&1 ||
+  g logging views create "$NAME-requests" --bucket _Default --location global \
+    --log-filter "resource.type=\"cloud_run_revision\" AND resource.labels.service_name=\"$NAME\" AND LOG_ID(\"run.googleapis.com/requests\")"
 secret_access server "$SERVER_MOUNTS"
 retry gcloud storage buckets add-iam-policy-binding "gs://$PROJECT-$NAME" \
   --member "serviceAccount:$(sa server)" --role roles/storage.objectUser >/dev/null

@@ -137,6 +137,10 @@ type hub struct {
 	errsMu    sync.Mutex
 	errs      map[string]errCount                                                  // each app's 5xx count, by slug
 	countErrs func(ctx context.Context, view string, since time.Time) (int, error) // tests: instead of the log view
+
+	alertedAt   time.Time                                                                    // the 5xx window last alerted on
+	countErrsIn func(ctx context.Context, view string, since, before time.Time) (int, error) // tests: instead of the log view
+	sendOnce    func(ctx context.Context, id, title, message, link string)                   // tests: instead of h.notify.Once
 }
 
 // boardOf is the tenant slug a sign-in headed for next is for, or "". A
@@ -374,6 +378,7 @@ func (h *hub) tick(w http.ResponseWriter, r *http.Request) {
 	if err := h.syncSpend(r.Context()); err != nil {
 		errs = append(errs, fmt.Errorf("spend: %w", err))
 	}
+	h.alertServerErrors(r.Context(), tenants, time.Now())
 	if err := errors.Join(errs...); err != nil {
 		slog.Error("tick", "err", err)
 		writeJSON(w, http.StatusOK, map[string]string{"status": "partial", "error": err.Error()})

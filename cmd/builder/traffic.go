@@ -27,6 +27,7 @@ const (
 	trafficDays  = 30
 	trafficCache = time.Hour
 	logRetries   = 5 // retries of a 429/5xx from entries.list
+	crawler404s  = 3 // this many probes for missing paths marks a crawler
 )
 
 // logBackoff is the first wait after a 429/5xx; tests shorten it.
@@ -37,6 +38,8 @@ var (
 	botUA   = regexp.MustCompile(`(?i)bot\b|bot/|crawl|spider|slurp|fetcher|go-http|python|curl/|libwww|wget|scrapy|okhttp|java/|node-fetch|axios|headless|lighthouse|facebookexternal|google-certificates`)
 	// assetRe is what browsers fetch and most scrapers skip; not .ico, which scanners request too.
 	assetRe = regexp.MustCompile(`(?i)\.(css|js|jpe?g|png|gif|webp|avif|svg)$`)
+	// notProbe is what browsers miss on their own: 404s here don't count as probing.
+	notProbe = regexp.MustCompile(`(?i)\.(ico|jpe?g|png|gif|webp|avif|svg|map|txt)$|^/\.well-known/`)
 )
 
 func mustZone(name string) *time.Location {
@@ -89,15 +92,33 @@ func page(h hit) bool {
 	return strings.HasSuffix(h.Path, ".html") || !strings.Contains(last, ".")
 }
 
-// buildReport counts real readers: a visitor is an IP+UA that isn't a declared
-// bot, isn't excluded, and got a stylesheet, script or image as browsers do.
-func buildReport(hits []hit, host string, from, to time.Time, exclude map[string]bool) trafficReport {
-	browser := map[string]bool{}
+// browsers returns the IP|UA pairs that act like people: they got a stylesheet,
+// script or image, missed fewer than crawler404s other paths, and aren't on a
+// cloud provider's machines, where headless scanners run.
+func browsers(hits []hit) map[string]bool {
+	got, missed := map[string]bool{}, map[string]int{}
 	for _, h := range hits {
-		if assetRe.MatchString(h.Path) && (h.Status == 200 || h.Status == 304) { // a scanner's 404s prove nothing
-			browser[h.IP+"|"+h.UA] = true
+		who := h.IP + "|" + h.UA
+		switch {
+		case assetRe.MatchString(h.Path) && (h.Status == 200 || h.Status == 304): // a scanner's 404s prove nothing
+			got[who] = true
+		case h.Status == 404 && !notProbe.MatchString(h.Path):
+			missed[who]++
 		}
 	}
+	for who := range got {
+		ip, _, _ := strings.Cut(who, "|")
+		if missed[who] >= crawler404s || cloudProvider(ip) != "" {
+			delete(got, who)
+		}
+	}
+	return got
+}
+
+// buildReport counts real readers: a visitor is an IP+UA that isn't a declared
+// bot, isn't excluded, and acts like a person (browsers).
+func buildReport(hits []hit, host string, from, to time.Time, exclude map[string]bool) trafficReport {
+	browser := browsers(hits)
 	r := trafficReport{Host: host, From: from, To: to}
 	visitors := map[string]bool{}
 	days, pages, refs := map[string]*tally{}, map[string]*tally{}, map[string]*tally{}
@@ -172,7 +193,8 @@ type logView struct {
 
 func (l logView) hits(ctx context.Context, since time.Time) ([]hit, error) {
 	var out []hit
-	filter := fmt.Sprintf(`timestamp >= %q AND httpRequest.requestMethod = "GET"`, since.UTC().Format(time.RFC3339))
+	// Skip the hub's health polls, most of a quiet app's log, to save read quota.
+	filter := fmt.Sprintf(`timestamp >= %q AND httpRequest.requestMethod = "GET" AND NOT httpRequest.requestUrl =~ "/(health|version)(\\?|$)"`, since.UTC().Format(time.RFC3339))
 	err := l.list(ctx, filter, "entries(timestamp,httpRequest,resource/labels)", 100, func(raw json.RawMessage) error {
 		var e struct {
 			Timestamp   time.Time `json:"timestamp"`
@@ -212,8 +234,16 @@ func (l logView) hits(ctx context.Context, since time.Time) ([]hit, error) {
 // serverErrors counts the 5xx responses since a time, reading only their
 // timestamps.
 func (l logView) serverErrors(ctx context.Context, since time.Time) (int, error) {
+	return l.serverErrorsIn(ctx, since, time.Time{})
+}
+
+// serverErrorsIn counts the 5xx responses from since up to before, if set.
+func (l logView) serverErrorsIn(ctx context.Context, since, before time.Time) (int, error) {
 	n := 0
 	filter := fmt.Sprintf(`timestamp >= %q AND httpRequest.status >= 500`, since.UTC().Format(time.RFC3339))
+	if !before.IsZero() {
+		filter += fmt.Sprintf(` AND timestamp < %q`, before.UTC().Format(time.RFC3339))
+	}
 	err := l.list(ctx, filter, "entries(timestamp)", 20, func(json.RawMessage) error { n++; return nil })
 	return n, err
 }

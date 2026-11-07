@@ -234,20 +234,15 @@ func pseudonym(key []byte, scope, ip, ua string) string {
 	return strings.ToLower(base32.StdEncoding.WithPadding(base32.NoPadding).EncodeToString(m.Sum(nil)[:5]))
 }
 
-// buildVisitors groups page views by pseudonym. A visitor is a browser (it
-// got CSS, JS or an image from that app) that isn't a declared bot, an excluded IP,
-// or a crawler (visitorBurst views within a minute).
+// buildVisitors groups page views by pseudonym. A visitor acts like a person on
+// that app (browsers) and isn't a declared bot, an excluded IP, or a crawler
+// (visitorBurst views within a minute).
 func buildVisitors(apps []appHits, key []byte, scope string, hide func(string) bool) visitorsReport {
 	r := visitorsReport{}
 	rows := map[string]*visitorRow{}
 	versions := map[string]*versionRow{}
 	for _, a := range apps {
-		browserOf := map[string]bool{}
-		for _, h := range a.Hits {
-			if assetRe.MatchString(h.Path) && (h.Status == 200 || h.Status == 304) {
-				browserOf[h.IP+"|"+h.UA] = true
-			}
-		}
+		browserOf := browsers(a.Hits)
 		type view struct {
 			h  hit
 			id string

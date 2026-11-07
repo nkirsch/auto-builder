@@ -26,16 +26,17 @@ import (
 const (
 	trafficDays  = 30
 	trafficCache = time.Hour
-	logRetries   = 5 // retries of a 429/503 from entries.list
+	logRetries   = 5 // retries of a 429/5xx from entries.list
 )
 
-// logBackoff is the first wait after a 429/503; tests shorten it.
+// logBackoff is the first wait after a 429/5xx; tests shorten it.
 var logBackoff = 2 * time.Second
 
 var (
 	pacific = mustZone("America/Los_Angeles")
 	botUA   = regexp.MustCompile(`(?i)bot\b|bot/|crawl|spider|slurp|fetcher|go-http|python|curl/|libwww|wget|scrapy|okhttp|java/|node-fetch|axios|headless|lighthouse|facebookexternal|google-certificates`)
-	assetRe = regexp.MustCompile(`\.(css|js)$`)
+	// assetRe is what browsers fetch and most scrapers skip; not .ico, which scanners request too.
+	assetRe = regexp.MustCompile(`(?i)\.(css|js|jpe?g|png|gif|webp|avif|svg)$`)
 )
 
 func mustZone(name string) *time.Location {
@@ -89,11 +90,11 @@ func page(h hit) bool {
 }
 
 // buildReport counts real readers: a visitor is an IP+UA that isn't a declared
-// bot, isn't excluded, and fetched a stylesheet or script as browsers do.
+// bot, isn't excluded, and got a stylesheet, script or image as browsers do.
 func buildReport(hits []hit, host string, from, to time.Time, exclude map[string]bool) trafficReport {
 	browser := map[string]bool{}
 	for _, h := range hits {
-		if assetRe.MatchString(h.Path) {
+		if assetRe.MatchString(h.Path) && (h.Status == 200 || h.Status == 304) { // a scanner's 404s prove nothing
 			browser[h.IP+"|"+h.UA] = true
 		}
 	}
@@ -241,7 +242,7 @@ func (l logView) list(ctx context.Context, filter, fields string, maxPages int, 
 			if resp, err = l.client.Do(req); err != nil {
 				return err
 			}
-			if (resp.StatusCode != http.StatusTooManyRequests && resp.StatusCode != http.StatusServiceUnavailable) || try >= logRetries {
+			if (resp.StatusCode != http.StatusTooManyRequests && resp.StatusCode < 500) || try >= logRetries {
 				break
 			}
 			resp.Body.Close()
@@ -259,6 +260,9 @@ func (l logView) list(ctx context.Context, filter, fields string, maxPages int, 
 		var page struct {
 			Entries       []json.RawMessage `json:"entries"`
 			NextPageToken string            `json:"nextPageToken"`
+			Error         struct {
+				Message string `json:"message"`
+			} `json:"error"`
 		}
 		err = json.NewDecoder(resp.Body).Decode(&page)
 		resp.Body.Close()
@@ -266,6 +270,9 @@ func (l logView) list(ctx context.Context, filter, fields string, maxPages int, 
 			return fmt.Errorf("entries.list: %s: %w", resp.Status, errRateLimited)
 		}
 		if resp.StatusCode != http.StatusOK {
+			if page.Error.Message != "" {
+				return fmt.Errorf("entries.list: %s: %s", resp.Status, page.Error.Message)
+			}
 			return fmt.Errorf("entries.list: %s", resp.Status)
 		}
 		if err != nil {

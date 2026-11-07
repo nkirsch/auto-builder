@@ -235,7 +235,7 @@ func pseudonym(key []byte, scope, ip, ua string) string {
 }
 
 // buildVisitors groups page views by pseudonym. A visitor is a browser (it
-// fetched CSS or JS from that app) that isn't a declared bot, an excluded IP,
+// got CSS, JS or an image from that app) that isn't a declared bot, an excluded IP,
 // or a crawler (visitorBurst views within a minute).
 func buildVisitors(apps []appHits, key []byte, scope string, hide func(string) bool) visitorsReport {
 	r := visitorsReport{}

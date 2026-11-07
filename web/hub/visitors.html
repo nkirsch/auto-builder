@@ -4,7 +4,7 @@
 <p class="hint">You admin more than one app; pick one.</p>
 <ul>{{range .}}<li><a href="/{{.Slug}}/visitors">{{.Slug}}</a></li>{{end}}</ul>
 {{else}}{{with .Data.Report}}
-<p class="hint">{{.Scope}} · {{ago .From}} – now, from each app's Cloud Run request log. A visitor is a browser (it loaded CSS or JS) shown by a pseudonym only: no IPs, user agents or names. Bots, crawlers, admins' own visits and the operator's home network are left out ({{.Dropped}} page views). Cached for an hour, <a href="?{{with $.Data.App}}app={{.}}&amp;{{end}}refresh">refresh</a>.</p>
+<p class="hint">{{.Scope}} · {{ago .From}} – now, from each app's Cloud Run request log. A visitor is a browser (it loaded CSS, JS or an image) shown by a pseudonym only: no IPs, user agents or names. Bots, crawlers, admins' own visits and the operator's home network are left out ({{.Dropped}} page views). Cached for an hour, <a href="?{{with $.Data.App}}app={{.}}&amp;{{end}}refresh">refresh</a>.</p>
 {{if $.Data.Tenants}}<form method="get" action="/visitors" class="row">
   <select name="app" aria-label="App"><option value="">Every app</option>
   {{range $.Data.Tenants}}{{if eq .Status "ready"}}<option value="{{.Slug}}"{{if eq $.Data.App .Slug}} selected{{end}}>{{.Slug}}</option>{{end}}{{end}}

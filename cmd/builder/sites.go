@@ -111,7 +111,9 @@ type runBrief struct {
 	At     time.Time `json:"at"` // finished, else created
 }
 
-func statsFor(ctx context.Context, st *db.Store, version, sha string) (siteStats, error) {
+// statsFor is st's stats; exclude names whose activity isn't human activity
+// on the board (see Store.LastActivity).
+func statsFor(ctx context.Context, st *db.Store, version, sha string, exclude ...string) (siteStats, error) {
 	s := siteStats{Version: version, GitSHA: sha, Started: started}
 	items, err := st.Items(ctx)
 	if err != nil {
@@ -144,7 +146,7 @@ func statsFor(ctx context.Context, st *db.Store, version, sha string) (siteStats
 	}
 	s.FailStreak = failStreak(runs)
 	s.LastDone = lastDone(runs)
-	if s.LastActivity, s.LastHuman, err = st.LastActivity(ctx); err != nil {
+	if s.LastActivity, s.LastHuman, err = st.LastActivity(ctx, exclude...); err != nil {
 		return s, err
 	}
 	since := time.Now().Add(-failedWindow)
@@ -383,6 +385,18 @@ func (h *hub) siteRows(ctx context.Context) ([]siteRow, error) {
 		return nil, err
 	}
 	tenants = slices.DeleteFunc(slices.Clone(tenants), func(t tenant.Tenant) bool { return t.Status == "deleted" })
+	// A platform admin's visits and posts aren't the board's people's.
+	admins, err := h.reg.PlatformAdmins(ctx)
+	if err != nil {
+		return nil, err
+	}
+	var exclude []string
+	for _, a := range admins {
+		exclude = append(exclude, a.Login)
+		if a.Email != "" {
+			exclude = append(exclude, a.Email)
+		}
+	}
 	rows := make([]siteRow, len(tenants))
 	var wg sync.WaitGroup
 	client := &http.Client{Timeout: 5 * time.Second}
@@ -391,11 +405,11 @@ func (h *hub) siteRows(ctx context.Context) ([]siteRow, error) {
 		row := siteRow{Name: t.Name, Slug: t.Slug, Site: h.appURL(t.Slug), Board: "/" + t.Slug + "/", App: true, Health: t.Status}
 		if st, err := h.reg.Store(ctx, t.Slug); err != nil {
 			row.Health = err.Error()
-		} else if row.Stats, err = statsFor(ctx, st, "", ""); err != nil {
+		} else if row.Stats, err = statsFor(ctx, st, "", "", exclude...); err != nil {
 			row.Health = err.Error()
 		} else {
 			row.Detail = true
-			if at, err := h.reg.LastSignIn(ctx, t.Slug); err != nil {
+			if at, err := h.reg.LastSignIn(ctx, t.Slug, exclude...); err != nil {
 				slog.Warn("last sign-in", "tenant", t.Slug, "err", err)
 			} else {
 				row.Stats.noteHuman("login", at)

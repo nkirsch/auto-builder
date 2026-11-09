@@ -16,6 +16,7 @@ import (
 type releaseInfo struct {
 	Latest string // latest release tag, "" if none
 	Ahead  int    // commits on the default branch since it
+	Head   string // the default branch's head commit
 	// NoRepo: the repo has no commits yet (or doesn't exist, or the app is
 	// still being provisioned), so there's nothing to release.
 	NoRepo bool
@@ -38,7 +39,7 @@ func (b *Board) releaseInfo(ctx context.Context, back string) *releaseInfo {
 	latest, err := b.GitHub.LatestRelease(ctx, b.Repo)
 	if err == nil {
 		ri.Latest = latest
-		_, ri.Ahead, err = b.GitHub.Unreleased(ctx, b.Repo, latest)
+		ri.Head, ri.Ahead, err = b.GitHub.Unreleased(ctx, b.Repo, latest)
 	}
 	if github.IsNotFound(err) { // commits/HEAD: no repo or no commits yet
 		return &releaseInfo{NoRepo: true, Back: back}
@@ -57,6 +58,8 @@ type pendingCache struct {
 	mu        sync.Mutex
 	at        time.Time
 	ahead     int
+	latest    string // latest release tag
+	head      string // default branch's head
 	deploying bool
 	cut       time.Time // when this board last cut a release
 }
@@ -70,6 +73,21 @@ const cutGrace = 30 * time.Second
 func (b *Board) PendingRelease(ctx context.Context) (ahead int, ok bool) {
 	ahead, _ = b.releaseState(ctx)
 	return ahead, b.Releases && b.GitHub != nil
+}
+
+// LiveRelease is the latest release's tag when sha, the live commit, is the
+// default branch's head and nothing is unreleased; "" otherwise. For apps
+// whose /health reports no version.
+func (b *Board) LiveRelease(ctx context.Context, sha string) string {
+	if ahead, _ := b.releaseState(ctx); ahead != 0 || sha == "" {
+		return ""
+	}
+	b.pending.mu.Lock()
+	defer b.pending.mu.Unlock()
+	if b.pending.head != sha {
+		return ""
+	}
+	return b.pending.latest
 }
 
 // pendingRelease is releaseState's count of unreleased commits.
@@ -91,9 +109,9 @@ func (b *Board) releaseState(ctx context.Context) (ahead int, deploying bool) {
 	defer b.pending.mu.Unlock()
 	if b.pending.at.IsZero() || time.Since(b.pending.at) >= pendingTTL {
 		ri := b.releaseInfo(ctx, "")
-		b.pending.ahead, b.pending.deploying = 0, false
+		b.pending.ahead, b.pending.latest, b.pending.head, b.pending.deploying = 0, "", "", false
 		if ri != nil && ri.Err == "" && !ri.NoRepo {
-			b.pending.ahead = ri.Ahead
+			b.pending.ahead, b.pending.latest, b.pending.head = ri.Ahead, ri.Latest, ri.Head
 			dctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 			var err error
 			b.pending.deploying, err = b.GitHub.Deploying(dctx, b.Repo)

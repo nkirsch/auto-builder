@@ -519,3 +519,37 @@ func TestIndexByAuthor(t *testing.T) {
 		}
 	}
 }
+
+// LiveRelease names the latest release only when the live commit is the
+// released head.
+func TestLiveRelease(t *testing.T) {
+	ahead := 0
+	gh := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/repos/o/r/git/matching-refs/tags/v":
+			w.Write([]byte(`[{"ref":"refs/tags/v26.11.7-1"}]`))
+		case "/repos/o/r/commits/HEAD":
+			w.Write([]byte(`{"sha":"head9"}`))
+		case "/repos/o/r/compare/v26.11.7-1...head9":
+			fmt.Fprintf(w, `{"ahead_by":%d}`, ahead)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer gh.Close()
+	ctx := context.Background()
+	b := &Board{GitHub: github.New(gh.URL, "t"), Repo: "o/r", Releases: true}
+	if v := b.LiveRelease(ctx, "head9"); v != "v26.11.7-1" {
+		t.Errorf("released head: %q", v)
+	}
+	if v := b.LiveRelease(ctx, "old1"); v != "" {
+		t.Errorf("live commit isn't head: %q", v)
+	}
+	if v := b.LiveRelease(ctx, ""); v != "" {
+		t.Errorf("no live commit: %q", v)
+	}
+	ahead, b.pending.at = 2, time.Time{}
+	if v := b.LiveRelease(ctx, "head9"); v != "" {
+		t.Errorf("unreleased commits: %q", v)
+	}
+}

@@ -105,6 +105,9 @@ func (h *hub) overview(ctx context.Context) (hubOverview, error) {
 		}
 		if rt, err := h.tenantFor(ctx, rows[i].Slug); err == nil {
 			s.Unreleased, s.Releases = rt.b.PendingRelease(ctx)
+			if s.Stats.Version == "" { // /health named no release; GitHub may
+				s.Stats.Version = rt.b.LiveRelease(ctx, s.Stats.GitSHA)
+			}
 			s.Stats.noteActivity("release", rt.b.LastRelease(ctx))
 		}
 	})

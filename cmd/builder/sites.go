@@ -378,6 +378,8 @@ func (h *hub) appURL(slug string) string {
 // siteRows is the platform admin's view of every board: the hub's apps and
 // the SITES list, with each one's health, version, last run and spend.
 func (h *hub) siteRows(ctx context.Context) ([]siteRow, error) {
+	// Health probes get their own budget, not what the database reads left.
+	probeCtx := ctx
 	ctx, cancel := context.WithTimeout(ctx, 8*time.Second)
 	defer cancel()
 	tenants, err := h.reg.Tenants(ctx)
@@ -385,6 +387,27 @@ func (h *hub) siteRows(ctx context.Context) ([]siteRow, error) {
 		return nil, err
 	}
 	tenants = slices.DeleteFunc(slices.Clone(tenants), func(t tenant.Tenant) bool { return t.Status == "deleted" })
+	var wg sync.WaitGroup
+	client := &http.Client{Timeout: 5 * time.Second}
+	live := make([]siteRow, len(tenants))
+	for i, t := range tenants {
+		if t.Status != "ready" {
+			continue
+		}
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			live[i] = fetchSite(probeCtx, client, remoteSite{URL: h.appURL(t.Slug)}, "")
+		}()
+	}
+	remote := make([]siteRow, len(h.cfg.Sites))
+	for i, s := range h.cfg.Sites {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			remote[i] = fetchSite(probeCtx, client, s, h.cfg.StatsToken)
+		}()
+	}
 	// A platform admin's visits and posts aren't the board's people's.
 	admins, err := h.reg.PlatformAdmins(ctx)
 	if err != nil {
@@ -398,8 +421,6 @@ func (h *hub) siteRows(ctx context.Context) ([]siteRow, error) {
 		}
 	}
 	rows := make([]siteRow, len(tenants))
-	var wg sync.WaitGroup
-	client := &http.Client{Timeout: 5 * time.Second}
 	eachLimited(len(tenants), overviewReads, func(i int) {
 		t := tenants[i]
 		row := siteRow{Name: t.Name, Slug: t.Slug, Site: h.appURL(t.Slug), Board: "/" + t.Slug + "/", App: true, Health: t.Status}
@@ -418,28 +439,14 @@ func (h *hub) siteRows(ctx context.Context) ([]siteRow, error) {
 		rows[i] = row
 	})
 	// A ready app's health and version are its own service's, like a board's.
+	wg.Wait()
 	for i := range rows {
 		if rows[i].Health != "ready" {
 			continue
 		}
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			live := fetchSite(ctx, client, remoteSite{URL: rows[i].Site}, "")
-			rows[i].Health, rows[i].HealthErr = live.Health, live.HealthErr
-			rows[i].Stats.GitSHA, rows[i].Stats.Version = live.Stats.GitSHA, live.Stats.Version
-		}()
+		rows[i].Health, rows[i].HealthErr = live[i].Health, live[i].HealthErr
+		rows[i].Stats.GitSHA, rows[i].Stats.Version = live[i].Stats.GitSHA, live[i].Stats.Version
 	}
-	wg.Wait()
-	remote := make([]siteRow, len(h.cfg.Sites))
-	for i, s := range h.cfg.Sites {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			remote[i] = fetchSite(ctx, client, s, h.cfg.StatsToken)
-		}()
-	}
-	wg.Wait()
 	rows = append(rows, remote...)
 	sort.SliceStable(rows, func(i, j int) bool { return rows[i].App && !rows[j].App })
 	return rows, nil

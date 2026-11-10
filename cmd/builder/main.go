@@ -405,14 +405,9 @@ func tagRelease(ctx context.Context, gh *github.Client, repo, v, sha string) {
 	}
 }
 
+// health answers without the database: a cold Cloud SQL connection isn't an outage.
 func (s *server) health(w http.ResponseWriter, r *http.Request) {
-	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
-	defer cancel()
-	status, code := "ok", http.StatusOK
-	if err := s.store.Pool.Ping(ctx); err != nil {
-		status, code = "db: "+err.Error(), http.StatusServiceUnavailable
-	}
-	writeJSON(w, code, map[string]string{"status": status, "sha": s.cfg.GitSHA})
+	writeJSON(w, http.StatusOK, map[string]string{"status": "ok", "sha": s.cfg.GitSHA})
 }
 
 // versionJSON reports the release name, "" until resolved.

@@ -1407,14 +1407,9 @@ func (h *hub) removeAdmin(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, "/admin?flash="+url.QueryEscape(msg), http.StatusSeeOther)
 }
 
+// health answers without the database: a cold Cloud SQL connection isn't an outage.
 func (h *hub) health(w http.ResponseWriter, r *http.Request) {
-	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
-	defer cancel()
-	status, code := "ok", http.StatusOK
-	if err := h.reg.Control.Ping(ctx); err != nil {
-		status, code = "db: "+err.Error(), http.StatusServiceUnavailable
-	}
-	writeJSON(w, code, map[string]string{"status": status, "sha": h.cfg.GitSHA})
+	writeJSON(w, http.StatusOK, map[string]string{"status": "ok", "sha": h.cfg.GitSHA})
 }
 
 // linkGitHub records identity's GitHub account on every live board they're a

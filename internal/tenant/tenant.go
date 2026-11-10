@@ -99,7 +99,13 @@ type Registry struct {
 	Control *pgxpool.Pool
 
 	mu     sync.Mutex
-	stores map[string]*db.Store
+	stores map[string]*storeSlot
+}
+
+// storeSlot opens one tenant's pool once; its lock keeps other tenants' opens concurrent.
+type storeSlot struct {
+	mu    sync.Mutex
+	store *db.Store
 }
 
 // Open connects with search_path=control and applies the control migrations.
@@ -112,15 +118,19 @@ func Open(ctx context.Context, url string) (*Registry, error) {
 		pool.Close()
 		return nil, fmt.Errorf("control: %w", err)
 	}
-	return &Registry{url: url, Control: pool, stores: map[string]*db.Store{}}, nil
+	return &Registry{url: url, Control: pool, stores: map[string]*storeSlot{}}, nil
 }
 
 // Close closes every pool.
 func (r *Registry) Close() {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	for _, s := range r.stores {
-		s.Pool.Close()
+	for _, slot := range r.stores {
+		slot.mu.Lock()
+		if slot.store != nil {
+			slot.store.Pool.Close()
+		}
+		slot.mu.Unlock()
 	}
 	r.Control.Close()
 }
@@ -154,9 +164,16 @@ func schemaPool(ctx context.Context, url, schema string, maxConns int32) (*pgxpo
 // (at most 2 connections) and migrating its schema on first use.
 func (r *Registry) Store(ctx context.Context, slug string) (*db.Store, error) {
 	r.mu.Lock()
-	defer r.mu.Unlock()
-	if s, ok := r.stores[slug]; ok {
-		return s, nil
+	slot, ok := r.stores[slug]
+	if !ok {
+		slot = &storeSlot{}
+		r.stores[slug] = slot
+	}
+	r.mu.Unlock()
+	slot.mu.Lock()
+	defer slot.mu.Unlock()
+	if slot.store != nil {
+		return slot.store, nil
 	}
 	if _, err := r.Tenant(ctx, slug); err != nil {
 		return nil, err
@@ -169,9 +186,8 @@ func (r *Registry) Store(ctx context.Context, slug string) (*db.Store, error) {
 		pool.Close()
 		return nil, fmt.Errorf("tenant %s: %w", slug, err)
 	}
-	s := &db.Store{Pool: pool}
-	r.stores[slug] = s
-	return s, nil
+	slot.store = &db.Store{Pool: pool}
+	return slot.store, nil
 }
 
 // Create registers a tenant as provisioning, or an existing one as ready,

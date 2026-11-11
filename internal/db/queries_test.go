@@ -491,7 +491,7 @@ func TestBotItemReadable(t *testing.T) {
 	// Rows written before the fix are repaired by migration 003.
 	s.Pool.Exec(ctx, `UPDATE items SET human_activity_at = '-infinity' WHERE id = $1`, id)
 	s.Pool.Exec(ctx, `DELETE FROM schema_migrations WHERE version = '003_bot_item_activity'`)
-	if err := Migrate(ctx, s.Pool); err != nil {
+	if err := Migrate(ctx, s.Pool.(Acquirer)); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := s.Items(ctx); err != nil {

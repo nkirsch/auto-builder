@@ -4,8 +4,6 @@ import (
 	"context"
 	"strings"
 	"time"
-
-	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 // SignInKeep is how long sign-in attempts are kept.
@@ -63,7 +61,7 @@ func (s *Store) PruneSignIns(ctx context.Context, before time.Time) error {
 
 // RecordSignIn, SignIns and PruneSignIns implement SignInLog on pool's
 // signins table, for the board's and the control schema's alike.
-func RecordSignIn(ctx context.Context, pool *pgxpool.Pool, s SignIn, within time.Duration) error {
+func RecordSignIn(ctx context.Context, pool DB, s SignIn, within time.Duration) error {
 	_, err := pool.Exec(ctx, `INSERT INTO signins (provider, identity, result, board, ip, user_agent)
 		SELECT $1, $2, $3, $4, $5, $6 WHERE $7 <= 0 OR NOT EXISTS (SELECT 1 FROM signins
 			WHERE provider = $1 AND lower(identity) = lower($2) AND result = $3 AND board = $4
@@ -72,7 +70,7 @@ func RecordSignIn(ctx context.Context, pool *pgxpool.Pool, s SignIn, within time
 	return err
 }
 
-func SignIns(ctx context.Context, pool *pgxpool.Pool, board string, identities []string, only bool, since time.Time) ([]SignIn, error) {
+func SignIns(ctx context.Context, pool DB, board string, identities []string, only bool, since time.Time) ([]SignIn, error) {
 	ids := make([]string, len(identities))
 	for i, id := range identities {
 		ids[i] = strings.ToLower(id)
@@ -98,7 +96,7 @@ func SignIns(ctx context.Context, pool *pgxpool.Pool, board string, identities [
 
 // AllSignIns lists attempts since, newest first, at every board or, with
 // board set, one ("-" for none); identity, when set, narrows to it.
-func AllSignIns(ctx context.Context, pool *pgxpool.Pool, board, identity string, since time.Time) ([]SignIn, error) {
+func AllSignIns(ctx context.Context, pool DB, board, identity string, since time.Time) ([]SignIn, error) {
 	if board == "-" {
 		board = ""
 	} else if board == "" {
@@ -124,7 +122,7 @@ func AllSignIns(ctx context.Context, pool *pgxpool.Pool, board, identity string,
 
 // SignInIPs lists the distinct IPs that identities signed in from, at any
 // board, since a time: the visitors page leaves admins' own visits out.
-func SignInIPs(ctx context.Context, pool *pgxpool.Pool, identities []string, since time.Time) ([]string, error) {
+func SignInIPs(ctx context.Context, pool DB, identities []string, since time.Time) ([]string, error) {
 	ids := make([]string, len(identities))
 	for i, id := range identities {
 		ids[i] = strings.ToLower(id)
@@ -146,7 +144,7 @@ func SignInIPs(ctx context.Context, pool *pgxpool.Pool, identities []string, sin
 	return out, rows.Err()
 }
 
-func PruneSignIns(ctx context.Context, pool *pgxpool.Pool, before time.Time) error {
+func PruneSignIns(ctx context.Context, pool DB, before time.Time) error {
 	_, err := pool.Exec(ctx, `DELETE FROM signins WHERE at < $1`, before)
 	return err
 }

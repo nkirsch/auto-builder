@@ -3,8 +3,6 @@ package db
 import (
 	"context"
 	"time"
-
-	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 // Seen is an IP + browser a signed-in session used.
@@ -17,7 +15,7 @@ type Seen struct {
 }
 
 // RecordSeen notes that identity's session made a request from ip + ua.
-func RecordSeen(ctx context.Context, pool *pgxpool.Pool, identity, ip, ua string) error {
+func RecordSeen(ctx context.Context, pool DB, identity, ip, ua string) error {
 	_, err := pool.Exec(ctx, `INSERT INTO seen (identity, ip, user_agent) VALUES (lower($1), $2, $3)
 		ON CONFLICT (identity, ip, user_agent) DO UPDATE SET last_at = now()`,
 		identity, trim(ip, 64), trim(ua, 300))
@@ -25,7 +23,7 @@ func RecordSeen(ctx context.Context, pool *pgxpool.Pool, identity, ip, ua string
 }
 
 // AllSeen lists the IPs + browsers sessions used since, most recent first.
-func AllSeen(ctx context.Context, pool *pgxpool.Pool, since time.Time) ([]Seen, error) {
+func AllSeen(ctx context.Context, pool DB, since time.Time) ([]Seen, error) {
 	rows, err := pool.Query(ctx, `SELECT identity, ip, user_agent, first_at, last_at FROM seen
 		WHERE last_at > $1 ORDER BY last_at DESC`, since)
 	if err != nil {
@@ -44,7 +42,7 @@ func AllSeen(ctx context.Context, pool *pgxpool.Pool, since time.Time) ([]Seen, 
 }
 
 // SeenIPs lists the IPs identities' sessions used since.
-func SeenIPs(ctx context.Context, pool *pgxpool.Pool, identities []string, since time.Time) ([]string, error) {
+func SeenIPs(ctx context.Context, pool DB, identities []string, since time.Time) ([]string, error) {
 	rows, err := pool.Query(ctx, `SELECT DISTINCT s.ip FROM seen s, unnest($1::text[]) id
 		WHERE s.last_at > $2 AND s.ip <> '' AND s.identity = lower(id)`, identities, since)
 	if err != nil {
@@ -63,7 +61,7 @@ func SeenIPs(ctx context.Context, pool *pgxpool.Pool, identities []string, since
 }
 
 // PruneSeen drops what no session has used since before.
-func PruneSeen(ctx context.Context, pool *pgxpool.Pool, before time.Time) error {
+func PruneSeen(ctx context.Context, pool DB, before time.Time) error {
 	_, err := pool.Exec(ctx, `DELETE FROM seen WHERE last_at < $1`, before)
 	return err
 }

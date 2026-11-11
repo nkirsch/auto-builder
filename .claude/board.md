@@ -15,7 +15,7 @@ CI; the server marks items shipped once its own `GIT_SHA` contains the merge.
 - `cmd/hub` — CLI over hubs' tenant API (bearer `ADMIN_TOKEN`): `hub` (`/admin/hubs` in a terminal), `hub add [-run] BOARD TITLE [BODY]`, `hub run BOARD`; hubs from `~/.config/hub/hubs` (`go install ./cmd/hub`)
 - `cmd/runner` — job entrypoint: claim → App token → clone → `claude -p /build-board` → finish (installs `commands.go`'s embedded `/build-board` when the repo has none)
 - `internal/db` — pgx pool, embedded migrations (`migrations/NNN_*.sql`, append-only), all queries
-- `internal/tenant` — multi-tenant mode: control schema (own migrations), tenant registry, a pool per tenant schema `t_<slug>`
+- `internal/tenant` — multi-tenant mode: control schema (own migrations), tenant registry, one pool shared by every tenant schema `t_<slug>` (`db.Schema` sets `search_path` per connection)
 - `internal/auth` — GitHub or Google OAuth (Google matches `members.email`), HMAC session cookie, `Require`/`RequireAdmin`, `Bearer`; admins' connected Gmail for emailing invites (`gmail.go`)
 - `internal/board` — page handlers, markdown (goldmark, raw HTML escaped), mentions; templates link via `{{base}}`
 - `internal/gate` — `Decide` policy, Cloud Run Job launcher, ship-checker

@@ -6,9 +6,11 @@ import (
 	"embed"
 	"fmt"
 	"io/fs"
+	"slices"
 	"sort"
 	"strings"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -39,12 +41,12 @@ func Open(ctx context.Context, url string) (*pgxpool.Pool, error) {
 // Migrate applies each embedded migration not yet in schema_migrations, in
 // filename order, one transaction per file. Tables land in the pool's
 // search_path schema, so a tenant's pool migrates its own schema.
-func Migrate(ctx context.Context, pool *pgxpool.Pool) error {
+func Migrate(ctx context.Context, pool Acquirer) error {
 	return MigrateFS(ctx, pool, migrations, "migrations")
 }
 
 // MigrateFS applies dir/*.sql from fsys the way Migrate does.
-func MigrateFS(ctx context.Context, pool *pgxpool.Pool, fsys fs.FS, dir string) error {
+func MigrateFS(ctx context.Context, pool Acquirer, fsys fs.FS, dir string) error {
 	conn, err := pool.Acquire(ctx)
 	if err != nil {
 		return err
@@ -67,14 +69,17 @@ func MigrateFS(ctx context.Context, pool *pgxpool.Pool, fsys fs.FS, dir string) 
 		return err
 	}
 	sort.Strings(names)
+	rows, err := conn.Query(ctx, `SELECT version FROM schema_migrations`)
+	if err != nil {
+		return err
+	}
+	applied, err := pgx.CollectRows(rows, pgx.RowTo[string])
+	if err != nil {
+		return err
+	}
 	for _, name := range names {
 		version := strings.TrimSuffix(strings.TrimPrefix(name, dir+"/"), ".sql")
-		var done bool
-		if err := conn.QueryRow(ctx,
-			`SELECT EXISTS (SELECT 1 FROM schema_migrations WHERE version = $1)`, version).Scan(&done); err != nil {
-			return err
-		}
-		if done {
+		if slices.Contains(applied, version) {
 			continue
 		}
 		sql, err := fs.ReadFile(fsys, name)

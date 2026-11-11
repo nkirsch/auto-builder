@@ -93,75 +93,63 @@ type Settings struct {
 	MaxRuns    int
 }
 
-// Registry holds the control pool and a pool per tenant schema.
+// Registry holds one pool shared by the control schema and every tenant
+// schema, each queried through a db.Schema.
 type Registry struct {
-	url     string
-	Control *pgxpool.Pool
+	pool    *pgxpool.Pool
+	Control *db.Schema
 
 	mu     sync.Mutex
 	stores map[string]*storeSlot
 }
 
-// storeSlot opens one tenant's pool once; its lock keeps other tenants' opens concurrent.
+// storeSlot opens one tenant's store once; its lock keeps other tenants' opens concurrent.
 type storeSlot struct {
 	mu    sync.Mutex
 	store *db.Store
 }
 
-// Open connects with search_path=control and applies the control migrations.
+// poolConns caps the shared pool: the control schema and every tenant together.
+const poolConns = 6
+
+// Open connects and applies the control migrations.
 func Open(ctx context.Context, url string) (*Registry, error) {
-	pool, err := schemaPool(ctx, url, ControlSchema, 4)
-	if err != nil {
-		return nil, err
-	}
-	if err := db.MigrateFS(ctx, pool, migrations, "migrations"); err != nil {
-		pool.Close()
-		return nil, fmt.Errorf("control: %w", err)
-	}
-	return &Registry{url: url, Control: pool, stores: map[string]*storeSlot{}}, nil
-}
-
-// Close closes every pool.
-func (r *Registry) Close() {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	for _, slot := range r.stores {
-		slot.mu.Lock()
-		if slot.store != nil {
-			slot.store.Pool.Close()
-		}
-		slot.mu.Unlock()
-	}
-	r.Control.Close()
-}
-
-// schemaPool opens a pool whose connections use schema, creating it if needed.
-func schemaPool(ctx context.Context, url, schema string, maxConns int32) (*pgxpool.Pool, error) {
 	cfg, err := pgxpool.ParseConfig(url)
 	if err != nil {
 		return nil, err
 	}
-	ident := pgx.Identifier{schema}.Sanitize()
-	cfg.ConnConfig.RuntimeParams["search_path"] = ident
-	cfg.MaxConns = maxConns
+	cfg.MaxConns = poolConns
 	cfg.MinConns = 0
-	// Close idle connections fast: a hub has a pool per tenant, and a tick or
-	// overview walks them all, so lingering idle ones add up on a small instance.
-	cfg.MaxConnIdleTime = 10 * time.Second
-	cfg.HealthCheckPeriod = 10 * time.Second
+	cfg.MaxConnIdleTime = time.Minute
 	pool, err := pgxpool.NewWithConfig(ctx, cfg)
 	if err != nil {
 		return nil, err
 	}
-	if _, err := pool.Exec(ctx, "CREATE SCHEMA IF NOT EXISTS "+ident); err != nil {
+	r := &Registry{pool: pool, stores: map[string]*storeSlot{}}
+	if r.Control, err = r.schema(ctx, ControlSchema); err != nil {
 		pool.Close()
-		return nil, fmt.Errorf("schema %s: %w", schema, err)
+		return nil, err
 	}
-	return pool, nil
+	if err := db.MigrateFS(ctx, r.Control, migrations, "migrations"); err != nil {
+		pool.Close()
+		return nil, fmt.Errorf("control: %w", err)
+	}
+	return r, nil
 }
 
-// Store returns the board store for a registered tenant, opening its pool
-// (at most 2 connections) and migrating its schema on first use.
+// Close closes the pool.
+func (r *Registry) Close() { r.pool.Close() }
+
+// schema creates schema if needed and returns it on the shared pool.
+func (r *Registry) schema(ctx context.Context, schema string) (*db.Schema, error) {
+	if _, err := r.pool.Exec(ctx, "CREATE SCHEMA IF NOT EXISTS "+pgx.Identifier{schema}.Sanitize()); err != nil {
+		return nil, fmt.Errorf("schema %s: %w", schema, err)
+	}
+	return db.NewSchema(r.pool, schema), nil
+}
+
+// Store returns the board store for a registered tenant, migrating its
+// schema on first use.
 func (r *Registry) Store(ctx context.Context, slug string) (*db.Store, error) {
 	r.mu.Lock()
 	slot, ok := r.stores[slug]
@@ -178,15 +166,14 @@ func (r *Registry) Store(ctx context.Context, slug string) (*db.Store, error) {
 	if _, err := r.Tenant(ctx, slug); err != nil {
 		return nil, err
 	}
-	pool, err := schemaPool(ctx, r.url, Schema(slug), 2)
+	sc, err := r.schema(ctx, Schema(slug))
 	if err != nil {
 		return nil, err
 	}
-	if err := db.Migrate(ctx, pool); err != nil {
-		pool.Close()
+	if err := db.Migrate(ctx, sc); err != nil {
 		return nil, fmt.Errorf("tenant %s: %w", slug, err)
 	}
-	slot.store = &db.Store{Pool: pool}
+	slot.store = &db.Store{Pool: sc}
 	return slot.store, nil
 }
 

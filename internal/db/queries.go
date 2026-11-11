@@ -11,7 +11,6 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
-	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 // ErrNotFound is returned when a row doesn't exist.
@@ -28,7 +27,7 @@ var ErrSpendLimit = errors.New("spend limit reached")
 var ErrHeld = errors.New("held")
 
 // Store wraps the pool with the app's queries.
-type Store struct{ Pool *pgxpool.Pool }
+type Store struct{ Pool DB }
 
 type Member struct {
 	Login     string

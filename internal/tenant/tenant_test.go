@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -91,8 +92,36 @@ func TestTenantsAreIsolated(t *testing.T) {
 	if again, _ := r.Store(ctx, "alpha"); again != a {
 		t.Error("store not cached")
 	}
-	if got := a.Pool.Config().MaxConns; got != 2 {
-		t.Errorf("tenant MaxConns %d", got)
+	if got := r.pool.Config().MaxConns; got != poolConns {
+		t.Errorf("shared pool MaxConns %d", got)
+	}
+	// Tenants share connections; each query still sees only its own schema.
+	var wg sync.WaitGroup
+	for i := range 4 * poolConns {
+		st, want := a, "in alpha"
+		if i%2 == 1 {
+			st, want = b, "in beta"
+		}
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if items, err := st.Items(ctx); err != nil || len(items) != 1 || items[0].Title != want {
+				t.Errorf("want %q, got %+v %v", want, items, err)
+			}
+		}()
+	}
+	wg.Wait()
+	// A transaction stays in its schema and gives its connection back.
+	for range 2 * poolConns {
+		if _, err := a.AddResponse(ctx, ida, "alice", "reply", true); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if rs, err := a.Responses(ctx, ida); err != nil || len(rs) != 2*poolConns {
+		t.Errorf("alpha responses %d %v", len(rs), err)
+	}
+	if rs, err := b.Responses(ctx, idb); err != nil || len(rs) != 0 {
+		t.Errorf("beta responses %d %v", len(rs), err)
 	}
 
 	// The control schema has its own migrations and none of the board's tables.

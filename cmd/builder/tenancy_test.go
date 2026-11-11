@@ -8,6 +8,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -358,9 +359,9 @@ func TestHubSecuring(t *testing.T) {
 	h := testHub(t)
 	job, prov := &fakeJob{}, &fakeJob{}
 	h.launcher, h.provisioner = job, prov
-	up := false
+	var up atomic.Bool
 	app := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if !up { // no certificate yet: the connection fails
+		if !up.Load() { // no certificate yet: the connection fails
 			if c, _, err := w.(http.Hijacker).Hijack(); err == nil {
 				c.Close()
 			}
@@ -424,7 +425,7 @@ func TestHubSecuring(t *testing.T) {
 		!strings.Contains(body, "isn&#39;t reachable yet") {
 		t.Error("securing board's admin doesn't hold invites")
 	}
-	up = true
+	up.Store(true)
 	tick()
 	if tn, _ := h.reg.Tenant(ctx, "alpha"); tn.Status != "ready" || tn.ProvisionedAt == nil || tn.Steps[len(tn.Steps)-1].State != "done" {
 		t.Fatalf("reachable app %+v", tn)

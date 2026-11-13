@@ -229,6 +229,7 @@ const (
 	errorsTTL       = 10 * time.Minute
 	errorAlertEvery = 30 * time.Minute // the window each alert covers
 	errorAlertLag   = 5 * time.Minute  // Logging's ingest delay
+	errorAlertMin   = 3                // 5xx in one window that alert alone; fewer alert only after a window that had some
 )
 
 // serverErrors counts an app's 5xx responses over the last errorsWindow from
@@ -267,10 +268,10 @@ func (h *hub) serverErrors(ctx context.Context, slug string) (n int, ok bool) {
 	return c.n, c.ok
 }
 
-// alertServerErrors pushes when an app or the hub served 5xx in the last whole
-// errorAlertEvery (late enough for the log to have it), read from each one's
-// <name>-requests view. A view it can't read is only logged: the hub's own is
-// set up by infra/tenancy.sh.
+// alertServerErrors pushes when an app or the hub served errorAlertMin 5xx in
+// the last whole errorAlertEvery (late enough for the log to have it), or any
+// in it and the window before, read from each one's <name>-requests view. A
+// view it can't read is only logged: the hub's own is set up by infra/tenancy.sh.
 func (h *hub) alertServerErrors(ctx context.Context, tenants []tenant.Tenant, now time.Time) {
 	end := now.Add(-errorAlertLag).Truncate(errorAlertEvery)
 	h.errsMu.Lock()
@@ -300,6 +301,16 @@ func (h *hub) alertServerErrors(ctx context.Context, tenants []tenant.Tenant, no
 		if err != nil {
 			slog.Warn("server error alert", "view", view, "err", err)
 			return
+		}
+		if n > 0 && n < errorAlertMin {
+			prev, err := count(ctx, logViewName(h.cfg.LogProject, view), end.Add(-2*errorAlertEvery), end.Add(-errorAlertEvery))
+			if err != nil {
+				slog.Warn("server error alert", "view", view, "err", err)
+				return
+			}
+			if prev == 0 {
+				return // a lone error, e.g. an upstream blip
+			}
 		}
 		if n > 0 {
 			send(ctx, fmt.Sprintf("5xx:%s:%d", view, end.Unix()), name+" served server errors",

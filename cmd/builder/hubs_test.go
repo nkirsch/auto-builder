@@ -371,7 +371,7 @@ func TestAlertServerErrors(t *testing.T) {
 		}
 		switch {
 		case strings.Contains(view, "/alpha-requests"), strings.Contains(view, "/hubsvc-requests"):
-			return 2, nil
+			return errorAlertMin, nil
 		case strings.Contains(view, "/beta-requests"):
 			return 0, nil
 		}
@@ -399,6 +399,36 @@ func TestAlertServerErrors(t *testing.T) {
 	h.alertServerErrors(context.Background(), tenants, at.Add(30*time.Minute))
 	if len(sent) != 4 {
 		t.Errorf("the next window didn't alert: %v", sent)
+	}
+}
+
+// Fewer than errorAlertMin 5xx push only when the window before had some too.
+func TestAlertServerErrorsLoneError(t *testing.T) {
+	at := time.Date(2026, 11, 7, 17, 40, 0, 0, time.UTC)
+	end := at.Truncate(errorAlertEvery)
+	for _, tc := range []struct {
+		name string
+		prev int
+		want int
+	}{{"lone", 0, 0}, {"repeated", 1, 1}} {
+		t.Run(tc.name, func(t *testing.T) {
+			var sent []string
+			h := &hub{host: "hub.example", cfg: config{LogProject: "logs", BaseURL: "https://hub.example"}}
+			h.countErrsIn = func(_ context.Context, view string, since, before time.Time) (int, error) {
+				if !strings.Contains(view, "/alpha-requests") {
+					return 0, nil
+				}
+				if before.Equal(end) {
+					return 1, nil
+				}
+				return tc.prev, nil
+			}
+			h.sendOnce = func(_ context.Context, id, _, _, _ string) { sent = append(sent, id) }
+			h.alertServerErrors(context.Background(), []tenant.Tenant{{Slug: "alpha", Status: "ready"}}, at)
+			if len(sent) != tc.want {
+				t.Errorf("sent %v, want %d", sent, tc.want)
+			}
+		})
 	}
 }
 

@@ -48,7 +48,7 @@ func (h *hub) mcpEndpoint(w http.ResponseWriter, r *http.Request) {
 // afresh, so removing a member takes effect at once, and the rules are the
 // board's own: boards they aren't on don't exist for them.
 func (h *hub) personTools(identity string) *mcp.Server {
-	s := mcp.NewServer(&mcp.Implementation{Name: "auto-builder-hub", Version: h.cfg.GitSHA}, nil)
+	s := mcp.NewServer(&mcp.Implementation{Name: "auto-builder-hub", Version: h.cfg.GitSHA}, boardmcp.ServerOptions())
 	p := person{h, identity}
 	read := &mcp.ToolAnnotations{ReadOnlyHint: true}
 	mcp.AddTool(s, &mcp.Tool{Name: "list_boards", Annotations: read,

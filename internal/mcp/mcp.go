@@ -37,7 +37,7 @@ type Board struct {
 
 // Handler serves MCP; wrap it with bearer auth.
 func (b *Board) Handler() http.Handler {
-	s := mcp.NewServer(&mcp.Implementation{Name: "auto-builder-board", Version: b.GitSHA}, nil)
+	s := mcp.NewServer(&mcp.Implementation{Name: "auto-builder-board", Version: b.GitSHA}, ServerOptions())
 	mcp.AddTool(s, &mcp.Tool{Name: "list_items",
 		Description: "List board items with their threads. status: open, building, merged, shipped, closed, or all (default open)."},
 		b.listItems)
@@ -423,4 +423,15 @@ func (b *Board) deployStatus(ctx context.Context, _ *mcp.CallToolRequest, _ stru
 		out.AwaitingShip = append(out.AwaitingShip, o)
 	}
 	return nil, out, nil
+}
+
+// ServerOptions leave tools listChanged off: the tool set never changes, and a
+// client subscribed to it holds a subscriptions/listen request open on a
+// stateless server until Cloud Run's timeout, then reopens it, keeping an
+// instance billed around the clock.
+func ServerOptions() *mcp.ServerOptions {
+	return &mcp.ServerOptions{Capabilities: &mcp.ServerCapabilities{
+		Logging: &mcp.LoggingCapabilities{},
+		Tools:   &mcp.ToolCapabilities{ListChanged: false},
+	}}
 }

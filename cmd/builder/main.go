@@ -70,6 +70,14 @@ type config struct {
 	CreatorsFrom []string
 	// single mode: CREATE_APP_URL, a hub's New app page linked for members
 	CreateAppURL string
+
+	// multi mode, BILLING=on (TENANCY.md "Billing"): the Cloud Billing export
+	// (BILLING_TABLE, queried in BILLING_PROJECT), the label key attributing
+	// resources (BILLING_LABEL, default K_SERVICE), and Stripe.
+	Billing                        bool
+	BillingTable, BillingProject   string
+	BillingLabel                   string
+	StripeKey, StripeWebhookSecret string
 }
 
 func loadConfig() (config, error) {
@@ -150,6 +158,11 @@ func loadConfig() (config, error) {
 	c.SpendPublic = env("SPEND_PUBLIC", "") == "on"
 	c.CreatorsFrom = strings.FieldsFunc(env("CREATORS_FROM", ""), func(r rune) bool { return r == ',' || r == ' ' })
 	c.CreateAppURL = env("CREATE_APP_URL", "")
+	c.Billing = env("BILLING", "off") == "on"
+	c.BillingTable = env("BILLING_TABLE", "")
+	c.BillingProject = env("BILLING_PROJECT", strings.SplitN(c.BillingTable, ".", 2)[0])
+	c.BillingLabel = env("BILLING_LABEL", env("K_SERVICE", ""))
+	c.StripeKey, c.StripeWebhookSecret = env("STRIPE_SECRET_KEY", ""), env("STRIPE_WEBHOOK_SECRET", "")
 	for _, h := range strings.Split(env("REDIRECT_HOSTS", ""), ",") {
 		if h = strings.TrimSpace(h); h != "" {
 			c.RedirectHosts = append(c.RedirectHosts, h)

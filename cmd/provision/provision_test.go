@@ -20,6 +20,7 @@ type fakeShell struct {
 	envs   [][]string
 	exists bool
 	cname  string // the CNAME's current target once it exists
+	label  string // the service's billing label value
 }
 
 func (f *fakeShell) Run(_ context.Context, env []string, args ...string) (string, error) {
@@ -27,6 +28,9 @@ func (f *fakeShell) Run(_ context.Context, env []string, args ...string) (string
 	f.cmds, f.envs = append(f.cmds, cmd), append(f.envs, env)
 	if strings.Contains(cmd, "projects describe") {
 		return "123\n", nil
+	}
+	if strings.Contains(cmd, "metadata.labels.") {
+		return f.label + "\n", nil
 	}
 	if strings.Contains(cmd, " describe ") && !f.exists {
 		return "", errors.New("NOT_FOUND")
@@ -68,7 +72,7 @@ func TestCreate(t *testing.T) {
 	sh := &fakeShell{}
 	p := &Provisioner{Project: "proj", Region: "us-central1", Domain: "extreme.org", Zone: "extreme-org",
 		Pool: "extreme", Provider: "github", Template: "extreme-dot-org/extreme-template",
-		GitHub: github.New(srv.URL, "t"), Shell: sh,
+		GitHub: github.New(srv.URL, "t"), Shell: sh, Label: "extreme",
 		Token: func(context.Context) (string, error) { return "sekrit", nil }}
 	var reports []string
 	p.Report = func(_ context.Context, step, state, errText string) {
@@ -92,6 +96,8 @@ func TestCreate(t *testing.T) {
 		"iam service-accounts create deploy-alpha",
 		"artifacts repositories create x-alpha --location us-central1 --repository-format docker",
 		"run deploy x-alpha --region us-central1 --image us-docker.pkg.dev/cloudrun/container/hello --service-account app-alpha@proj.iam.gserviceaccount.com --allow-unauthenticated",
+		"artifacts repositories update x-alpha --location us-central1 --update-labels extreme=alpha",
+		"run services update x-alpha --region us-central1 --update-labels extreme=alpha",
 		"beta run domain-mappings create --service x-alpha --domain alpha.extreme.org",
 		`logging views create alpha-requests --bucket _Default --location global --log-filter resource.type="cloud_run_revision" AND resource.labels.service_name="x-alpha"`,
 		"dns record-sets create alpha.extreme.org. --type CNAME --ttl 300 --rrdatas ghs.googlehosted.com. --zone extreme-org",
@@ -118,12 +124,13 @@ func TestCreate(t *testing.T) {
 	}
 
 	// A sync finds everything in place: no creates and no second template copy.
-	sh.cmds, sh.exists, sh.cname = nil, true, "ghs.googlehosted.com."
+	sh.cmds, sh.exists, sh.cname, sh.label = nil, true, "ghs.googlehosted.com.", "alpha"
 	if err := p.Create(ctx, tn); err != nil {
 		t.Fatal(err)
 	}
 	for _, c := range sh.cmds {
-		if strings.Contains(c, " create ") || strings.Contains(c, " deploy ") || strings.HasPrefix(c, "git ") {
+		if strings.Contains(c, " create ") || strings.Contains(c, " deploy ") || strings.HasPrefix(c, "git ") ||
+			strings.Contains(c, "services update") {
 			t.Errorf("sync ran %q", c)
 		}
 	}

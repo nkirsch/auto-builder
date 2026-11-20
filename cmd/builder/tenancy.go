@@ -85,6 +85,11 @@ func runTenancy(ctx context.Context, cfg config) error {
 		}
 	}
 	h.notify = notify.New(cfg.SignalURL)
+	if cfg.Billing {
+		if h.billing, err = newBilling(ctx, cfg); err != nil {
+			return fmt.Errorf("billing: %w", err)
+		}
+	}
 	srv := &http.Server{Addr: ":" + cfg.Port, Handler: logRequests(h.routes(), h.auth.SignedIn), ReadHeaderTimeout: 10 * time.Second}
 	go func() {
 		<-ctx.Done()
@@ -116,6 +121,7 @@ type hub struct {
 	appBase     func(slug string) string // tests: where apps are served instead of <slug>.<host>
 	app         *github.App              // nil when the GitHub App isn't configured
 	notify      *notify.Notifier
+	billing     *billingRT // nil unless BILLING=on
 
 	mu      sync.Mutex
 	tenants map[string]*tenantRT
@@ -218,12 +224,20 @@ func newHub(ctx context.Context, cfg config, reg *tenant.Registry, storage store
 
 func (h *hub) parse() error {
 	h.tmpl = map[string]*template.Template{}
-	for _, p := range []string{"login", "index", "new", "admin", "urgent", "traffic", "signins", "hubs", "visitors", "oauth"} {
+	for _, p := range []string{"login", "index", "new", "admin", "urgent", "traffic", "signins", "hubs", "visitors", "oauth", "billing"} {
 		t, err := template.New("").Funcs(template.FuncMap{
 			"short": func(s string) string { return s[:min(7, len(s))] },
 			"ago":   func(t time.Time) string { return t.Format("Jan 2, 2006") },
 			"when":  func(t time.Time) string { return t.Local().Format("Jan 2 15:04") },
 			"who":   board.Who,
+			"cents": func(c int64) string { return fmt.Sprintf("$%.2f", float64(c)/100) },
+			"month": func(t time.Time) string { return t.Format("January 2006") },
+			"opt": func(p *float64) string {
+				if p == nil {
+					return ""
+				}
+				return strconv.FormatFloat(*p, 'f', -1, 64)
+			},
 		}).ParseFS(web.FS, "hub/layout.html", "hub/"+p+".html")
 		if err != nil {
 			return fmt.Errorf("hub template %s: %w", p, err)
@@ -260,6 +274,7 @@ func (h *hub) routes() http.Handler {
 	mux.HandleFunc("POST /admin/limits", h.platformAdmin(h.setLimits))
 	mux.HandleFunc("POST /admin/tenants/{slug}/spend-limit", h.platformAdmin(h.setTenantLimit))
 	mux.HandleFunc("GET /admin/urgent", h.platformAdmin(h.urgent))
+	h.billingRoutes(mux)
 	mux.HandleFunc("GET /admin/hubs", h.platformAdmin(h.hubs))
 	mux.HandleFunc("POST /admin/hubs/release", h.platformAdmin(h.releaseAll))
 	mux.Handle("GET /api/overview", auth.Bearer(h.cfg.StatsToken, http.HandlerFunc(h.apiOverview))) // other hubs' /admin/hubs
@@ -377,6 +392,9 @@ func (h *hub) tick(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := h.syncSpend(r.Context()); err != nil {
 		errs = append(errs, fmt.Errorf("spend: %w", err))
+	}
+	if err := h.syncBilling(r.Context(), time.Now()); err != nil {
+		errs = append(errs, fmt.Errorf("billing: %w", err))
 	}
 	h.alertServerErrors(r.Context(), tenants, time.Now())
 	if err := errors.Join(errs...); err != nil {
@@ -1009,6 +1027,8 @@ func (h *hub) createTenant(ctx context.Context, identity string, n newTenant) (s
 	existing := n.Existing || h.cfg.ProvisionJob == ""
 	me, err := h.reg.PlatformAdmin(ctx, identity)
 	createdBy := me.Login
+	// An app made by a creator, or for someone, bills to their personal account.
+	billTo := tenant.Admin{}
 	if err != nil {
 		// A creator gets a new repo in the org, provisioned; only platform
 		// admins name a repo or bring an existing one.
@@ -1018,6 +1038,7 @@ func (h *hub) createTenant(ctx context.Context, identity string, n newTenant) (s
 		existing, repo = false, ""
 		// created_by is the creator's identity, which CanCreate counts.
 		createdBy, me = ownerOf(identity)
+		billTo = me
 	}
 	// A platform admin may make the app for someone else: the owner becomes
 	// its board's admin and it counts as their one app; the platform admin
@@ -1025,12 +1046,18 @@ func (h *hub) createTenant(ctx context.Context, identity string, n newTenant) (s
 	var owner tenant.Admin
 	if o := strings.TrimPrefix(strings.TrimSpace(n.Owner), "@"); o != "" && err == nil {
 		createdBy, owner = ownerOf(o)
+		billTo = owner
 	}
 	if repo == "" && h.cfg.TenantOrg != "" && !existing {
 		repo = h.cfg.TenantOrg + "/" + slug
 	}
 	if err := h.reg.Create(ctx, tenant.Tenant{Slug: slug, Name: name, Repo: repo, CreatedBy: createdBy, Existing: existing}); err != nil {
 		return "", err
+	}
+	if billTo.Login != "" {
+		if err := h.billPersonal(ctx, slug, createdBy, billTo.Email); err != nil {
+			slog.Error("personal billing account", "tenant", slug, "err", err)
+		}
 	}
 	st, err := h.reg.Store(ctx, slug)
 	for _, a := range []tenant.Admin{me, owner} {
@@ -1284,7 +1311,7 @@ func (h *hub) admin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	h.render(w, r, "admin", "Admin", map[string]any{"Apps": apps, "Admins": admins, "Upstream": up, "Creators": creators,
-		"Settings": set, "Spent": total, "Pct": totalPct, "Level": totalLevel})
+		"Settings": set, "Spent": total, "Pct": totalPct, "Level": totalLevel, "Billing": h.billing != nil})
 }
 
 // upstreamLag is how many of upstream's commits the platform repo lacks.

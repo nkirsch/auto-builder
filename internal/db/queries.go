@@ -984,6 +984,15 @@ func (s *Store) RunCosts(ctx context.Context) (RunCosts, error) {
 	return c, err
 }
 
+// RunUsage is the agent cost and run time of runs created in [from, to),
+// for billing.
+func (s *Store) RunUsage(ctx context.Context, from, to time.Time) (usd float64, seconds int64, err error) {
+	err = s.Pool.QueryRow(ctx, `SELECT coalesce(sum(cost_usd), 0)::float8,
+			coalesce(sum(extract(epoch FROM finished_at - started_at)) FILTER (WHERE finished_at > started_at), 0)::bigint
+		FROM runs WHERE created_at >= $1 AND created_at < $2`, from, to).Scan(&usd, &seconds)
+	return usd, seconds, err
+}
+
 // MemberCost is the agent spend attributed to one item author. A run's cost
 // is split evenly across the items it acted on (run_items); runs that acted
 // on no item stay unattributed.

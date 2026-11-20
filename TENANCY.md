@@ -138,6 +138,65 @@ the provisioner SA is added as an owner in Search Console (manual, once).
 - `/admin/traffic` (platform admin): every ready app's last 30 days (visitors, views, a per-day spark, top page) from the same cached reports as each board's `/logs`.
 - `/visitors` (`visitors.<APP_DOMAIN>` redirects there; `infra/tenancy.sh` maps it): each visitor and the version they were served, from the same cached log reads as `/logs`. Platform admins see every ready app (`?app=` for one); a board admin sees only their own app at `/<slug>/visitors` (`/visitors` sends them there, or lets them pick). Each page view carries its Cloud Run revision; the revision's `GIT_SHA` names the version (its `v*` tag, else the short SHA) and the PRs merged since the previous revision (the hub's `run.viewer`, the App for history). Pseudonymous: a visitor is an HMAC (key from `SESSION_KEY`) of IP + user agent, scoped to the board (`*` on the platform view) so IDs don't match across boards; the page shows a browser·OS label, paths without queries, and external referrer hosts, minus the hub's and apps' own domain. No IPs, user agents, sign-ins or member names. Left out: bots, browsers that never loaded CSS, JS or an image, 3+ 404s on paths browsers don't miss on their own, Google Cloud and AWS IPs, 10+ pages a minute, `HOME_HOST`'s IPs (a secret; the operator's dynamic DNS name), and every IP a platform admin or that board's admin signed in from in the last 90 days.
 
+## Billing
+
+Bills each app's AI and cloud cost back to a billing account, through
+Stripe invoices (`internal/billing`, `cmd/builder/billing.go`). Off unless
+`BILLING=on`, and platform admins only for now: no tenant, board admin or
+payer sees a page, a line or a link, and nothing reaches a payer until a
+platform admin presses Send on `/admin/billing`.
+
+- Accounts (`control.billing_accounts`): `personal` belongs to one identity
+  (a GitHub login or address); an app made from New app, by a creator or by
+  a platform admin for an Owner, bills to its owner's, made on first use
+  (whether or not `BILLING` is on). `managed` has a name and email set by a
+  platform admin (a parent, a company), need not be a member of any board,
+  and may cover several apps. A tenant's `billing_account` is NULL when it
+  isn't billed: existing repos and a platform admin's own apps start that
+  way, and `/admin/billing` assigns any app to any account.
+- Cost per app per Pacific month (Google's `invoice.month`):
+  - AI: `runs.cost_usd` of runs created that month.
+  - Runner: the runner job's cost (export rows labelled `<BILLING_LABEL>=_runner`)
+    split by run seconds (`finished_at − started_at`) across the hub's apps.
+  - Cloud: export rows labelled `<BILLING_LABEL>=<slug>`, in any project on
+    the billing account, net of credits. `BILLING_LABEL` defaults to the
+    hub's service name (`K_SERVICE`), so hubs sharing a billing account
+    don't count each other's `www`. The provisioner labels the app's service
+    and image repo (`sync` labels existing apps); an existing repo's service
+    is labelled by hand in its own project, e.g. `gcloud run services update
+    www --project nick-org-2019 --region us-west1 --update-labels nick-org=www`.
+    Cost from before a resource was labelled isn't recoverable. The hub,
+    Cloud SQL, DNS, secrets and scheduler stay platform cost.
+  - Export: `BILLING_TABLE` (`kirsch-org.billing_export.gcp_billing_export_v1_*`),
+    queried in `BILLING_PROJECT` (default the table's project); the hub's SA
+    needs `bigquery.jobUser` there and `bigquery.dataViewer` on the dataset
+    (`infra/tenancy.sh` grants both). The export lags up to a day.
+- Price per statement: each cost × (1 + markup), rounded to the cent, plus
+  a monthly fee per billed app; `control.settings.markup_pct` and
+  `base_fee_usd` (both 0 by default), overridable per account. Unbilled apps
+  show raw cost, no fee.
+- Statements (`control.statements`, one per tenant per month, for apps with
+  cost or an account): the tick recomputes this and last month's `draft`
+  rows once a day (Recompute now does it at once); from the 3rd, last
+  month's become `final` and stop changing. Each keeps the raw costs and
+  terms it was priced from.
+- Send (per account) puts its `final` statements on one Stripe invoice: a
+  line per app, month and part (AI agent, agent runner, cloud hosting,
+  monthly fee), `collection_method=send_invoice`, due in 14 days, then
+  `invoiced`. The customer is made on first send from the account's name
+  and email. Under $0.50 (Stripe's minimum) stays `final` and carries into
+  the next invoice. Every Stripe call has an idempotency key and the draft
+  invoice is recorded on the statements first, so a failed Send can be
+  pressed again. `POST /api/stripe/webhook` (only with
+  `STRIPE_WEBHOOK_SECRET`; signature checked, 5 min tolerance) moves
+  statements to `paid`, `void` or `uncollectible` on `invoice.paid`,
+  `invoice.voided`, `invoice.marked_uncollectible`. Secrets
+  `$NAME-STRIPE_SECRET_KEY`, `$NAME-STRIPE_WEBHOOK_SECRET`.
+- `/admin/billing` (platform admins; linked from `/admin`): default terms,
+  each app's account, accounts (name, email, overrides, amount to invoice,
+  Send, Delete), and six months of statements by part and status.
+- Not yet: payer-facing pages, holding runs on unpaid invoices, card on file.
+
 ## Control schema
 
 ```
@@ -147,6 +206,10 @@ control.users         (identity PK, name, avatar_url, last_seen)
 control.run_tokens    (hash PK, tenant, run_id, expires_at)
 control.settings      (spend_limit_usd, max_runs)
 control.tenant_secrets (tenant, name, PK(tenant,name))
+control.billing_accounts (id PK, kind personal|managed, identity UNIQUE, name, email, stripe_customer, markup_pct, base_fee_usd, created_at)
+control.tenants.billing_account (→ billing_accounts, NULL = not billed)
+control.statements    (tenant, month, account, ai/runner/cloud_usd, run_seconds, markup_pct, base_fee_usd, ai/runner/cloud/fee/total_cents, status, stripe_invoice, computed_at, PK(tenant,month))
+control.settings      (… markup_pct, base_fee_usd, billing_computed_at)
 ```
 
 ## Changes to existing code

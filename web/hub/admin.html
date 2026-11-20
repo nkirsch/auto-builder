@@ -11,6 +11,7 @@
   <button>Save</button>
 </form>
 <p class="hint">Runs hold once all apps together reach this, or once an app reaches its own limit below. App admins see their limit but can't change it.</p>
+{{if .Data.Billing}}<p><a href="/admin/billing">Billing</a>: who pays for each app, monthly statements and invoices.</p>{{end}}
 <h2>Apps</h2>
 {{with .Data.Apps}}
 <div class="table-wrap"><table class="sites">

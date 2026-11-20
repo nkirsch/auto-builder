@@ -16,7 +16,7 @@ CI; the server marks items shipped once its own `GIT_SHA` contains the merge.
 - `cmd/runner` — job entrypoint: claim → App token → clone → `claude -p /build-board` → finish (installs `commands.go`'s embedded `/build-board` when the repo has none)
 - `internal/db` — pgx pool, embedded migrations (`migrations/NNN_*.sql`, append-only), all queries
 - `internal/tenant` — multi-tenant mode: control schema (own migrations), tenant registry, one pool shared by every tenant schema `t_<slug>` (`db.Schema` sets `search_path` per connection)
-- `internal/auth` — GitHub or Google OAuth (Google matches `members.email`), HMAC session cookie, `Require`/`RequireAdmin`, `Bearer`; admins' connected Gmail for emailing invites (`gmail.go`)
+- `internal/auth` — GitHub or Google OAuth (Google matches `members.email`), HMAC session cookie, `Require`/`RequireAdmin`, `Bearer`; `ShareToken` signs an item's Share link (`?s=`), whose signed-out login page previews the item's title and opening message (plain item URLs stay generic); admins' connected Gmail for emailing invites (`gmail.go`)
 - `internal/board` — page handlers, markdown (goldmark, raw HTML escaped), mentions; templates link via `{{base}}`
 - `internal/gate` — `Decide` policy, Cloud Run Job launcher, ship-checker
 - `cmd/builder/oauth.go`, `hub_mcp.go` — multi-tenant mode's `/mcp` for people: OAuth 2.1 (the hub's own sign-in decides who you are; see `TENANCY.md`) and one person's tools; `/mcp` picks by token, so a run token only ever gets the agent tools

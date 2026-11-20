@@ -11,9 +11,13 @@
 <meta name="description" content="{{template "brand-description" .}}">
 <meta property="og:site_name" content="{{template "brand-site" .}}">
 <meta property="og:type" content="website">
-<meta property="og:title" content="{{template "brand-og-title" .}}">
+{{with .Preview}}<meta property="og:title" content="{{.Title}}">
+<meta property="og:description" content="{{.Description}}">
+<meta property="og:url" content="{{.URL}}">
+{{else}}<meta property="og:title" content="{{template "brand-og-title" .}}">
 <meta property="og:description" content="{{template "brand-description" .}}">
 <meta property="og:url" content="{{.BaseURL}}/">
+{{end}}
 <meta property="og:image" content="{{.BaseURL}}/static/og.png">
 <meta property="og:image:width" content="1200">
 <meta property="og:image:height" content="630">

@@ -21,6 +21,7 @@ CI; the server marks items shipped once its own `GIT_SHA` contains the merge.
 - `internal/gate` — `Decide` policy, Cloud Run Job launcher, ship-checker
 - `cmd/builder/oauth.go`, `hub_mcp.go` — multi-tenant mode's `/mcp` for people: OAuth 2.1 (the hub's own sign-in decides who you are; see `TENANCY.md`) and one person's tools; `/mcp` picks by token, so a run token only ever gets the agent tools
 - `internal/mcp` — agent tools (`list_items`, `get_item`, `reply`, `set_pr`, `set_tags`, `close_item`, `file_item`, `deploy_status`)
+- `hubauth` — public client for apps signing in through their hub (`TENANCY.md` "App sign-in"); the hub's side is `cmd/builder/sso.go` at `auth.<APP_DOMAIN>`
 - `internal/billing` — multi-tenant billing (`TENANCY.md` "Billing"): pricing, the Cloud Billing export in BigQuery, Stripe invoices and webhook; the hub's side is `cmd/builder/billing.go`, `/admin/billing`
 - `internal/github` — App JWT/installation tokens, PR, compare; `internal/store` — GCS (JSON API) or local dir; `internal/notify` — admin push via signal.nick.org (`SIGNAL_URL`)
 - `web/` — embedded templates + CSS (no JS build); branding only in `templates/brand.html` + `static/brand.css`

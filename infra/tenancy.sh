@@ -16,6 +16,7 @@ SIGNAL_URL=${SIGNAL_URL:-https://signal.nick.org} # admin pushes (internal/notif
 ZONE=${ZONE:-extreme-org}              # Cloud DNS zone for $DOMAIN
 HUB_ALIASES=${HUB_ALIASES-iterate.$DOMAIN}  # space-separated hosts in $DOMAIN that 308 to the hub
 VISITORS_HOST=visitors.$DOMAIN         # mapped to the hub, which sends it to /visitors
+AUTH_HOST=auth.$DOMAIN                 # mapped to the hub: the apps' sign-in issuer (TENANCY.md "App sign-in")
 ORG=${ORG:-extreme-dot-org}            # GitHub org holding the app repos
 PLATFORM_REPO=${PLATFORM_REPO:-extreme-dot-org/extreme}
 # The hub service sits by its database; jobs, images and apps stay in $REGION.
@@ -322,7 +323,7 @@ for type in A AAAA; do
     g dns record-sets create "$DOMAIN." --type "$type" --ttl 300 --rrdatas "$rr" --zone "$ZONE"
 done
 
-for host in $HUB_ALIASES $VISITORS_HOST; do
+for host in $HUB_ALIASES $VISITORS_HOST $AUTH_HOST; do
   log "alias $host"
   g beta run domain-mappings describe --domain "$host" --region "$HUB_REGION" >/dev/null 2>&1 ||
     g beta run domain-mappings create --service "$NAME" --domain "$host" --region "$HUB_REGION"

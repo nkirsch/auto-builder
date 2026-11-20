@@ -53,6 +53,15 @@ SPEND_REPORT_TO=${SPEND_REPORT_TO-}
 SPEND_REPORT_TOKEN=${SPEND_REPORT_TOKEN-}
 SPEND_REPORTERS=${SPEND_REPORTERS-}
 SPEND_PUBLIC=${SPEND_PUBLIC-}
+# Billing (TENANCY.md "Billing"): BILLING=on and the Cloud Billing export
+# table (project.dataset.gcp_billing_export_v1_*). Resources are labelled
+# $NAME=<slug>, the runner job $NAME=_runner. Stripe keys, kept in secrets
+# $NAME-STRIPE_SECRET_KEY and $NAME-STRIPE_WEBHOOK_SECRET. Empty keeps the
+# service's or the secret's.
+BILLING=${BILLING-}
+BILLING_TABLE=${BILLING_TABLE-}
+STRIPE_SECRET_KEY=${STRIPE_SECRET_KEY-}
+STRIPE_WEBHOOK_SECRET=${STRIPE_WEBHOOK_SECRET-}
 
 g() { gcloud --project "$PROJECT" --quiet "$@"; }
 gs() { gcloud --project "$SQL_PROJECT" --quiet "$@"; }
@@ -147,7 +156,7 @@ fi
 HOME_MOUNT=$(g secrets describe "$NAME-HOME_HOST" >/dev/null 2>&1 && echo "HOME_HOST=$NAME-HOME_HOST" || true)
 SERVER_MOUNTS="$SERVER_MOUNTS $HOME_MOUNT"
 SPEND_MOUNTS=""
-for s in SPEND_REPORT_TOKEN SPEND_REPORTERS; do
+for s in SPEND_REPORT_TOKEN SPEND_REPORTERS STRIPE_SECRET_KEY STRIPE_WEBHOOK_SECRET; do
   if [ -n "${!s}" ]; then
     if ! g secrets describe "$NAME-$s" >/dev/null 2>&1; then
       secret "$NAME-$s" "${!s}"
@@ -252,8 +261,16 @@ fi
 # Hubs created before the all-sites page and aliases lack these; ^;^ keeps SITES' spaces and REDIRECT_HOSTS' commas.
 aliases=$(echo $HUB_ALIASES | tr ' ' ,)
 g run services update "$NAME" --region "$HUB_REGION" \
-  --update-env-vars "^;^SITES=$SITES;CREATORS_FROM=$CREATORS_FROM;APP_DOMAIN=$DOMAIN;REDIRECT_HOSTS=$aliases${HUBS:+;HUBS=$HUBS}${SPEND_REPORT_TO:+;SPEND_REPORT_TO=$SPEND_REPORT_TO}${SPEND_PUBLIC:+;SPEND_PUBLIC=$SPEND_PUBLIC}" \
+  --update-env-vars "^;^SITES=$SITES;CREATORS_FROM=$CREATORS_FROM;APP_DOMAIN=$DOMAIN;REDIRECT_HOSTS=$aliases${HUBS:+;HUBS=$HUBS}${SPEND_REPORT_TO:+;SPEND_REPORT_TO=$SPEND_REPORT_TO}${SPEND_PUBLIC:+;SPEND_PUBLIC=$SPEND_PUBLIC}${BILLING:+;BILLING=$BILLING}${BILLING_TABLE:+;BILLING_TABLE=$BILLING_TABLE;BILLING_LABEL=$NAME}" \
   --update-secrets "$(mounts "STATS_TOKEN=$STATS_SECRET $HOME_MOUNT $SPEND_MOUNTS")" >/dev/null
+if [ -n "$BILLING_TABLE" ]; then
+  # The hub queries the billing export, which lives in the billing account's project.
+  bill_project=${BILLING_TABLE%%.*} rest=${BILLING_TABLE#*.}
+  gcloud projects add-iam-policy-binding "$bill_project" --quiet --condition None \
+    --member "serviceAccount:$(sa server)" --role roles/bigquery.jobUser >/dev/null
+  bq add-iam-policy-binding --member "serviceAccount:$(sa server)" --role roles/bigquery.dataViewer \
+    "$bill_project:${rest%%.*}" >/dev/null
+fi
 retry g run services add-iam-policy-binding "$NAME" --region "$HUB_REGION" \
   --member "serviceAccount:$(sa deployer)" --role roles/run.developer >/dev/null
 
@@ -275,6 +292,9 @@ if ! g run jobs describe "$NAME-provision" --region "$REGION" >/dev/null 2>&1; t
     --set-env-vars "GCP_PROJECT=$PROJECT,GCP_REGION=$REGION,TENANT_ORG=$ORG,APP_DOMAIN=$DOMAIN,DNS_ZONE=$ZONE,WIF_POOL=$NAME,WIF_PROVIDER=github,PLATFORM_REPO=$PLATFORM_REPO,UPSTREAM=${UPSTREAM:-nkirsch/auto-builder}" \
     --set-secrets "$(mounts "$PROVISION_MOUNTS")"
 fi
+# Billing attributes the runner's cost by this label and each app's by $NAME=<slug>.
+g run jobs update "$NAME-runner" --region "$REGION" --update-labels "$NAME=_runner" >/dev/null
+g run jobs update "$NAME-provision" --region "$REGION" --update-env-vars "BILLING_LABEL=$NAME" >/dev/null
 for j in runner provision; do
   # The hub starts both with env overrides; deploys update their images.
   retry g run jobs add-iam-policy-binding "$NAME-$j" --region "$REGION" \

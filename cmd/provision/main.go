@@ -72,7 +72,7 @@ func run() error {
 			tok, _, err := app.Mint(ctx)
 			return tok, err
 		},
-		Shell: execShell{},
+		Shell: execShell{}, Label: env("BILLING_LABEL", ""),
 		Report: func(ctx context.Context, step, state, errText string) {
 			if err := reg.SetStep(ctx, slug, step, state, errText); err != nil {
 				slog.Error("record step", "step", step, "err", err)

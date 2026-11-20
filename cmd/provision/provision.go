@@ -27,6 +27,10 @@ type Provisioner struct {
 	GitHub          *github.Client
 	Token           func(ctx context.Context) (string, error) // installation token for git
 	Shell           Shell
+	// Label, when set, is the billing label key (BILLING_LABEL): the app's
+	// service and image repo get Label=<slug> so the billing export
+	// attributes their cost.
+	Label string
 	// Report, when set, records a step's state (running, done, failed).
 	Report func(ctx context.Context, step, state, errText string)
 }
@@ -112,6 +116,9 @@ func (p *Provisioner) Create(ctx context.Context, t tenant.Tenant) error {
 					return fmt.Errorf("%s: %w", strings.Join(s.create[:2], " "), err)
 				}
 			}
+			if g.step == "Image repo and service" {
+				return p.labels(ctx, svc, t.Slug)
+			}
 			return nil
 		}); err != nil {
 			return err
@@ -139,6 +146,29 @@ func (p *Provisioner) Create(ctx context.Context, t tenant.Tenant) error {
 		}
 		return nil
 	})
+}
+
+// labels gives the app's image repo and service the billing label,
+// updating the service only when it lacks it: an update makes a revision.
+func (p *Provisioner) labels(ctx context.Context, svc, slug string) error {
+	if p.Label == "" {
+		return nil
+	}
+	kv := p.Label + "=" + slug
+	if _, err := p.gcloud(ctx, "artifacts", "repositories", "update", svc, "--location", p.Region, "--update-labels", kv); err != nil {
+		return fmt.Errorf("label image repo: %w", err)
+	}
+	got, err := p.gcloud(ctx, "run", "services", "describe", svc, "--region", p.Region, "--format", "value(metadata.labels."+p.Label+")")
+	if err != nil {
+		return fmt.Errorf("service labels: %w", err)
+	}
+	if strings.TrimSpace(got) == slug {
+		return nil
+	}
+	if _, err := p.gcloud(ctx, "run", "services", "update", svc, "--region", p.Region, "--update-labels", kv); err != nil {
+		return fmt.Errorf("label service: %w", err)
+	}
+	return nil
 }
 
 // deployAccess lets repo's master branch deploy the app as deployer, and

@@ -66,6 +66,8 @@ type Tenant struct {
 	Existing bool
 	// Steps is the last provisioning's progress, in ProvisionSteps order.
 	Steps []Step
+	// BillingAccount pays for it; 0 for not billed.
+	BillingAccount int
 }
 
 // Step is one provisioning step's state: pending, running, done or failed.
@@ -199,11 +201,11 @@ func (r *Registry) Create(ctx context.Context, t Tenant) error {
 	return err
 }
 
-const tenantCols = `slug, name, repo, status, created_by, created_at, provisioned_at, error, existing, steps`
+const tenantCols = `slug, name, repo, status, created_by, created_at, provisioned_at, error, existing, steps, coalesce(billing_account, 0)`
 
 func scanTenant(row pgx.Row) (Tenant, error) {
 	var t Tenant
-	err := row.Scan(&t.Slug, &t.Name, &t.Repo, &t.Status, &t.CreatedBy, &t.CreatedAt, &t.ProvisionedAt, &t.Error, &t.Existing, &t.Steps)
+	err := row.Scan(&t.Slug, &t.Name, &t.Repo, &t.Status, &t.CreatedBy, &t.CreatedAt, &t.ProvisionedAt, &t.Error, &t.Existing, &t.Steps, &t.BillingAccount)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return t, db.ErrNotFound
 	}

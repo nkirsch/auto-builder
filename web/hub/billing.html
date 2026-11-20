@@ -1,0 +1,95 @@
+{{define "content"}}
+<h1>Billing</h1>
+<p class="hint">Platform admins only: nobody else sees billing, and nothing reaches a payer until you press Send. Each app's AI cost comes from its runs, the runner job's cost (label <code>{{.Data.Label}}=_runner</code>) is split by run time, and its own cloud cost comes from resources labelled <code>{{.Data.Label}}=&lt;slug&gt;</code> in the billing export. Hub, database and DNS stay platform cost.</p>
+
+<h2>Terms</h2>
+<form method="post" action="/admin/billing/terms" class="row">
+  <label for="markup">Markup (%)</label>
+  <input id="markup" name="markup" type="number" min="0" step="0.01" value="{{.Data.Settings.MarkupPct}}" required>
+  <label for="fee">Monthly fee per app ($)</label>
+  <input id="fee" name="fee" type="number" min="0" step="0.01" value="{{printf "%.2f" .Data.Settings.BaseFee}}" required>
+  <button>Save</button>
+</form>
+<form method="post" action="/admin/billing/recompute" class="row">
+  <span class="muted">{{with .Data.Settings.ComputedAt}}Drafts computed {{when .}}.{{else}}Not computed yet.{{end}} The tick recomputes this and last month daily; last month is final from the 3rd.</span>
+  <button class="secondary">Recompute now</button>
+</form>
+
+<h2>Apps</h2>
+<div class="table-wrap"><table class="sites">
+  <thead><tr><th>App</th><th>Billed to</th></tr></thead>
+  <tbody>
+  {{range .Data.Tenants}}
+  <tr>
+    <td><b>{{.Slug}}</b>{{if .Existing}} <span class="badge">existing</span>{{end}} <span class="muted">{{who $.Names .CreatedBy}}</span></td>
+    <td><form method="post" action="/admin/billing/apps/{{.Slug}}" class="row">
+      {{$cur := .BillingAccount}}
+      <select name="account" aria-label="{{.Slug}} billed to">
+        <option value="0"{{if eq $cur 0}} selected{{end}}>Not billed</option>
+        {{range $.Data.Accounts}}<option value="{{.ID}}"{{if eq $cur .ID}} selected{{end}}>{{.Label}} ({{.Kind}})</option>{{end}}
+      </select>
+      <button class="secondary small">Set</button></form></td>
+  </tr>
+  {{end}}
+  </tbody>
+</table></div>
+
+<h2>Accounts</h2>
+{{with .Data.Accounts}}
+<div class="table-wrap"><table class="sites">
+  <thead><tr><th>Account</th><th>Apps</th><th class="num">To invoice</th><th></th></tr></thead>
+  <tbody>
+  {{range .}}
+  <tr>
+    <td><b>{{.Label}}</b> <span class="badge">{{.Kind}}</span>{{with .Identity}} <span class="muted">{{.}}</span>{{end}}<br>
+      <span class="muted">{{if .Email}}{{.Email}}{{else}}no email{{end}}{{with .StripeCustomer}} · {{.}}{{end}}</span></td>
+    <td>{{range $i, $s := .Apps}}{{if $i}}, {{end}}{{$s}}{{else}}<span class="muted">none</span>{{end}}</td>
+    <td class="num">{{cents .Unbilled}}</td>
+    <td><details><summary>Manage</summary>
+      <form method="post" action="/admin/billing/accounts/{{.ID}}">
+        <input name="name" value="{{.Name}}" placeholder="Name" aria-label="Name">
+        <input name="email" type="email" value="{{.Email}}" placeholder="Invoice email" aria-label="Invoice email">
+        <input name="markup" type="number" min="0" step="0.01" value="{{opt .MarkupPct}}" placeholder="Markup % (default)" aria-label="Markup %">
+        <input name="fee" type="number" min="0" step="0.01" value="{{opt .BaseFee}}" placeholder="Fee $ (default)" aria-label="Monthly fee $">
+        <button class="secondary small">Save</button>
+      </form>
+      {{if $.Data.Stripe}}<form method="post" action="/admin/billing/accounts/{{.ID}}/send">
+        <button class="small"{{if lt .Unbilled $.Data.Min}} disabled title="Under $0.50 carries into the next invoice"{{end}}>Send invoice</button></form>{{end}}
+      <form method="post" action="/admin/billing/accounts/{{.ID}}/delete"><button class="secondary small">Delete</button></form>
+    </details></td>
+  </tr>
+  {{end}}
+  </tbody>
+</table></div>
+{{else}}<p class="muted">No accounts yet. An app made from New app gets its owner's personal account.</p>{{end}}
+{{if not .Data.Stripe}}<p class="hint">STRIPE_SECRET_KEY isn't set, so invoices can't be sent.</p>{{end}}
+<form method="post" action="/admin/billing/accounts" class="row">
+  <select name="kind" aria-label="Kind"><option value="managed">Managed</option><option value="personal">Personal</option></select>
+  <input name="identity" placeholder="Identity (personal: login or email)">
+  <input name="name" placeholder="Name">
+  <input name="email" type="email" placeholder="Invoice email">
+  <select name="app" aria-label="Bill this app to it"><option value="">No app yet</option>{{range .Data.Tenants}}<option value="{{.Slug}}">{{.Slug}}</option>{{end}}</select>
+  <button>Add</button>
+</form>
+
+<h2>Statements</h2>
+{{range .Data.Months}}
+<h3>{{month .Month}} <span class="muted">{{cents .Total}}</span></h3>
+<div class="table-wrap"><table class="sites">
+  <thead><tr><th>App</th><th class="num">AI</th><th class="num">Runner</th><th class="num">Cloud</th><th class="num">Fee</th><th class="num">Total</th><th>Status</th></tr></thead>
+  <tbody>
+  {{range .Statements}}
+  <tr>
+    <td><b>{{.Tenant}}</b>{{if eq .Account 0}} <span class="muted">not billed</span>{{else if .MarkupPct}} <span class="muted">+{{.MarkupPct}}%</span>{{end}}</td>
+    <td class="num" title="${{printf "%.4f" .AIUSD}} cost">{{cents .AICents}}</td>
+    <td class="num" title="${{printf "%.4f" .RunnerUSD}} cost, {{.RunSeconds}}s of runs">{{cents .RunnerCents}}</td>
+    <td class="num" title="${{printf "%.4f" .CloudUSD}} cost">{{cents .CloudCents}}</td>
+    <td class="num">{{cents .FeeCents}}</td>
+    <td class="num"><b>{{cents .TotalCents}}</b></td>
+    <td><span class="badge">{{.Status}}</span>{{with .StripeInvoice}} <span class="muted">{{.}}</span>{{end}}</td>
+  </tr>
+  {{end}}
+  </tbody>
+</table></div>
+{{else}}<p class="muted">No statements yet: Recompute now, or wait for the tick.</p>{{end}}
+{{end}}

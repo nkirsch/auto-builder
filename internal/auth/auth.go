@@ -375,7 +375,8 @@ func (a *Auth) verify(value string, now time.Time) (string, time.Time, bool) {
 
 // Routes registers /auth/github, /auth/callback, /auth/google,
 // /auth/google/callback, /auth/gmail, /auth/gmail/callback,
-// /auth/github/link, /auth/github/unlink and /auth/logout.
+// /auth/github/link, /auth/github/unlink, /auth/logout, and /auth/app and
+// /auth/app/redeem (app.go).
 // The /auth/login page itself is served by the board.
 func (a *Auth) Routes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /auth/github", a.handleGitHub)
@@ -386,6 +387,8 @@ func (a *Auth) Routes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /auth/gmail/callback", a.handleGmailCallback)
 	mux.HandleFunc("GET /auth/github/link", a.handleLink)
 	mux.HandleFunc("POST /auth/github/unlink", a.handleUnlink)
+	mux.HandleFunc("GET /auth/app", a.handleApp)
+	mux.HandleFunc("GET /auth/app/redeem", a.handleAppRedeem)
 	mux.HandleFunc("POST /auth/logout", a.handleLogout)
 }
 

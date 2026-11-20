@@ -341,15 +341,19 @@ type page struct {
 	Names     map[string]string // member logins to names, for who
 	// LinkGitHub offers Google members connecting their GitHub accounts.
 	LinkGitHub bool
+	Preview    *preview // an item's link preview, from a signed share link
 	Data       any
 }
 
-func (b *Board) render(w http.ResponseWriter, r *http.Request, name, title string, data any) {
-	b.renderRefresh(w, r, name, title, data, 0)
+// preview overrides the layout's generic Open Graph tags.
+type preview struct{ Title, Description, URL string }
+
+func (b *Board) render(w http.ResponseWriter, r *http.Request, name, title string, data any, opts ...func(*page)) {
+	b.renderRefresh(w, r, name, title, data, 0, opts...)
 }
 
 // renderRefresh renders a page that reloads itself every refresh seconds.
-func (b *Board) renderRefresh(w http.ResponseWriter, r *http.Request, name, title string, data any, refresh int) {
+func (b *Board) renderRefresh(w http.ResponseWriter, r *http.Request, name, title string, data any, refresh int, opts ...func(*page)) {
 	me := auth.Member(r.Context())
 	var unread int
 	var names map[string]string
@@ -382,6 +386,9 @@ func (b *Board) renderRefresh(w http.ResponseWriter, r *http.Request, name, titl
 		p.Pending, p.Releasing = b.releaseState(r.Context())
 	}
 	p.LinkGitHub = b.Auth != nil && b.Auth.CanLinkGitHub() && me.Email != ""
+	for _, o := range opts {
+		o(&p)
+	}
 	if err := t.ExecuteTemplate(w, "layout", p); err != nil {
 		slog.Error("render", "page", name, "err", err)
 	}
@@ -591,6 +598,7 @@ func (b *Board) item(w http.ResponseWriter, r *http.Request) {
 		"Item": it, "Responses": responses, "Attachments": atts,
 		"CanClose":    me.IsAdmin() || strings.EqualFold(me.Login, it.Author),
 		"Repo":        b.Repo,
+		"Share":       b.shareURL(id),
 		"CanEscalate": !isDone(it) && ((me.IsAdmin() && b.Platform != nil && it.Escalation != "platform") || (!me.IsAdmin() && it.Escalation == "")),
 	})
 }
@@ -1549,13 +1557,56 @@ func (b *Board) itemURL(id int) string {
 	return fmt.Sprintf("%s/items/%d", strings.TrimSuffix(b.BaseURL, "/"), id)
 }
 
-// login is the signed-out landing page; its link preview is generic on purpose
-// so item titles never reach Slack or iMessage.
+// shareURL links to an item with a token that lets its signed-out preview
+// show the title and opening message.
+func (b *Board) shareURL(id int) string {
+	if b.Auth == nil {
+		return b.itemURL(id)
+	}
+	return b.itemURL(id) + "?s=" + b.Auth.ShareToken(fmt.Sprintf("/items/%d", id))
+}
+
+// login is the signed-out landing page. Its link preview is generic, so plain
+// item URLs, which are guessable, never leak titles; a share link's valid
+// token (shareURL) shows that item's title and opening message instead.
 func (b *Board) login(w http.ResponseWriter, r *http.Request) {
 	next := auth.SafeNext(r.URL.Query().Get("next"))
 	if b.Auth.SignedIn(r) != "" {
 		http.Redirect(w, r, next, http.StatusFound)
 		return
 	}
-	b.render(w, r, "login", "Sign in", map[string]any{"Next": next, "GitHub": b.Auth.GitHub(), "Google": b.Auth.Google()})
+	b.render(w, r, "login", "Sign in", map[string]any{"Next": next, "GitHub": b.Auth.GitHub(), "Google": b.Auth.Google()}, b.sharePreview(r, next))
+}
+
+// sharePreview sets an item's preview when next is a valid share link.
+func (b *Board) sharePreview(r *http.Request, next string) func(*page) {
+	return func(p *page) {
+		u, err := url.Parse(next)
+		if err != nil || b.Store == nil {
+			return
+		}
+		raw, ok := strings.CutPrefix(u.Path, "/items/")
+		id, err := strconv.Atoi(raw)
+		if !ok || err != nil || !b.Auth.ValidShare(u.Path, u.Query().Get("s")) {
+			return
+		}
+		it, err := b.Store.Item(r.Context(), id)
+		if err != nil {
+			return
+		}
+		p.Preview = &preview{Title: it.Title, Description: excerpt(it.Body, 200), URL: b.shareURL(id)}
+	}
+}
+
+// excerpt is s on one line, cut to about n runes at a word.
+func excerpt(s string, n int) string {
+	s = strings.Join(strings.Fields(s), " ")
+	if r := []rune(s); len(r) > n {
+		s = string(r[:n])
+		if i := strings.LastIndexByte(s, ' '); i > n/2 {
+			s = s[:i]
+		}
+		s += "…"
+	}
+	return s
 }

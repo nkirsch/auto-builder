@@ -2,8 +2,10 @@ package board
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 
@@ -115,5 +117,52 @@ func TestConnectGitHubMenu(t *testing.T) {
 		} else if !strings.Contains(body, c.want) {
 			t.Errorf("%+v: missing %s", c.me, c.want)
 		}
+	}
+}
+
+func TestLoginPageSharePreview(t *testing.T) {
+	b, _ := dbBoard(t)
+	a, err := auth.New(auth.Config{BaseURL: b.BaseURL, SessionKey: []byte("0123456789abcdef")}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b.Auth = a
+	if err := b.parse(); err != nil {
+		t.Fatal(err)
+	}
+	id, err := b.Store.CreateItem(context.Background(), "Match the homepage", "Like if you click on about me it goes back to the old style", "momo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	share := b.shareURL(id)
+	tok := share[strings.Index(share, "?s=")+3:]
+	get := func(next string) string {
+		w := httptest.NewRecorder()
+		b.login(w, httptest.NewRequest(http.MethodGet, "/auth/login?next="+url.QueryEscape(next), nil))
+		return w.Body.String()
+	}
+	body := get(fmt.Sprintf("/items/%d?s=%s", id, tok))
+	for _, want := range []string{
+		`<meta property="og:title" content="Match the homepage">`,
+		`<meta property="og:description" content="Like if you click on about me it goes back to the old style">`,
+		`<meta property="og:url" content="` + share + `">`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("missing %s", want)
+		}
+	}
+	for _, next := range []string{fmt.Sprintf("/items/%d", id), fmt.Sprintf("/items/%d?s=0000000000000000", id), fmt.Sprintf("/items/%d?s=%s", id+1, tok)} {
+		if strings.Contains(get(next), "Match the homepage") {
+			t.Errorf("%s leaks the title", next)
+		}
+	}
+}
+
+func TestExcerpt(t *testing.T) {
+	if got := excerpt("a\n\nb  c", 10); got != "a b c" {
+		t.Errorf("got %q", got)
+	}
+	if got := excerpt("one two three four", 12); got != "one two…" {
+		t.Errorf("got %q", got)
 	}
 }

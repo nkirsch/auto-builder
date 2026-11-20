@@ -344,6 +344,15 @@ func (a *Auth) mac(payload string) string {
 	return hex.EncodeToString(h.Sum(nil))
 }
 
+// ShareToken signs a board path, such as "/items/7", so a link to it can carry
+// a signed-out preview; tenants sharing a key differ by prefix.
+func (a *Auth) ShareToken(path string) string { return a.mac("share|" + a.prefix + path)[:16] }
+
+// ValidShare reports whether tok is path's ShareToken.
+func (a *Auth) ValidShare(path, tok string) bool {
+	return hmac.Equal([]byte(tok), []byte(a.ShareToken(path)))
+}
+
 func (a *Auth) verify(value string, now time.Time) (string, time.Time, bool) {
 	payload, sig, ok := strings.Cut(value, ".")
 	if !ok || !hmac.Equal([]byte(sig), []byte(a.mac(payload))) {

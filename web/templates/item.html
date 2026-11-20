@@ -11,6 +11,7 @@
   {{with $it.IssueNumber}}<a href="https://github.com/{{$.Data.Repo}}/issues/{{.}}">issue #{{.}}</a>{{end}}
   {{with $it.PRNumber}}<a href="https://github.com/{{$.Data.Repo}}/pull/{{.}}">PR #{{.}}</a>{{end}}
   {{with $it.MergeSHA}}<a href="https://github.com/{{$.Data.Repo}}/commit/{{.}}">{{short .}}</a>{{end}}
+  <a href="{{$.Data.Share}}" title="This link previews the title and opening message in Messages and Slack">Share link</a>
 </div>
 {{with $it.Blocked}}
 <div class="row blocked-note">

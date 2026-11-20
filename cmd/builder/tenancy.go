@@ -3,6 +3,7 @@ package main
 import (
 	"cmp"
 	"context"
+	"crypto/ed25519"
 	"errors"
 	"fmt"
 	"html/template"
@@ -121,7 +122,8 @@ type hub struct {
 	appBase     func(slug string) string // tests: where apps are served instead of <slug>.<host>
 	app         *github.App              // nil when the GitHub App isn't configured
 	notify      *notify.Notifier
-	billing     *billingRT // nil unless BILLING=on
+	billing     *billingRT         // nil unless BILLING=on
+	ssoKey      ed25519.PrivateKey // signs apps' ID tokens (sso.go)
 
 	mu      sync.Mutex
 	tenants map[string]*tenantRT
@@ -217,7 +219,7 @@ func newHub(ctx context.Context, cfg config, reg *tenant.Registry, storage store
 	if cfg.AppDomain != "" {
 		host = cfg.AppDomain
 	}
-	h := &hub{cfg: cfg, reg: reg, auth: a, storage: storage, host: host, launcher: gate.LogLauncher{},
+	h := &hub{cfg: cfg, reg: reg, auth: a, storage: storage, host: host, launcher: gate.LogLauncher{}, ssoKey: ssoKey(cfg.SessionKey),
 		provisioner: gate.LogLauncher{}, tenants: map[string]*tenantRT{}}
 	return h, h.parse()
 }
@@ -275,6 +277,7 @@ func (h *hub) routes() http.Handler {
 	mux.HandleFunc("POST /admin/tenants/{slug}/spend-limit", h.platformAdmin(h.setTenantLimit))
 	mux.HandleFunc("GET /admin/urgent", h.platformAdmin(h.urgent))
 	h.billingRoutes(mux)
+	mux.HandleFunc("GET /sso/authorize", h.signedIn(h.ssoAuthorize)) // app sign-in; the issuer is auth.<APP_DOMAIN>
 	mux.HandleFunc("GET /admin/hubs", h.platformAdmin(h.hubs))
 	mux.HandleFunc("POST /admin/hubs/release", h.platformAdmin(h.releaseAll))
 	mux.Handle("GET /api/overview", auth.Bearer(h.cfg.StatsToken, http.HandlerFunc(h.apiOverview))) // other hubs' /admin/hubs
@@ -323,7 +326,7 @@ func (h *hub) routes() http.Handler {
 	mux.Handle("POST /api/gate/tick", auth.Bearer(h.cfg.TickToken, http.HandlerFunc(h.tick)))
 	// Aliases (e.g. hub.<domain>) 308 to BASE_URL's host, where the session
 	// cookie and the OAuth callbacks live.
-	return redirectHosts(h.cfg.BaseURL, h.cfg.RedirectHosts, h.visitorsHost(h.seen.wrap(mux, h.auth.SignedIn, h.reg.RecordSeen)))
+	return redirectHosts(h.cfg.BaseURL, h.cfg.RedirectHosts, h.authHost(h.visitorsHost(h.seen.wrap(mux, h.auth.SignedIn, h.reg.RecordSeen))))
 }
 
 // runner authenticates a RUN_TOKEN and hands its tenant and run to f.

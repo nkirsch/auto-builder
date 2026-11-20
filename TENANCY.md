@@ -197,6 +197,37 @@ platform admin presses Send on `/admin/billing`.
   Send, Delete), and six months of statements by part and status.
 - Not yet: payer-facing pages, holding runs on unpaid invoices, card on file.
 
+## App sign-in
+
+The hub signs people into its apps, so no app needs an OAuth client of its
+own and no new host needs a Google callback: the hub's own
+(`<BASE_URL>/auth/google/callback`) serves them all (`cmd/builder/sso.go`).
+The hub is an OpenID Connect provider with issuer `https://auth.<APP_DOMAIN>`
+(auth.extreme.org, auth.nick.org, auth.kirsch.org), mapped to the hub by
+`infra/tenancy.sh` (`AUTH_HOST`).
+
+- Client ID: the app's slug. No secret: PKCE S256 is required, and a code
+  goes back only to an `https` URL on the app's own host
+  (`<slug>.<APP_DOMAIN>`), for a live app.
+- No consent page: apps on the hub are the platform's own. Someone already
+  signed in to the hub comes straight back; otherwise the hub's sign-in page
+  comes first. The app decides who it lets in (an email allowlist, say);
+  being signed in isn't being a member of its board.
+- Endpoints on the issuer: `/.well-known/openid-configuration`, `/authorize`
+  (sends the browser to `<BASE_URL>/sso/authorize`, where the session cookie
+  is), `POST /token` (`authorization_code` only), `/userinfo`, `/jwks`.
+  Anything else there redirects to the hub.
+- ID token: EdDSA (Ed25519, key derived from `SESSION_KEY`), good for 5
+  minutes, with `iss`, `aud` (slug), `sub` (the hub identity), `nonce`, and
+  `email` + `email_verified` for a Google sign-in or `login` for a GitHub
+  one, plus `name` and `picture` when known. It's also the access token for
+  `/userinfo`. Apps keep their own sessions.
+- Codes (`control.sso_codes`, hashes only) last 2 minutes and work once.
+- `hubauth` (this module, standard library only) is the app side: `hubauth.New("https://www.extreme.org")`
+  derives issuer `https://auth.extreme.org` and client `www`; `Login` sends
+  the browser off, `Callback` at `/auth/callback` checks state and nonce,
+  trades the code and verifies the token against the JWKS.
+
 ## Control schema
 
 ```
@@ -210,6 +241,7 @@ control.billing_accounts (id PK, kind personal|managed, identity UNIQUE, name, e
 control.tenants.billing_account (→ billing_accounts, NULL = not billed)
 control.statements    (tenant, month, account, ai/runner/cloud_usd, run_seconds, markup_pct, base_fee_usd, ai/runner/cloud/fee/total_cents, status, stripe_invoice, computed_at, PK(tenant,month))
 control.settings      (… markup_pct, base_fee_usd, billing_computed_at)
+control.sso_codes     (hash PK, client → tenants, identity, redirect_uri, challenge, nonce, expires_at)
 ```
 
 ## Changes to existing code

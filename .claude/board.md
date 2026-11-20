@@ -59,7 +59,7 @@ then a push via signal.nick.org if `SIGNAL_URL` is set.
 
 ## Forks
 
-The hubs are git-level forks that merge upstream with `make merge-upstream`:
+The hubs are git-level forks that keep up with upstream on their own: with "Keep up with upstream" on (hub `/admin`), each tick merges upstream's new commits through an `upstream-<sha7>` PR (merge commit) and, on `RELEASES=true`, cuts a release so it deploys, usually within the hour (`DESIGN.md`, "Keeping up with upstream"). `make merge-upstream` does the same by hand. The forks:
 `extreme-dot-org/extreme` (extreme.org, the multi-tenant example: settings and docs only)
 and a few private hubs. Their apps are plain repos (no board code) on the hubs' boards; `builder.extreme.org`
 (this repo's board) is the one single board left.

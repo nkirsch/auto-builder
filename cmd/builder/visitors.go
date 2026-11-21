@@ -20,20 +20,21 @@ import (
 	"github.com/nkirsch/auto-builder/internal/gate"
 	"github.com/nkirsch/auto-builder/internal/github"
 	"github.com/nkirsch/auto-builder/internal/tenant"
+	"github.com/nkirsch/crawlers-go"
 )
 
 // Visitors: each reader of an app's site, from the same request log views and
 // cache as /logs, with the version (release and the PRs it shipped) each page
 // view was served. A board's admins see their own app's at /<slug>/visitors;
 // platform admins see every app's at /visitors (visitors.<APP_DOMAIN>
-// redirects there). Pseudonymous by design: a visitor is a keyed hash of IP +
-// user agent, scoped to the board (or the platform) so IDs can't be matched
-// across boards; no IP, user agent, sign-in or member data reaches the page.
+// redirects there). Pseudonymous by design: a visitor is a keyed hash of its
+// network (IPv6 /64) + user agent, scoped to the board (or the platform) so
+// IDs can't be matched across boards; no IP, user agent, sign-in or member
+// data reaches the page.
 // Admins' own visits (any IP a platform admin or the board's admin signed in
-// from) and HOME_HOST's IPs are left out.
+// from) and HOME_HOST's IPs are left out, as are crawlers (crawlers-go).
 
 const (
-	visitorBurst     = 10 // this many page views within a minute is a crawler
 	visitorRows      = 300
 	visitorTimeline  = 60
 	versionsTTL      = time.Hour
@@ -226,75 +227,64 @@ type visitorsReport struct {
 	Reading  []string // apps whose log is partly read; a reload continues
 }
 
-// pseudonym is a short keyed hash of IP + user agent, scoped so the same
-// browser has different IDs on different boards.
-func pseudonym(key []byte, scope, ip, ua string) string {
+// pseudonym is a short keyed hash of a visitor (network + user agent),
+// scoped so the same browser has different IDs on different boards.
+func pseudonym(key []byte, scope, network, ua string) string {
 	m := hmac.New(sha256.New, key)
-	m.Write([]byte(scope + "\x00" + ip + "\x00" + ua))
+	m.Write([]byte(scope + "\x00" + network + "\x00" + ua))
 	return strings.ToLower(base32.StdEncoding.WithPadding(base32.NoPadding).EncodeToString(m.Sum(nil)[:5]))
 }
 
-// buildVisitors groups page views by pseudonym. A visitor acts like a person on
-// that app (browsers) and isn't a declared bot, an excluded IP, or a crawler
-// (visitorBurst views within a minute).
-func buildVisitors(apps []appHits, key []byte, scope string, hide func(string) bool) visitorsReport {
+// buildVisitors groups page views by pseudonym. A visitor is one that
+// crawlers-go reads as a person across these apps (people) and isn't on an
+// excluded network; named holds browsers a hub session used.
+func buildVisitors(apps []appHits, key []byte, scope string, hide func(string) bool, named map[string]bool) visitorsReport {
 	r := visitorsReport{}
 	rows := map[string]*visitorRow{}
 	versions := map[string]*versionRow{}
+	ref := externalRef(hide)
+	person := people(apps, ref, named)
 	for _, a := range apps {
-		browserOf := browsers(a.Hits)
-		type view struct {
-			h  hit
-			id string
-		}
-		byWho := map[string][]view{}
+		ex := networks(a.Exclude)
 		for _, h := range a.Hits {
 			if !page(h) {
 				continue
 			}
-			if botUA.MatchString(h.UA) || a.Exclude[h.IP] || !browserOf[h.IP+"|"+h.UA] {
+			network := crawlers.Network(h.IP)
+			if ex[network] || !person[who(h)] {
 				r.Dropped++
 				continue
 			}
-			byWho[h.IP+"|"+h.UA] = append(byWho[h.IP+"|"+h.UA], view{h, pseudonym(key, scope, h.IP, h.UA)})
-		}
-		for _, vs := range byWho {
-			sort.Slice(vs, func(i, j int) bool { return vs[i].h.At.Before(vs[j].h.At) })
-			if burst(vs, func(v view) time.Time { return v.h.At }) {
-				r.Dropped += len(vs)
-				continue
+			id := pseudonym(key, scope, network, h.UA)
+			x := rows[id]
+			if x == nil {
+				x = &visitorRow{ID: id, Browser: browser(h.UA), First: h.At}
+				rows[id] = x
 			}
-			for _, v := range vs {
-				x := rows[v.id]
-				if x == nil {
-					x = &visitorRow{ID: v.id, Browser: browser(v.h.UA), First: v.h.At}
-					rows[v.id] = x
-				}
-				ver, ok := a.Labels[v.h.Revision]
-				if !ok {
-					ver = version{Label: v.h.Revision}
-				}
-				if ver.Label == "" {
-					ver.Label = "unknown"
-				}
-				x.Views++
-				r.Views++
-				x.First, x.Last = minTime(x.First, v.h.At), maxTime(x.Last, v.h.At)
-				addOnce(&x.Apps, a.App)
-				addOnce(&x.Versions, ver.Label)
-				if ref := refHost(v.h.Ref); ref != "" && ref != a.Host && !hide(ref) {
-					addOnce(&x.Referrers, ref)
-				}
-				x.Timeline = append(x.Timeline, visitorHit{At: v.h.At, App: a.App, Path: v.h.Path, Version: ver.Label})
-				vk := a.App + " " + ver.Label
-				vr := versions[vk]
-				if vr == nil {
-					vr = &versionRow{App: a.App, Label: ver.Label, Changes: ver.Changes, Created: ver.Created, who: map[string]bool{}}
-					versions[vk] = vr
-				}
-				vr.Views++
-				vr.who[v.id] = true
+			ver, ok := a.Labels[h.Revision]
+			if !ok {
+				ver = version{Label: h.Revision}
 			}
+			if ver.Label == "" {
+				ver.Label = "unknown"
+			}
+			x.Views++
+			r.Views++
+			x.First, x.Last = minTime(x.First, h.At), maxTime(x.Last, h.At)
+			addOnce(&x.Apps, a.App)
+			addOnce(&x.Versions, ver.Label)
+			if host := ref(a.Host, h.Ref); host != "" {
+				addOnce(&x.Referrers, host)
+			}
+			x.Timeline = append(x.Timeline, visitorHit{At: h.At, App: a.App, Path: h.Path, Version: ver.Label})
+			vk := a.App + " " + ver.Label
+			vr := versions[vk]
+			if vr == nil {
+				vr = &versionRow{App: a.App, Label: ver.Label, Changes: ver.Changes, Created: ver.Created, who: map[string]bool{}}
+				versions[vk] = vr
+			}
+			vr.Views++
+			vr.who[id] = true
 		}
 	}
 	for _, x := range rows {
@@ -318,19 +308,6 @@ func buildVisitors(apps []appHits, key []byte, scope string, hide func(string) b
 		return r.Versions[i].App+r.Versions[i].Label < r.Versions[j].App+r.Versions[j].Label
 	})
 	return r
-}
-
-// burst reports whether visitorBurst of the (sorted) views fall within a minute.
-func burst[T any](vs []T, at func(T) time.Time) bool {
-	for i, j := 0, 0; j < len(vs); j++ {
-		for at(vs[j]).Sub(at(vs[i])) >= time.Minute {
-			i++
-		}
-		if j-i+1 >= visitorBurst {
-			return true
-		}
-	}
-	return false
 }
 
 func refHost(ref string) string {
@@ -369,6 +346,25 @@ func (h *hub) hiddenReferrer(host string) bool {
 		return true
 	}
 	return under(h.host)
+}
+
+// namedBrowsers are the browsers (by who) a hub session used in the last
+// adminIPDays: someone signed in, which crawlers-go trusts over the network
+// and browser checks.
+func (h *hub) namedBrowsers(ctx context.Context) map[string]bool {
+	out := map[string]bool{}
+	if h.reg == nil {
+		return out
+	}
+	seen, err := h.reg.AllSeen(ctx, time.Now().AddDate(0, 0, -adminIPDays))
+	if err != nil {
+		slog.Warn("visitors seen", "err", err)
+		return out
+	}
+	for _, s := range seen {
+		out[crawlers.Network(s.IP)+"|"+s.UserAgent] = true
+	}
+	return out
 }
 
 // visitorKey is the pseudonyms' key, from SESSION_KEY so IDs hold across
@@ -466,7 +462,7 @@ func (h *hub) visitorsReport(ctx context.Context, slugs []string, scope string, 
 		}()
 	}
 	wg.Wait()
-	r := buildVisitors(apps, h.visitorKey(), scope, h.hiddenReferrer)
+	r := buildVisitors(apps, h.visitorKey(), scope, h.hiddenReferrer, h.namedBrowsers(ctx))
 	for _, e := range errs {
 		if slug, ok := strings.CutPrefix(e, "~"); ok {
 			r.Reading = append(r.Reading, slug)

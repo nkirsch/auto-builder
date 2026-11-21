@@ -12,6 +12,7 @@ import (
 	"github.com/nkirsch/auto-builder/internal/gate"
 	"github.com/nkirsch/auto-builder/internal/github"
 	"github.com/nkirsch/auto-builder/internal/tenant"
+	"github.com/nkirsch/crawlers-go"
 )
 
 func TestVersionLabels(t *testing.T) {
@@ -68,26 +69,43 @@ func TestBuildVisitors(t *testing.T) {
 		get("4.4.4.4", chrome, "/", "", "r1", 0), // an admin
 		get("4.4.4.4", chrome, "/a.css", "", "r1", 0),
 		get("5.5.5.5", chrome, "/a.css", "", "r1", 0),
+		get("34.62.82.207", chrome, "/", "", "r1", 0), // Google Cloud, but a hub session used it
+		get("34.62.82.207", chrome, "/a.css", "", "r1", 0),
+		get("34.62.82.208", chrome, "/", "", "r1", 0), // Google Cloud: scanner
+		get("34.62.82.208", chrome, "/a.css", "", "r1", 0),
+		get("2001:db8:1::1", chrome, "/", "", "r1", 0), // one IPv6 /64: one visitor
+		get("2001:db8:1::1", chrome, "/a.css", "", "r1", 0),
+		get("2001:db8:1::2", chrome, "/b/", "", "r1", 60),
 	)
-	for i := range visitorBurst { // crawler: a burst of pages
+	for i := range crawlers.Burst { // crawler: a burst of pages
 		hits = append(hits, get("5.5.5.5", chrome, "/p/", "", "r1", i))
 	}
 	labels := map[string]version{"r1": {Label: "v26.10.20-1", Changes: []string{"Halloween theme"}}, "r2": {Label: "v26.11.1-1"}}
 	apps := []appHits{{App: "delta", Host: "delta.extreme.org", Hits: hits, Exclude: map[string]bool{"4.4.4.4": true}, Labels: labels}}
 	h := &hub{host: "extreme.org", cfg: config{BaseURL: "https://extreme.org"}}
 	key := []byte("k")
-	r := buildVisitors(apps, key, "delta", h.hiddenReferrer)
-	if r.Total != 1 || r.Views != 3 || r.Dropped != 3+visitorBurst {
+	r := buildVisitors(apps, key, "delta", h.hiddenReferrer, map[string]bool{"34.62.82.207|" + chrome: true})
+	if r.Total != 3 || r.Views != 6 || r.Dropped != 4+crawlers.Burst {
 		t.Fatalf("total=%d views=%d dropped=%d", r.Total, r.Views, r.Dropped)
 	}
-	x := r.Rows[0]
-	if x.ID != pseudonym(key, "delta", "1.1.1.1", chrome) || x.Browser != "Chrome" {
+	byID := map[string]visitorRow{}
+	for _, x := range r.Rows {
+		byID[x.ID] = x
+	}
+	if x, ok := byID[pseudonym(key, "delta", "2001:db8:1::/64", chrome)]; !ok || x.Views != 2 {
+		t.Errorf("IPv6 /64 not one visitor: %+v", r.Rows)
+	}
+	if _, ok := byID[pseudonym(key, "delta", "34.62.82.207", chrome)]; !ok {
+		t.Errorf("named visitor dropped: %+v", r.Rows)
+	}
+	x := byID[pseudonym(key, "delta", "1.1.1.1", chrome)]
+	if x.Views != 3 || x.Browser != "Chrome" {
 		t.Errorf("row %+v", x)
 	}
 	if strings.Join(x.Versions, ",") != "v26.10.20-1,v26.11.1-1" || strings.Join(x.Referrers, ",") != "www.google.com" {
 		t.Errorf("versions=%v referrers=%v", x.Versions, x.Referrers)
 	}
-	if len(r.Versions) != 2 || r.Versions[0].Label == "" || r.Versions[0].Visitors != 1 {
+	if len(r.Versions) != 2 || r.Versions[0].Label == "" || r.Versions[0].Visitors != 3 {
 		t.Errorf("versions %+v", r.Versions)
 	}
 	// IDs are scoped: the same browser differs per board and on the platform view.

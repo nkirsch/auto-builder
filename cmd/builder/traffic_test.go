@@ -13,9 +13,15 @@ import (
 	"time"
 
 	"github.com/nkirsch/auto-builder/internal/tenant"
+	"github.com/nkirsch/crawlers-go"
 )
 
-const chrome = "Mozilla/5.0 (Macintosh) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0 Safari/537.36"
+// chrome is today's stable Chrome, so crawlers-go never finds it outdated.
+var chrome = chromeUA(crawlers.ChromeStable(time.Now()))
+
+func chromeUA(major int) string {
+	return fmt.Sprintf("Mozilla/5.0 (Macintosh) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/%d.0 Safari/537.36", major)
+}
 
 func TestBuildReport(t *testing.T) {
 	at := time.Date(2026, 10, 24, 12, 0, 0, 0, pacific)
@@ -47,12 +53,27 @@ func TestBuildReport(t *testing.T) {
 		missing("8.8.4.4", "/.env"), missing("8.8.4.4", "/.git/config"), missing("8.8.4.4", "/wp-login.php"),
 		get("34.62.82.207", chrome, "/", ""), // headless browser on Google Cloud: scanner
 		get("34.62.82.207", chrome, "/a.css", ""),
+		get("2001:db8:1::1", chrome, "/", ""), // one IPv6 /64, its suffix rotating: one reader
+		get("2001:db8:1::2", chrome, "/a.css", ""),
+		get("2001:db8:2::99", chrome, "/", ""), // home's /64
+		get("2001:db8:2::99", chrome, "/a.css", ""),
+		get("203.0.113.8", "SomeClient/1.0", "/", ""), // not a browser's UA
+		get("203.0.113.8", "SomeClient/1.0", "/a.css", ""),
+		get("203.0.113.9", chrome, "/a.css", ""),
 	}
-	r := buildReport(hits, "site.example", at.AddDate(0, 0, -2), at, map[string]bool{"4.4.4.4": true})
-	if r.Visitors != 3 || r.Views != 4 || r.Dropped != 6 {
-		t.Errorf("visitors=%d views=%d dropped=%d, want 3 4 6", r.Visitors, r.Views, r.Dropped)
+	old := chromeUA(crawlers.ChromeStable(at) - crawlers.FleetBehind)
+	for i := range crawlers.FleetNets { // one outdated Chrome, a page each from many networks: a fleet
+		ip := fmt.Sprintf("10.%d.0.1", i)
+		hits = append(hits, get(ip, old, "/", ""), get(ip, old, "/a.css", ""))
 	}
-	if len(r.Days) != 3 || r.Days[0].Key != "2026-10-24" || r.Days[0].Views != 4 || r.Days[1].Views != 0 {
+	for i := range crawlers.Burst { // a page a second, unreferred: crawler
+		hits = append(hits, hit{At: at.Add(time.Duration(i) * time.Second), IP: "203.0.113.9", UA: chrome, Path: fmt.Sprintf("/p%d/", i), Method: "GET", Status: 200})
+	}
+	r := buildReport(hits, "site.example", at.AddDate(0, 0, -2), at, map[string]bool{"4.4.4.4": true, "2001:db8:2::1": true}, nil, nil)
+	if r.Visitors != 4 || r.Views != 5 || r.Dropped != 8+crawlers.FleetNets+crawlers.Burst {
+		t.Errorf("visitors=%d views=%d dropped=%d, want 4 5 %d", r.Visitors, r.Views, r.Dropped, 8+crawlers.FleetNets+crawlers.Burst)
+	}
+	if len(r.Days) != 3 || r.Days[0].Key != "2026-10-24" || r.Days[0].Views != 5 || r.Days[1].Views != 0 {
 		t.Errorf("days = %+v", r.Days)
 	}
 	if len(r.Referrers) != 1 || r.Referrers[0].Key != "www.google.com" {

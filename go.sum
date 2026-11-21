@@ -19,6 +19,8 @@ github.com/jackc/puddle/v2 v2.2.3 h1:f8HoREISb3l5eO9coPgK7U3hKLhWGokOFVcThl5jrao
 github.com/jackc/puddle/v2 v2.2.3/go.mod h1:vriiEXHvEE654aYKXXjOvZM39qJ0q+azkZFrfEOc3H4=
 github.com/modelcontextprotocol/go-sdk v1.8.0 h1:KIvahhYqwtbeniWVPs3TcXEA7b8jEtwfBpOTAI+Urx4=
 github.com/modelcontextprotocol/go-sdk v1.8.0/go.mod h1:dL7u98E/zjJTGzEq+j30jQ8K2k1mb6LeAH4inEcSGts=
+github.com/nkirsch/crawlers-go v0.1.0 h1:uKHzbBc+fnD2Mbshb4l17zLB+JumC8m9vwEenL1WLM8=
+github.com/nkirsch/crawlers-go v0.1.0/go.mod h1:GJi18YcTdAW5+156O0DynF7hnEfBruiUucJQ2udd35Y=
 github.com/nkirsch/signal-go v0.1.0 h1:xaeNoYr/W7oyThAb38zxsRzyB2Zy6udk9cCuR6HFIBk=
 github.com/nkirsch/signal-go v0.1.0/go.mod h1:1e/d8aETL4T4stsB6sarP47i8weUnrqSfRLcEklaXlk=
 github.com/pmezard/go-difflib v1.0.0 h1:4DBwDE0NGyQoBHbLQYPwSUPoCMWR5BEzIk/f1lZbAQM=

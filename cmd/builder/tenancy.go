@@ -582,6 +582,11 @@ func (h *hub) tenantFor(ctx context.Context, slug string) (*tenantRT, error) {
 		BotLogin: h.cfg.BotLogin, GitSHA: h.cfg.GitSHA, Repo: t.Repo, CodeRepo: h.cfg.Repo, GitHub: gh,
 		Name: t.Name, SiteURL: h.appURL(slug), Releases: h.cfg.Releases, Traffic: h.cfg.LogProject != "", Visitors: h.cfg.LogProject != "",
 		Platform: hubPlatform{h, slug}, Deployed: deployed, HubLimits: true, SignIns: h.reg, Slug: slug,
+		HubAdmin: func(r *http.Request) bool {
+			_, err := h.reg.PlatformAdmin(r.Context(), h.auth.SignedIn(r))
+			return err == nil
+		},
+		Billing: h.cfg.Billing,
 		Ready: func(ctx context.Context) bool {
 			t, err := h.reg.Tenant(ctx, slug)
 			return err == nil && t.Live()

@@ -383,6 +383,33 @@ func TestAdminLinksTraffic(t *testing.T) {
 	}
 }
 
+// Platform admins get the hub's admin and billing pages from a board's admin page.
+func TestAdminLinksHub(t *testing.T) {
+	b := &Board{}
+	if err := b.parse(); err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range []struct {
+		hub          any
+		admin, bills bool
+	}{{nil, false, false}, {map[string]any{"Billing": false}, true, false}, {map[string]any{"Billing": true}, true, true}} {
+		var sb strings.Builder
+		p := page{Title: "Admin", Me: db.Member{Login: "x", Role: "admin"}, Data: map[string]any{
+			"Members": []db.Member{{Login: "x", Role: "admin"}}, "Costs": db.RunCosts{}, "Limit": 20.0, "Hub": c.hub,
+		}}
+		if err := b.tmpl["admin"].ExecuteTemplate(&sb, "layout", p); err != nil {
+			t.Fatal(err)
+		}
+		out := sb.String()
+		if got := strings.Contains(out, `href="/admin">Hub admin</a>`); got != c.admin {
+			t.Errorf("hub %v: Hub admin shown=%v", c.hub, got)
+		}
+		if got := strings.Contains(out, `href="/admin/billing">Billing</a>`); got != c.bills {
+			t.Errorf("hub %v: Billing shown=%v", c.hub, got)
+		}
+	}
+}
+
 // With GitHub sign-in off, the admin page drops GitHub choices and requires an email.
 func TestAdminGitHubSignInOff(t *testing.T) {
 	b := &Board{BaseURL: "https://builder.example"}

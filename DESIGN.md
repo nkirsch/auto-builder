@@ -175,15 +175,17 @@ The tick also walks items in `building`/`merged`:
   already blocked → blocked "CI failed on PR #N." (no reply).
 - `merged` + `merge_sha` reachable from the server's own `GIT_SHA`
   (compare API: `identical` or `behind`) → `shipped`, bot reply
-  "Shipped in vYY.MM.DD-N (<sha>)" (short SHA alone if the version lookup fails).
+  "Shipped in vYY.M.D-N (<sha>)": the live commit's version and the item's
+  merge SHA (the SHA alone if the version lookup fails).
 - PR closed unmerged → back to `open`, blocked "PR #N was closed without
   merging.", bot reply.
 
 Besides the tick, the server runs this check in the background on startup
 and when a run finishes, so a merge or deploy shows without waiting a tick.
 
-On startup the server names its `GIT_SHA` `vYY.MM.DD-N` (shown in the nav)
-and, when it has the GitHub App, tags that commit with it (lightweight tag
+A commit's version is the newest `vYY.M.D-N` tag already on it, else the
+next free tag for the Pacific day it was committed. On startup the server
+names its `GIT_SHA` that way (shown in the nav) and, when it has the GitHub App, tags that commit with it (lightweight tag
 via the refs API; an existing tag on the same commit is fine). The footer
 links the version to its tag and the short SHA to its commit.
 A `VERSION` env var, set by a deploy that tags the commit itself, takes

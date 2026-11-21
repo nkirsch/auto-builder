@@ -14,8 +14,8 @@ func TestShippedNote(t *testing.T) {
 		switch r.URL.Path {
 		case "/repos/o/r/commits/abcdef123456":
 			w.Write([]byte(`{"commit":{"committer":{"date":"2026-10-25T03:04:05Z"}}}`))
-		case "/repos/o/r/commits":
-			w.Write([]byte(`[{"sha":"abcdef123456"},{"sha":"def"}]`))
+		case "/repos/o/r/git/matching-refs/tags/v":
+			w.Write([]byte(`[{"ref":"refs/tags/v26.10.24-2","object":{"sha":"abcdef123456"}}]`))
 		default:
 			http.NotFound(w, r)
 		}
@@ -23,10 +23,10 @@ func TestShippedNote(t *testing.T) {
 	defer srv.Close()
 	s := &Shipper{GitHub: github.New(srv.URL, ""), Repo: "o/r"}
 
-	if got := s.shippedNote(context.Background(), "abcdef123456"); got != "Shipped in v26.10.25-2 (abcdef1)." {
+	if got := s.shippedNote(context.Background(), "abcdef123456", "abcdef123456"); got != "Shipped in v26.10.24-2 (abcdef1)." {
 		t.Fatalf("note = %q", got)
 	}
-	if got := s.shippedNote(context.Background(), "0123456789"); got != "Shipped in 0123456." {
+	if got := s.shippedNote(context.Background(), "unknown", "0123456789"); got != "Shipped in 0123456." {
 		t.Fatalf("fallback note = %q", got)
 	}
 }

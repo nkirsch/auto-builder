@@ -113,7 +113,7 @@ func (s *Shipper) ship(ctx context.Context, it db.Item) error {
 		return err
 	}
 	slog.Info("item shipped", "item", it.ID, "sha", it.MergeSHA)
-	note := s.shippedNote(ctx, it.MergeSHA)
+	note := s.shippedNote(ctx, live, it.MergeSHA)
 	// An admin replied while it was merged: their follow-up reopens it now.
 	if reopened, err := s.Store.ReopenShipped(ctx, it.ID); err != nil {
 		return err
@@ -124,12 +124,12 @@ func (s *Shipper) ship(ctx context.Context, it db.Item) error {
 	return s.Reply(ctx, it, note)
 }
 
-// shippedNote names the release, e.g. "Shipped in v26.10.25-3 (abc1234).",
-// falling back to the short SHA when the version lookup fails.
-func (s *Shipper) shippedNote(ctx context.Context, sha string) string {
-	v, err := s.GitHub.Version(ctx, s.Repo, sha)
+// shippedNote names the live deploy's version and the item's merge, e.g.
+// "Shipped in v26.10.25-3 (abc1234).", or the merge alone when the lookup fails.
+func (s *Shipper) shippedNote(ctx context.Context, live, sha string) string {
+	v, err := s.GitHub.Version(ctx, s.Repo, live)
 	if err != nil {
-		slog.Warn("ship version", "sha", sha, "err", err)
+		slog.Warn("ship version", "live", live, "err", err)
 		return "Shipped in " + short(sha) + "."
 	}
 	return fmt.Sprintf("Shipped in %s (%s).", v, short(sha))

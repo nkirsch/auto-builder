@@ -137,7 +137,7 @@ type Run struct {
 	AgentAt     *time.Time
 	ReportAt    *time.Time
 	GitSHA      string // server release that claimed the run; "" before
-	Version     string // its "vYY.MM.DD-N", "" if unknown at claim
+	Version     string // its "vYY.M.D-N", "" if unknown at claim
 }
 
 // RunStageNames are a run's stages in order: queued (created → claimed),

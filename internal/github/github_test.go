@@ -16,28 +16,33 @@ import (
 func TestVersion(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
-		case "/repos/o/r/commits/abc":
-			w.Write([]byte(`{"sha":"abc","commit":{"committer":{"date":"2026-10-25T03:04:05Z"}}}`))
-		case "/repos/o/r/commits":
-			q := r.URL.Query()
-			if q.Get("sha") != "abc" || q.Get("since") != "2026-10-25T00:00:00Z" {
-				t.Errorf("query = %v", q)
-			}
-			w.Write([]byte(`[{"sha":"abc"},{"sha":"def"},{"sha":"123"}]`))
+		case "/repos/o/r/commits/tagged", "/repos/o/r/commits/untagged":
+			// 05:52 UTC on the 21st is the evening of the 20th in Seattle.
+			w.Write([]byte(`{"commit":{"committer":{"date":"2026-11-21T05:52:45Z"}}}`))
+		case "/repos/o/r/git/matching-refs/tags/v":
+			w.Write([]byte(`[
+				{"ref":"refs/tags/v26.11.20-1","object":{"sha":"other"}},
+				{"ref":"refs/tags/v26.11.20-2","object":{"sha":"tagged"}},
+				{"ref":"refs/tags/v26.11.20","object":{"sha":"tagged"}},
+				{"ref":"refs/tags/v26.11.21-1","object":{"sha":"later"}}
+			]`))
 		default:
 			http.NotFound(w, r)
 		}
 	}))
 	defer srv.Close()
+	c := New(srv.URL, "")
 
-	v, err := New(srv.URL, "").Version(context.Background(), "o/r", "abc")
-	if err != nil {
-		t.Fatal(err)
+	for sha, want := range map[string]string{"tagged": "v26.11.20-2", "untagged": "v26.11.20-3"} {
+		v, err := c.Version(context.Background(), "o/r", sha)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if v != want {
+			t.Errorf("Version(%s) = %q, want %q", sha, v, want)
+		}
 	}
-	if v != "v26.10.25-3" {
-		t.Fatalf("version = %q", v)
-	}
-	if _, err := New(srv.URL, "").Version(context.Background(), "o/r", "nope"); !IsNotFound(err) {
+	if _, err := c.Version(context.Background(), "o/r", "nope"); !IsNotFound(err) {
 		t.Fatalf("missing commit: err = %v", err)
 	}
 }

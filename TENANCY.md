@@ -192,7 +192,7 @@ platform admin presses Send on `/admin/billing`.
   statements to `paid`, `void` or `uncollectible` on `invoice.paid`,
   `invoice.voided`, `invoice.marked_uncollectible`. Secrets
   `$NAME-STRIPE_SECRET_KEY`, `$NAME-STRIPE_WEBHOOK_SECRET`.
-- `/admin/billing` (platform admins; linked from `/admin`): default terms,
+- `/admin/billing` (platform admins; linked from `/admin`, and from each board's admin page for platform admins along with `/admin`): default terms,
   each app's account, accounts (name, email, overrides, amount to invoice,
   Send, Delete), and six months of statements by part and status.
 - Not yet: payer-facing pages, holding runs on unpaid invoices, card on file.

@@ -112,6 +112,11 @@ type Board struct {
 	Visitors bool
 	// HubLimits: the hub's platform admins set the spend limit; board admins only see it.
 	HubLimits bool
+	// HubAdmin, when set (a hub's tenant board), reports whether the viewer is
+	// a platform admin, to link the admin page to the hub's /admin; Billing
+	// links its /admin/billing too.
+	HubAdmin func(r *http.Request) bool
+	Billing  bool
 	// Platform, when set (multi-tenant mode), is whom admins escalate to.
 	Platform Platform
 	// Mailer, when set, lets admins email invites instead of opening a mail client.
@@ -1133,7 +1138,11 @@ func (b *Board) admin(w http.ResponseWriter, r *http.Request) {
 	if b.Mailer != nil {
 		mail = map[string]any{"From": b.Mailer.Mailbox(r)}
 	}
-	b.render(w, r, "admin", "Admin", map[string]any{"Members": members, "Stuck": stuck, "Hold": b.inviteHold(r.Context()), "Costs": costs, "Traffic": b.Traffic, "Visitors": b.Visitors,
+	var hub map[string]any
+	if b.HubAdmin != nil && b.HubAdmin(r) {
+		hub = map[string]any{"Billing": b.Billing}
+	}
+	b.render(w, r, "admin", "Admin", map[string]any{"Hub": hub, "Members": members, "Stuck": stuck, "Hold": b.inviteHold(r.Context()), "Costs": costs, "Traffic": b.Traffic, "Visitors": b.Visitors,
 		"Limit": limit, "MemberCosts": byMember, "Stats": []db.RunStats{recent, all}, "Upstream": upstream, "Mail": mail, "HubLimits": b.HubLimits,
 		"Workflows": workflows, "GitHub": b.gitHubSignIn()})
 }

@@ -11,12 +11,13 @@ import (
 	"net"
 	"net/http"
 	"net/url"
-	"regexp"
 	"sort"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/nkirsch/crawlers-go"
 )
 
 // The admin-only /logs page: who reads the static site, from Cloud Run's request
@@ -27,20 +28,12 @@ const (
 	trafficDays  = 30
 	trafficCache = time.Hour
 	logRetries   = 5 // retries of a 429/5xx from entries.list
-	crawler404s  = 3 // this many probes for missing paths marks a crawler
 )
 
 // logBackoff is the first wait after a 429/5xx; tests shorten it.
 var logBackoff = 2 * time.Second
 
-var (
-	pacific = mustZone("America/Los_Angeles")
-	botUA   = regexp.MustCompile(`(?i)bot\b|bot/|crawl|spider|slurp|fetcher|go-http|python|curl/|libwww|wget|scrapy|okhttp|java/|node-fetch|axios|headless|lighthouse|facebookexternal|google-certificates`)
-	// assetRe is what browsers fetch and most scrapers skip; not .ico, which scanners request too.
-	assetRe = regexp.MustCompile(`(?i)\.(css|js|jpe?g|png|gif|webp|avif|svg)$`)
-	// notProbe is what browsers miss on their own: 404s here don't count as probing.
-	notProbe = regexp.MustCompile(`(?i)\.(ico|jpe?g|png|gif|webp|avif|svg|map|txt)$|^/\.well-known/`)
-)
+var pacific = mustZone("America/Los_Angeles")
 
 func mustZone(name string) *time.Location {
 	loc, err := time.LoadLocation(name)
@@ -74,51 +67,100 @@ type trafficReport struct {
 	Max              int // busiest day's views, for the bars
 }
 
-// page is a site page view: not the board, an asset, an API call or a
-// probe. A page ends in / or .html, or has no extension (a Go app's /book).
+// page is a site page view: a GET answered 200 or 304 at a sitePath.
 func page(h hit) bool {
-	if h.Method != http.MethodGet || (h.Status != 200 && h.Status != 304) {
-		return false
-	}
-	for _, p := range []string{"/iterate", "/.well-known", "/api/", "/auth/", "/static/", "/mcp"} {
-		if strings.HasPrefix(h.Path, p) {
+	return h.Method == http.MethodGet && (h.Status == 200 || h.Status == 304) && sitePath(h.Path)
+}
+
+// sitePath is a site page: not the board, an asset, an API call or a probe.
+// A page ends in / or .html, or has no extension (a Go app's /book).
+func sitePath(p string) bool {
+	for _, pre := range []string{"/iterate", "/.well-known", "/api/", "/auth/", "/static/", "/mcp"} {
+		if strings.HasPrefix(p, pre) {
 			return false
 		}
 	}
-	if h.Path == "/health" || h.Path == "/version" {
+	if p == "/health" || p == "/version" {
 		return false
 	}
-	last := h.Path[strings.LastIndex(h.Path, "/")+1:]
-	return strings.HasSuffix(h.Path, ".html") || !strings.Contains(last, ".")
+	last := p[strings.LastIndex(p, "/")+1:]
+	return strings.HasSuffix(p, ".html") || !strings.Contains(last, ".")
 }
 
-// browsers returns the IP|UA pairs that act like people: they got a stylesheet,
-// script or image, missed fewer than crawler404s other paths, and aren't on a
-// cloud provider's machines, where headless scanners run.
-func browsers(hits []hit) map[string]bool {
-	got, missed := map[string]bool{}, map[string]int{}
-	for _, h := range hits {
-		who := h.IP + "|" + h.UA
-		switch {
-		case assetRe.MatchString(h.Path) && (h.Status == 200 || h.Status == 304): // a scanner's 404s prove nothing
-			got[who] = true
-		case h.Status == 404 && !notProbe.MatchString(h.Path):
-			missed[who]++
+// crawlerRules are crawlers-go's, with the hub's own page test.
+var crawlerRules = crawlers.Rules{Page: func(h crawlers.Hit) bool { return sitePath(h.Path) }}
+
+// who keys a visitor: one browser (user agent) on one network (an IPv4
+// address or IPv6 /64).
+func who(h hit) string { return crawlers.Network(h.IP) + "|" + h.UA }
+
+// people returns the visitors (by who) that crawlers-go reads as people,
+// judging each browser's hits on every app together; then Fleets drops one
+// outdated user agent spread over many networks. ref gives a hit's external
+// referrer host, or ""; named holds browsers a hub session used.
+func people(apps []appHits, ref func(host, ref string) string, named map[string]bool) map[string]bool {
+	vs := map[string]*crawlers.Visitor{}
+	var keys []string
+	for _, a := range apps {
+		for _, h := range a.Hits {
+			k := who(h)
+			v := vs[k]
+			if v == nil {
+				v = &crawlers.Visitor{IP: h.IP, UA: h.UA, Named: named[k]}
+				vs[k] = v
+				keys = append(keys, k)
+			}
+			v.Hits = append(v.Hits, crawlers.Hit{At: h.At, Host: a.Host, Path: h.Path, Status: h.Status, Ref: ref(a.Host, h.Ref)})
 		}
 	}
-	for who := range got {
-		ip, _, _ := strings.Cut(who, "|")
-		if missed[who] >= crawler404s || cloudProvider(ip) != "" {
-			delete(got, who)
+	rows := make([]crawlers.FleetRow, len(keys))
+	for i, k := range keys {
+		v := vs[k]
+		rows[i] = crawlers.FleetRow{IP: v.IP, UA: v.UA, Named: v.Named, Flagged: crawlerRules.Reason(*v) != ""}
+		for _, h := range v.Hits {
+			rows[i].Last = maxTime(rows[i].Last, h.At)
+			if (h.Status == 200 || h.Status == 304) && sitePath(h.Path) {
+				rows[i].Pages++
+			}
 		}
 	}
-	return got
+	fleet := crawlers.Fleets(rows)
+	out := map[string]bool{}
+	for i, k := range keys {
+		if !rows[i].Flagged && fleet[i] == "" {
+			out[k] = true
+		}
+	}
+	return out
 }
 
-// buildReport counts real readers: a visitor is an IP+UA that isn't a declared
-// bot, isn't excluded, and acts like a person (browsers).
-func buildReport(hits []hit, host string, from, to time.Time, exclude map[string]bool) trafficReport {
-	browser := browsers(hits)
+// externalRef gives a referrer's host when it's another site's: not host
+// itself, nor one hide (if set) names.
+func externalRef(hide func(string) bool) func(host, ref string) string {
+	return func(host, ref string) string {
+		r := refHost(ref)
+		if r == host || hide != nil && hide(r) {
+			return ""
+		}
+		return r
+	}
+}
+
+// networks maps IPs to their crawlers.Network, so an excluded IPv6 address
+// covers its /64 like the visitor it keys.
+func networks(ips map[string]bool) map[string]bool {
+	out := map[string]bool{}
+	for ip := range ips {
+		out[crawlers.Network(ip)] = true
+	}
+	return out
+}
+
+// buildReport counts real readers: a visitor (who) that isn't excluded and
+// that crawlers-go reads as a person (people).
+func buildReport(hits []hit, host string, from, to time.Time, exclude, named map[string]bool, hide func(string) bool) trafficReport {
+	person := people([]appHits{{Host: host, Hits: hits}}, externalRef(hide), named)
+	ex := networks(exclude)
 	r := trafficReport{Host: host, From: from, To: to}
 	visitors := map[string]bool{}
 	days, pages, refs := map[string]*tally{}, map[string]*tally{}, map[string]*tally{}
@@ -129,17 +171,17 @@ func buildReport(hits []hit, host string, from, to time.Time, exclude map[string
 		if !page(h) {
 			continue
 		}
-		who := h.IP + "|" + h.UA
-		if botUA.MatchString(h.UA) || exclude[h.IP] || !browser[who] {
+		k := who(h)
+		if ex[crawlers.Network(h.IP)] || !person[k] {
 			r.Dropped++
 			continue
 		}
 		r.Views++
-		visitors[who] = true
-		add(days, h.At.In(pacific).Format("2006-01-02"), who)
-		add(pages, h.Path, who)
+		visitors[k] = true
+		add(days, h.At.In(pacific).Format("2006-01-02"), k)
+		add(pages, h.Path, k)
 		if u, err := url.Parse(h.Ref); err == nil && u.Host != "" && u.Host != host {
-			add(refs, u.Host, who)
+			add(refs, u.Host, k)
 		}
 	}
 	r.Visitors = len(visitors)
@@ -345,12 +387,16 @@ type traffic struct {
 	view string // the log view read, "" for none
 	hits func(ctx context.Context, since time.Time) ([]hit, error)
 	home func(ctx context.Context) map[string]bool
-	now  func() time.Time
-	mu   sync.Mutex
-	at   time.Time
-	rep  *trafficReport
-	raw  []hit     // the hits rep was built from, for the visitors pages
-	from time.Time // where raw starts
+	// named gives the browsers (by who) a hub session used; hide, the
+	// referrer hosts that are the platform's own. Both nil off a hub.
+	named func(ctx context.Context) map[string]bool
+	hide  func(string) bool
+	now   func() time.Time
+	mu    sync.Mutex
+	at    time.Time
+	rep   *trafficReport
+	raw   []hit     // the hits rep was built from, for the visitors pages
+	from  time.Time // where raw starts
 	// read is how far raw has been read: a load resumes there (less
 	// readOverlap) instead of rereading the window, so a cold read that
 	// outlasts Logging's read quota finishes over several loads.
@@ -428,7 +474,11 @@ func (t *traffic) load(ctx context.Context, refresh bool) error {
 	if t.read.Before(start) {
 		t.read = start
 	}
-	r := buildReport(t.raw, t.host, from, now, t.home(ctx))
+	var named map[string]bool
+	if t.named != nil {
+		named = t.named(ctx)
+	}
+	r := buildReport(t.raw, t.host, from, now, t.home(ctx), named, t.hide)
 	t.rep, t.at, t.from = &r, now, from
 	return nil
 }
@@ -466,6 +516,7 @@ func (h *hub) traffic(slug string) *traffic {
 	if h.cfg.LogProject != "" {
 		t = trafficFrom(u.Host, logViewName(h.cfg.LogProject, slug+"-requests"), h.cfg.HomeHost)
 	}
+	t.named, t.hide = h.namedBrowsers, h.hiddenReferrer
 	if h.traffics == nil {
 		h.traffics = map[string]*traffic{}
 	}

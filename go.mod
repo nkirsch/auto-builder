@@ -6,6 +6,7 @@ require (
 	github.com/golang-jwt/jwt/v5 v5.3.1
 	github.com/jackc/pgx/v5 v5.12.0
 	github.com/modelcontextprotocol/go-sdk v1.8.0
+	github.com/nkirsch/crawlers-go v0.1.0
 	github.com/nkirsch/signal-go v0.1.0
 	github.com/yuin/goldmark v1.8.7
 	golang.org/x/oauth2 v0.37.0

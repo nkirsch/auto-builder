@@ -324,7 +324,7 @@ type page struct {
 	Title   string
 	GitSHA  string
 	Repo    string // owner/name on GitHub, for the footer's commit link
-	Version string // "vYY.MM.DD-N", or "" until known
+	Version string // "vYY.M.D-N", or "" until known
 	Flash   string
 	BotName string
 	Theme   string // "light", "dark" or "" (system)

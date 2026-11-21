@@ -363,7 +363,7 @@ func run() error {
 	return nil
 }
 
-// resolveVersion looks up the deployed commit's "vYY.MM.DD-N" name for the nav,
+// resolveVersion looks up the deployed commit's "vYY.M.D-N" name for the nav,
 // retrying briefly; the page simply omits it until then. With tag set (the
 // client is the App's), it also tags the commit with that name.
 func resolveVersion(ctx context.Context, gh *github.Client, repo, sha string, tag bool, b *board.Board) {

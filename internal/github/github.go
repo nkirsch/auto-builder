@@ -306,8 +306,8 @@ func (c *Client) Behind(ctx context.Context, repo, head, upstream string) (n int
 	return lo, lo == len(commits) && lo > 0, nil
 }
 
-// Version names commit sha "vYY.MM.DD-N": the UTC day it was committed and its
-// position among that day's commits reachable from it.
+// Version names commit sha: the newest vYY.M.D[-N] tag already on it, else
+// the next free tag for the Pacific day it was committed (ReleaseDay, NextTag).
 func (c *Client) Version(ctx context.Context, repo, sha string) (string, error) {
 	var commit struct {
 		Commit struct {
@@ -319,16 +319,30 @@ func (c *Client) Version(ctx context.Context, repo, sha string) (string, error) 
 	if err := c.do(ctx, http.MethodGet, fmt.Sprintf("/repos/%s/commits/%s", repo, sha), nil, &commit); err != nil {
 		return "", err
 	}
-	at := commit.Commit.Committer.Date.UTC()
-	day := time.Date(at.Year(), at.Month(), at.Day(), 0, 0, 0, 0, time.UTC)
-	var list []struct {
-		SHA string `json:"sha"`
+	var refs []struct {
+		Ref    string `json:"ref"`
+		Object struct {
+			SHA string `json:"sha"`
+		} `json:"object"`
 	}
-	q := url.Values{"sha": {sha}, "since": {day.Format(time.RFC3339)}, "per_page": {"100"}}
-	if err := c.do(ctx, http.MethodGet, fmt.Sprintf("/repos/%s/commits?%s", repo, q.Encode()), nil, &list); err != nil {
+	if err := c.do(ctx, http.MethodGet, fmt.Sprintf("/repos/%s/git/matching-refs/tags/v", repo), nil, &refs); err != nil {
 		return "", err
 	}
-	return fmt.Sprintf("v%s-%d", at.Format("06.01.02"), max(len(list), 1)), nil
+	day := ReleaseDay(commit.Commit.Committer.Date)
+	var on, sameDay []string
+	for _, r := range refs {
+		t := strings.TrimPrefix(r.Ref, "refs/tags/")
+		if r.Object.SHA == sha {
+			on = append(on, t)
+		}
+		if strings.HasPrefix(t, day) {
+			sameDay = append(sameDay, t)
+		}
+	}
+	if v := NewestVersion(on); v != "" {
+		return v, nil
+	}
+	return NextTag(day, sameDay), nil
 }
 
 // Tag creates lightweight tag name on commit sha. A tag that already points

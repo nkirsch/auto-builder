@@ -269,8 +269,17 @@ if [ -n "$BILLING_TABLE" ]; then
   bill_project=${BILLING_TABLE%%.*} rest=${BILLING_TABLE#*.}
   gcloud projects add-iam-policy-binding "$bill_project" --quiet --condition None \
     --member "serviceAccount:$(sa server)" --role roles/bigquery.jobUser >/dev/null
-  bq add-iam-policy-binding --member "serviceAccount:$(sa server)" --role roles/bigquery.dataViewer \
-    "$bill_project:${rest%%.*}" >/dev/null
+  # Dataset IAM bindings (bq add-iam-policy-binding) need allowlisting; add a READER to its ACL.
+  ds="$bill_project:${rest%%.*}" acl=$(mktemp)
+  bq show --format=json "$ds" | python3 -c '
+import json, sys
+sa = sys.argv[1]
+acc = json.load(sys.stdin).get("access", [])
+if not any(a.get("userByEmail") == sa for a in acc):
+    acc.append({"role": "READER", "userByEmail": sa})
+json.dump({"access": acc}, sys.stdout)' "$(sa server)" >"$acl"
+  bq update --source "$acl" "$ds" >/dev/null
+  rm -f "$acl"
 fi
 retry g run services add-iam-policy-binding "$NAME" --region "$HUB_REGION" \
   --member "serviceAccount:$(sa deployer)" --role roles/run.developer >/dev/null

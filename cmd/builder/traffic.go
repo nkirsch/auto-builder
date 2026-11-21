@@ -110,18 +110,15 @@ func people(apps []appHits, ref func(host, ref string) string, named map[string]
 				vs[k] = v
 				keys = append(keys, k)
 			}
-			v.Hits = append(v.Hits, crawlers.Hit{At: h.At, Host: a.Host, Path: h.Path, Status: h.Status, Ref: ref(a.Host, h.Ref)})
+			v.Hits = append(v.Hits, crawlers.Hit{At: h.At, Method: h.Method, Host: a.Host, Path: h.Path, Status: h.Status, Ref: ref(a.Host, h.Ref)})
 		}
 	}
 	rows := make([]crawlers.FleetRow, len(keys))
 	for i, k := range keys {
 		v := vs[k]
-		rows[i] = crawlers.FleetRow{IP: v.IP, UA: v.UA, Named: v.Named, Flagged: crawlerRules.Reason(*v) != ""}
+		rows[i] = crawlers.FleetRow{IP: v.IP, UA: v.UA, Named: v.Named, Flagged: crawlerRules.Reason(*v) != "", Pages: crawlerRules.Pages(*v)}
 		for _, h := range v.Hits {
 			rows[i].Last = maxTime(rows[i].Last, h.At)
-			if (h.Status == 200 || h.Status == 304) && sitePath(h.Path) {
-				rows[i].Pages++
-			}
 		}
 	}
 	fleet := crawlers.Fleets(rows)

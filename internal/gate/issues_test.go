@@ -375,3 +375,68 @@ func TestMirrorAttachments(t *testing.T) {
 		t.Errorf("left to mirror: %+v", left)
 	}
 }
+
+// An admin's GitHub comment asks for more work, as their board reply does:
+// a shipped item reopens now, a building one once it ships.
+func TestIssueCommentFollowUp(t *testing.T) {
+	ctx := context.Background()
+	st := testStore(t)
+	st.UpsertMember(ctx, "nkirsch", "admin", "bootstrap")
+	st.UpsertMember(ctx, "alice", "member", "nkirsch")
+	shipped, _, _ := st.CreateIssueItem(ctx, 1, "Game", "x", "nkirsch", false)
+	st.SetPR(ctx, shipped, 7)
+	st.MarkMerged(ctx, shipped, "abc")
+	st.MarkShipped(ctx, shipped)
+	building, _, _ := st.CreateIssueItem(ctx, 2, "Sound", "x", "nkirsch", false)
+	st.SetPR(ctx, building, 8)
+	member, _, _ := st.CreateIssueItem(ctx, 3, "Theirs", "x", "alice", false)
+	st.SetPR(ctx, member, 9)
+	st.MarkMerged(ctx, member, "def")
+	st.MarkShipped(ctx, member)
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method + " " + r.URL.Path {
+		case "GET /repos/o/r/issues/comments":
+			w.Write([]byte(`[
+				{"id":20,"body":"isn't there a db?","user":{"login":"nkirsch"},"issue_url":"https://api.github.com/repos/o/r/issues/1"},
+				{"id":21,"body":"sound is broken","user":{"login":"nkirsch"},"issue_url":"https://api.github.com/repos/o/r/issues/2"},
+				{"id":22,"body":"thanks","user":{"login":"alice"},"issue_url":"https://api.github.com/repos/o/r/issues/3"}]`))
+		default:
+			w.Write([]byte(`[]`))
+		}
+	}))
+	defer srv.Close()
+	s := &IssueSync{Store: st, GitHub: github.New(srv.URL, ""), Repo: "o/r", BaseURL: "https://b"}
+	if err := s.Sync(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if it, _ := st.Item(ctx, shipped); it.Status != "open" || it.PRNumber != nil {
+		t.Errorf("shipped item: %s pr %v", it.Status, it.PRNumber)
+	}
+	if it, _ := st.Item(ctx, member); it.Status != "shipped" {
+		t.Errorf("member-commented item: %s", it.Status)
+	}
+	st.MarkMerged(ctx, building, "ghi")
+	st.MarkShipped(ctx, building)
+	if reopened, err := st.ReopenShipped(ctx, building); err != nil || !reopened {
+		t.Errorf("building item reopened on ship: %v %v", reopened, err)
+	}
+}
+
+// A PR closed unmerged drops a pending reopen, so the item's next ship doesn't reopen it.
+func TestPRClosedDropsReopenOnShip(t *testing.T) {
+	ctx := context.Background()
+	st := testStore(t)
+	id, _ := st.CreateItem(ctx, "Dark mode", "x", "alice")
+	st.SetPR(ctx, id, 7)
+	if _, on, err := st.FollowUp(ctx, id); err != nil || !on {
+		t.Fatalf("follow-up while building: %v %v", on, err)
+	}
+	st.PRClosed(ctx, id)
+	st.SetPR(ctx, id, 8)
+	st.MarkMerged(ctx, id, "abc")
+	st.MarkShipped(ctx, id)
+	if reopened, _ := st.ReopenShipped(ctx, id); reopened {
+		t.Error("reopened after its PR was closed")
+	}
+}

@@ -303,10 +303,19 @@ func (s *IssueSync) importComment(ctx context.Context, c github.IssueComment) er
 	}
 	author := m.Login
 	created, err := s.Store.ImportIssueComment(ctx, it.ID, c.ID, author, strings.TrimSpace(c.Body))
-	if created && s.Notified != nil {
+	if !created || err != nil {
+		return err
+	}
+	// As on the board, an admin's comment asks for more work.
+	if m.IsAdmin() {
+		if _, _, err = s.Store.FollowUp(ctx, it.ID); err != nil {
+			return err
+		}
+	}
+	if s.Notified != nil {
 		s.Notified(ctx, it, author, c.Body)
 	}
-	return err
+	return nil
 }
 
 func (s *IssueSync) closeIssues(ctx context.Context) error {

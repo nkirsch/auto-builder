@@ -663,10 +663,19 @@ func (s *Store) ReopenItem(ctx context.Context, id int) error {
 		merge_sha = '', reopen_on_ship = false, updated_at = now(), human_activity_at = now() WHERE id = $1`, id)
 }
 
-// ReopenOnShip has a merged item reopen once it ships (ReopenShipped), so
-// the ship-checker still sees its merge.
-func (s *Store) ReopenOnShip(ctx context.Context, id int) error {
-	return s.execOne(ctx, `UPDATE items SET reopen_on_ship = true WHERE id = $1 AND status = 'merged'`, id)
+// FollowUp applies an admin's reply to item id: a closed or shipped item
+// reopens now; a building or merged one reopens once it ships
+// (ReopenShipped), since its run doesn't see the reply and the ship-checker
+// still needs the merge.
+func (s *Store) FollowUp(ctx context.Context, id int) (reopened, reopensOnShip bool, err error) {
+	tag, err := s.Pool.Exec(ctx, `UPDATE items SET status = 'open', close_note = '', closed_at = NULL, pr_number = NULL,
+		merge_sha = '', reopen_on_ship = false, updated_at = now(), human_activity_at = now()
+		WHERE id = $1 AND status IN ('closed', 'shipped')`, id)
+	if err != nil || tag.RowsAffected() > 0 {
+		return err == nil, false, err
+	}
+	tag, err = s.Pool.Exec(ctx, `UPDATE items SET reopen_on_ship = true WHERE id = $1 AND status IN ('building', 'merged')`, id)
+	return false, err == nil && tag.RowsAffected() > 0, err
 }
 
 // ReopenShipped reopens a shipped item marked ReopenOnShip, reporting
@@ -698,7 +707,7 @@ func (s *Store) MarkShipped(ctx context.Context, id int) error {
 
 // PRClosed returns a building item to open after its PR closed unmerged.
 func (s *Store) PRClosed(ctx context.Context, id int) error {
-	return s.execOne(ctx, `UPDATE items SET status = 'open', pr_number = NULL, updated_at = now()
+	return s.execOne(ctx, `UPDATE items SET status = 'open', pr_number = NULL, reopen_on_ship = false, updated_at = now()
 		WHERE id = $1 AND status = 'building'`, id)
 }
 

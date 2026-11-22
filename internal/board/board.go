@@ -653,19 +653,11 @@ func (b *Board) reply(w http.ResponseWriter, r *http.Request) {
 }
 
 // respond posts me's reply, then runs uploads before anyone is notified. An
-// admin replying on a finished item wants more work done on it.
+// admin replying on an item past its run wants more work done on it.
 func (b *Board) respond(ctx context.Context, me db.Member, it db.Item, body string, uploads func()) (reopened, reopensOnShip bool, err error) {
-	if me.IsAdmin() && (it.Status == "closed" || it.Status == "shipped") {
-		if err := b.Store.ReopenItem(ctx, it.ID); err != nil {
+	if me.IsAdmin() {
+		if reopened, reopensOnShip, err = b.Store.FollowUp(ctx, it.ID); err != nil {
 			return false, false, err
-		}
-		reopened = true
-	}
-	// A merged item reopens once it ships, so the ship-checker keeps its merge.
-	reopensOnShip = me.IsAdmin() && it.Status == "merged"
-	if reopensOnShip {
-		if err := b.Store.ReopenOnShip(ctx, it.ID); err != nil {
-			return reopened, false, err
 		}
 	}
 	if body != "" {

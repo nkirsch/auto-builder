@@ -36,6 +36,14 @@ func TestAdminReplyOnMergedReopensOnShip(t *testing.T) {
 		t.Errorf("flash %q", loc.Query().Get("m"))
 	}
 	postReply(b, db.Member{Login: "alice", Role: "member"}, member, "thanks!")
+	// A reply while it builds reopens it once shipped too: the run won't see it.
+	building, _ := s.CreateItem(ctx, "Sound", "x", "alice")
+	s.SetPR(ctx, building, 9)
+	w = postReply(b, admin, strconv.Itoa(building), "the sound clunks")
+	if loc, _ := url.Parse(w.Header().Get("Location")); loc.Query().Get("m") != "Reopens once shipped" {
+		t.Errorf("building flash %q", loc.Query().Get("m"))
+	}
+	s.MarkMerged(ctx, building, "abc123")
 	if it, _ := s.Item(ctx, 1); it.Status != "merged" || it.MergeSHA != "abc123" {
 		t.Fatalf("after the reply: %s %q", it.Status, it.MergeSHA)
 	}
@@ -64,8 +72,11 @@ func TestAdminReplyOnMergedReopensOnShip(t *testing.T) {
 	if it, _ := s.Item(ctx, 2); it.Status != "shipped" {
 		t.Errorf("member-replied item: %s", it.Status)
 	}
+	if it, _ := s.Item(ctx, building); it.Status != "open" {
+		t.Errorf("building-replied item: %s", it.Status)
+	}
 	slices.Sort(notes)
-	want := []string{"1: Shipped in abc123. Reopened for the follow-up above.", "2: Shipped in abc123."}
+	want := []string{"1: Shipped in abc123. Reopened for the follow-up above.", "2: Shipped in abc123.", "3: Shipped in abc123. Reopened for the follow-up above."}
 	if strings.Join(notes, "\n") != strings.Join(want, "\n") {
 		t.Errorf("notes:\n%s", strings.Join(notes, "\n"))
 	}

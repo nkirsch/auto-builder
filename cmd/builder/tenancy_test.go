@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -664,6 +665,46 @@ func TestHubCreators(t *testing.T) {
 	code(do(h, srv, "nkirsch", "POST", "/admin/creators/jerry/delete", url.Values{}), 303)
 	if ok, _ := h.reg.Creator(ctx, "jerry"); ok {
 		t.Error("jerry still a creator")
+	}
+
+	// Without Gmail, an address gets a mailto: invite and Add can't email.
+	from := ""
+	h.mailbox = func(*http.Request) string { return from }
+	var mails []string
+	h.mail = func(_ *http.Request, to, subject, body string) (string, error) {
+		if from == "" {
+			return "", errors.New("Gmail not connected")
+		}
+		mails = append(mails, to+"|"+subject+"|"+body)
+		return from, nil
+	}
+	body := do(h, srv, "nkirsch", "GET", "/admin", nil).Body.String()
+	if !strings.Contains(body, `href="mailto:ann.lee@example.org?`) || !strings.Contains(body, "Connect Gmail") || strings.Contains(body, "Email an invite") {
+		t.Errorf("creators without Gmail: %s", body)
+	}
+	if w := do(h, srv, "nkirsch", "POST", "/admin/creators/ann.lee@example.org/email", url.Values{}); !strings.Contains(w.Header().Get("Location"), "Couldn") {
+		t.Errorf("email without Gmail: %q", w.Header().Get("Location"))
+	}
+	// With Gmail: Add emails the invite, and each address can be emailed again.
+	from = "nick@example.org"
+	body = do(h, srv, "nkirsch", "GET", "/admin", nil).Body.String()
+	if !strings.Contains(body, `action="/admin/creators/ann.lee@example.org/email"`) || !strings.Contains(body, `name="email" checked> Email an invite`) ||
+		!strings.Contains(body, "Invites go from nick@example.org") {
+		t.Errorf("creators with Gmail: %s", body)
+	}
+	w = do(h, srv, "nkirsch", "POST", "/admin/creators", url.Values{"identity": {"Dave@Example.org"}, "email": {"on"}})
+	if loc, _ := url.QueryUnescape(w.Header().Get("Location")); !strings.Contains(loc, "Emailed an invite to dave@example.org from nick@example.org") {
+		t.Errorf("add and email: %q", loc)
+	}
+	if len(mails) != 1 || mails[0] != "dave@example.org|You can make an app on hub.example|I added you as a creator on hub.example: you can make one app of your own. "+
+		"You ask for what you want on its board, and it's built and deployed for you.\n\nSign in at https://hub.example/ with Google as dave@example.org, then choose New app.\n" {
+		t.Fatalf("invite mail: %q", mails)
+	}
+	do(h, srv, "nkirsch", "POST", "/admin/creators", url.Values{"identity": {"erin"}, "email": {"on"}})
+	do(h, srv, "nkirsch", "POST", "/admin/creators", url.Values{"identity": {"fay@example.org"}})
+	do(h, srv, "nkirsch", "POST", "/admin/creators/ann.lee@example.org/email", url.Values{})
+	if len(mails) != 2 || !strings.HasPrefix(mails[1], "ann.lee@example.org|") {
+		t.Fatalf("only dave and ann emailed: %q", mails)
 	}
 }
 

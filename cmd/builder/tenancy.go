@@ -149,6 +149,8 @@ type hub struct {
 	alertedAt   time.Time                                                                    // the 5xx window last alerted on
 	countErrsIn func(ctx context.Context, view string, since, before time.Time) (int, error) // tests: instead of the log view
 	sendOnce    func(ctx context.Context, id, title, message, link string)                   // tests: instead of h.notify.Once
+	mail        func(r *http.Request, to, subject, body string) (from string, err error)     // tests: instead of h.auth.Mail
+	mailbox     func(r *http.Request) string                                                 // tests: instead of h.auth.Mailbox
 }
 
 // boardOf is the tenant slug a sign-in headed for next is for, or "". A
@@ -264,6 +266,7 @@ func (h *hub) routes() http.Handler {
 	mux.HandleFunc("POST /new", h.creator(h.create))
 	mux.HandleFunc("POST /admin/creators", h.platformAdmin(h.addCreator))
 	mux.HandleFunc("POST /admin/creators/{identity}/delete", h.platformAdmin(h.removeCreator))
+	mux.HandleFunc("POST /admin/creators/{identity}/email", h.platformAdmin(h.emailCreator))
 	mux.HandleFunc("GET /admin", h.platformAdmin(h.admin))
 	mux.HandleFunc("GET /admin/sites", func(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/", http.StatusMovedPermanently) // Sites merged into Apps
@@ -1342,7 +1345,7 @@ func (h *hub) admin(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
-	h.render(w, r, "admin", "Admin", map[string]any{"Apps": apps, "Admins": admins, "Upstream": up, "Creators": creators,
+	h.render(w, r, "admin", "Admin", map[string]any{"Apps": apps, "Admins": admins, "Upstream": up, "Creators": creators, "Mail": h.creatorMail(r, creators),
 		"Settings": set, "Spent": total, "Pct": totalPct, "Level": totalLevel, "Billing": h.billing != nil})
 }
 
@@ -1414,8 +1417,65 @@ func (h *hub) addCreator(w http.ResponseWriter, r *http.Request) {
 	msg := "Added " + identity + ": they can create one app from New app"
 	if err := h.reg.AddCreator(r.Context(), identity, h.auth.SignedIn(r)); err != nil {
 		msg = err.Error()
+	} else if r.FormValue("email") == "on" {
+		msg += ". " + h.mailCreator(r, identity)
 	}
 	http.Redirect(w, r, "/admin?flash="+url.QueryEscape(msg), http.StatusSeeOther)
+}
+
+// emailCreator emails a creator's invite again.
+func (h *hub) emailCreator(w http.ResponseWriter, r *http.Request) {
+	http.Redirect(w, r, "/admin?flash="+url.QueryEscape(h.mailCreator(r, r.PathValue("identity"))), http.StatusSeeOther)
+}
+
+// creatorInvite tells a creator they may make an app and how to sign in.
+func (h *hub) creatorInvite(email string) (subject, body string) {
+	base := strings.TrimRight(h.cfg.BaseURL, "/")
+	return "You can make an app on " + h.host,
+		"I added you as a creator on " + h.host + ": you can make one app of your own. You ask for what you want on its board, and it's built and deployed for you.\n\n" +
+			"Sign in at " + base + "/ with Google as " + email + ", then choose New app.\n"
+}
+
+// mailCreator emails identity's creator invite from the signed-in platform
+// admin's Gmail and says how it went; a GitHub login has no address.
+func (h *hub) mailCreator(r *http.Request, identity string) string {
+	to := strings.ToLower(strings.TrimSpace(identity))
+	if !strings.Contains(to, "@") {
+		return identity + " has no email address to send to"
+	}
+	send := h.mail
+	if send == nil {
+		send = h.auth.Mail
+	}
+	subject, body := h.creatorInvite(to)
+	from, err := send(r, to, subject, body)
+	if err != nil {
+		slog.Warn("creator invite mail", "to", to, "err", err)
+		return "Couldn't email " + to + ": " + err.Error() + "; connect or reconnect Gmail below"
+	}
+	return "Emailed an invite to " + to + " from " + from
+}
+
+// creatorMail is /admin's Gmail state for creator invites: nil when the hub
+// can't send mail, else the address invites go from ("" until connected) and
+// a mailto: invite for each creator with an address.
+func (h *hub) creatorMail(r *http.Request, creators []string) map[string]any {
+	mailbox := h.mailbox
+	if mailbox == nil {
+		if !h.auth.CanMail() {
+			return nil
+		}
+		mailbox = h.auth.Mailbox
+	}
+	links := map[string]string{}
+	for _, c := range creators {
+		if strings.Contains(c, "@") {
+			subject, body := h.creatorInvite(c)
+			q := url.Values{"subject": {subject}, "body": {body}}
+			links[c] = "mailto:" + url.PathEscape(c) + "?" + strings.ReplaceAll(q.Encode(), "+", "%20")
+		}
+	}
+	return map[string]any{"From": mailbox(r), "Links": links}
 }
 
 // removeCreator stops identity creating an app; an app they made stays.

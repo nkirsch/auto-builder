@@ -59,14 +59,17 @@
 </form>
 <h2>Creators</h2>
 <p class="hint">Each may create one app of their own from New app and becomes its admin. Someone who already admins an app here has theirs.</p>
+{{with .Data.Mail}}<p class="hint">{{if .From}}Invites go from {{.From}} via Gmail · <a href="/auth/gmail?next=/admin">Reconnect</a>{{else}}<a href="/auth/gmail?next=/admin">Connect Gmail</a> to email creators their invite from here instead of your mail client.{{end}}</p>{{end}}
 <ul class="items">
   {{range .Data.Creators}}<li class="row"><b>{{who $.Names .}}</b>{{if index $.Names .}} <span class="muted">{{.}}</span>{{end}}
     <span class="spacer"></span>
+    {{$c := .}}{{with $.Data.Mail}}{{with index .Links $c}}{{if $.Data.Mail.From}}<form method="post" action="/admin/creators/{{$c}}/email"><button class="secondary">Email invite</button></form>{{else}}<a class="button secondary" href="{{.}}">Invite</a>{{end}}{{end}}{{end}}
     <form method="post" action="/admin/creators/{{.}}/delete"><button class="secondary">Remove</button></form>
   </li>{{end}}
 </ul>
 <form method="post" action="/admin/creators" class="row">
   <input name="identity" placeholder="GitHub login or email" required>
+  {{with .Data.Mail}}{{if .From}}<label><input type="checkbox" name="email" checked> Email an invite</label>{{end}}{{end}}
   <button>Add</button>
 </form>
 {{end}}

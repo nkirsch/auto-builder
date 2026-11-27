@@ -369,7 +369,7 @@ func (h *hub) tick(w http.ResponseWriter, r *http.Request) {
 	var errs []error
 	for _, t := range tenants {
 		if t.Status == "securing" {
-			h.secure(r.Context(), t.Slug)
+			h.secure(r.Context(), t)
 		}
 		if !t.Live() {
 			continue
@@ -411,7 +411,8 @@ func (h *hub) tick(w http.ResponseWriter, r *http.Request) {
 // secure marks a securing tenant ready once its app answers on its own
 // domain: the CNAME resolves and the certificate is issued. Any HTTP
 // response counts; the app's code may not be deployed yet.
-func (h *hub) secure(ctx context.Context, slug string) {
+func (h *hub) secure(ctx context.Context, t tenant.Tenant) {
+	slug := t.Slug
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 	req, err := http.NewRequestWithContext(ctx, "GET", h.appURL(slug)+"/", nil)
@@ -432,6 +433,17 @@ func (h *hub) secure(ctx context.Context, slug string) {
 		slog.Error("record step", "tenant", slug, "err", err)
 	}
 	slog.Info("app reachable; ready", "tenant", slug)
+	h.pushOnce(ctx, fmt.Sprintf("app-ready-%s-%d", slug, t.CreatedAt.Unix()), "App live: "+cmp.Or(t.Name, slug),
+		h.appURL(slug)+" answers on its domain.", h.appURL(slug))
+}
+
+// pushOnce sends the platform admins a push with a stable id (h.sendOnce in tests).
+func (h *hub) pushOnce(ctx context.Context, id, title, message, link string) {
+	send := h.sendOnce
+	if send == nil {
+		send = h.notify.Once
+	}
+	send(ctx, id, title, message, link)
 }
 
 // provisioning is a tenant board's setup progress while its app isn't
@@ -1062,6 +1074,18 @@ func (h *hub) createTenant(ctx context.Context, identity string, n newTenant) (s
 	if err := h.reg.Create(ctx, tenant.Tenant{Slug: slug, Name: name, Repo: repo, CreatedBy: createdBy, Existing: existing}); err != nil {
 		return "", err
 	}
+	made := createdBy + " made " + slug
+	if owner.Login != "" {
+		made = me.Login + " made " + slug + " for " + createdBy
+	}
+	if repo != "" {
+		made += " (" + repo + ")"
+	}
+	if !existing {
+		made += "; it goes live at " + h.appURL(slug) + " once provisioned."
+	}
+	h.pushOnce(ctx, fmt.Sprintf("app-new-%s-%d", slug, time.Now().Unix()), "New app: "+cmp.Or(name, slug), made,
+		strings.TrimRight(h.cfg.BaseURL, "/")+"/"+slug+"/")
 	if billTo.Login != "" {
 		if err := h.billPersonal(ctx, slug, createdBy, billTo.Email); err != nil {
 			slog.Error("personal billing account", "tenant", slug, "err", err)

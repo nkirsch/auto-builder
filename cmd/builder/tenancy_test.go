@@ -371,9 +371,17 @@ func TestHubSecuring(t *testing.T) {
 	}))
 	defer app.Close()
 	h.appBase = func(slug string) string { return app.URL + "/" + slug }
+	var sent []string
+	h.sendOnce = func(_ context.Context, id, title, message, link string) {
+		sent = append(sent, strings.Join([]string{id, title, message, link}, " | "))
+	}
 	srv := h.routes()
-	if w := do(h, srv, "nkirsch", "POST", "/new", url.Values{"slug": {"alpha"}}); w.Code != 303 {
+	if w := do(h, srv, "nkirsch", "POST", "/new", url.Values{"slug": {"alpha"}, "name": {"Alpha"}}); w.Code != 303 {
 		t.Fatalf("create: %d", w.Code)
+	}
+	if len(sent) != 1 || !strings.HasPrefix(sent[0], "app-new-alpha-") ||
+		!strings.Contains(sent[0], " | New app: Alpha | nkirsch made alpha (extreme-dot-org/alpha); it goes live at "+app.URL+"/alpha once provisioned. | https://hub.example/alpha/") {
+		t.Fatalf("new app push: %q", sent)
 	}
 	// Until the app is ready, its board shows the setup's progress and reloads.
 	body := do(h, srv, "nick@example.org", "GET", "/alpha/", nil).Body.String()
@@ -420,6 +428,9 @@ func TestHubSecuring(t *testing.T) {
 	if tn, _ := h.reg.Tenant(ctx, "alpha"); tn.Status != "securing" || tn.ProvisionedAt != nil {
 		t.Fatalf("unreachable app %+v", tn)
 	}
+	if len(sent) != 1 {
+		t.Fatalf("pushed before the app answered: %q", sent)
+	}
 	// Invites wait for the app.
 	if body := do(h, srv, "nick@example.org", "GET", "/alpha/admin", nil).Body.String(); !strings.Contains(body, "Invites wait until the app is ready: the app at http") ||
 		!strings.Contains(body, "isn&#39;t reachable yet") {
@@ -429,6 +440,9 @@ func TestHubSecuring(t *testing.T) {
 	tick()
 	if tn, _ := h.reg.Tenant(ctx, "alpha"); tn.Status != "ready" || tn.ProvisionedAt == nil || tn.Steps[len(tn.Steps)-1].State != "done" {
 		t.Fatalf("reachable app %+v", tn)
+	}
+	if len(sent) != 2 || !strings.HasPrefix(sent[1], "app-ready-alpha-") || !strings.Contains(sent[1], " | App live: Alpha | "+app.URL+"/alpha answers on its domain. | "+app.URL+"/alpha") {
+		t.Fatalf("ready push: %q", sent)
 	}
 	if body := do(h, srv, "nick@example.org", "GET", "/alpha/", nil).Body.String(); strings.Contains(body, `class="provisioning"`) || strings.Contains(body, "http-equiv") {
 		t.Error("ready board still shows provisioning")
@@ -612,9 +626,14 @@ func TestHubCreators(t *testing.T) {
 		t.Error("a creator may pick an existing repo")
 	}
 	// A creator can't name the repo or bring an existing one.
+	var sent []string
+	h.sendOnce = func(_ context.Context, _, title, message, _ string) { sent = append(sent, title+": "+message) }
 	w = do(h, srv, "jerry", "POST", "/new", url.Values{"slug": {"jerrys"}, "name": {"Jerry's"}, "repo": {"evil/x"}, "existing": {"on"}})
 	if w.Code != 303 || w.Header().Get("Location") != "/jerrys/" {
 		t.Fatalf("create: %d %s", w.Code, w.Header().Get("Location"))
+	}
+	if len(sent) != 1 || !strings.HasPrefix(sent[0], "New app: Jerry's: jerry made jerrys (extreme-dot-org/jerrys); it goes live at ") {
+		t.Fatalf("creator's push: %q", sent)
 	}
 	tn, err := h.reg.Tenant(ctx, "jerrys")
 	if err != nil || tn.Repo != "extreme-dot-org/jerrys" || tn.Existing || tn.CreatedBy != "jerry" || tn.Name != "Jerry's" {
@@ -626,6 +645,9 @@ func TestHubCreators(t *testing.T) {
 	}
 	code(do(h, srv, "jerry", "GET", "/jerrys/", nil), 200)
 	code(do(h, srv, "jerry", "POST", "/new", url.Values{"slug": {"jerry2"}}), 403) // one app each
+	if len(sent) != 1 {
+		t.Errorf("refused app pushed: %q", sent)
+	}
 
 	// Members of builder may create; maple admins her own site, so she has hers.
 	code(do(h, srv, "bob", "GET", "/new", nil), 200)
@@ -654,9 +676,14 @@ func TestHubCreateForOwner(t *testing.T) {
 		t.Error("New app has no owner field for platform admins")
 	}
 	// A platform admin makes carol's app: she's its admin, it's her one app.
+	var sent []string
+	h.sendOnce = func(_ context.Context, _, _, message, _ string) { sent = append(sent, message) }
 	w := do(h, srv, "nkirsch", "POST", "/new", url.Values{"slug": {"carols"}, "name": {"Carol's"}, "owner": {"@carol"}})
 	if w.Code != 303 || !strings.HasPrefix(w.Header().Get("Location"), "/carols/?flash=") {
 		t.Fatalf("create: %d %s", w.Code, w.Header().Get("Location"))
+	}
+	if len(sent) != 1 || !strings.HasPrefix(sent[0], "nkirsch made carols for carol (extreme-dot-org/carols)") {
+		t.Fatalf("owner's push: %q", sent)
 	}
 	tn, err := h.reg.Tenant(ctx, "carols")
 	if err != nil || tn.CreatedBy != "carol" || tn.Repo != "extreme-dot-org/carols" {

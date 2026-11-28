@@ -42,13 +42,18 @@ type IssueSync struct {
 func (s *IssueSync) Sync(ctx context.Context) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	last, err := s.Store.IssuesSyncedAt(ctx)
+	last, catchUp, err := s.Store.IssuesSyncedAt(ctx)
 	if err != nil {
 		return err
 	}
-	var since time.Time
+	// Comments created before cursor were passed over by an earlier sync.
+	var since, cursor time.Time
 	if last != nil {
 		since = last.Add(-syncOverlap)
+		cursor = since
+		if catchUp != nil && catchUp.Before(since) {
+			since = *catchUp
+		}
 	}
 	started := time.Now()
 	issues, err := s.GitHub.OpenIssues(ctx, s.Repo, since)
@@ -66,12 +71,12 @@ func (s *IssueSync) Sync(ctx context.Context) error {
 		return errors.Join(append(errs, fmt.Errorf("list comments: %w", err))...)
 	}
 	for _, c := range comments {
-		if err := s.importComment(ctx, c); err != nil {
+		if err := s.importComment(ctx, c, !c.CreatedAt.IsZero() && c.CreatedAt.Before(cursor)); err != nil {
 			errs = append(errs, fmt.Errorf("comment %d: %w", c.ID, err))
 		}
 	}
 	if len(errs) == 0 {
-		errs = append(errs, s.Store.SetIssuesSyncedAt(ctx, started))
+		errs = append(errs, s.Store.SetIssuesSyncedAt(ctx, started, catchUp))
 	}
 	return errors.Join(append(errs, s.mirrorItems(ctx), s.reopenIssues(ctx), s.mirrorReplies(ctx), s.mirrorAttachments(ctx), s.closeIssues(ctx))...)
 }
@@ -289,7 +294,10 @@ func writer(association string) bool {
 	return false
 }
 
-func (s *IssueSync) importComment(ctx context.Context, c github.IssueComment) error {
+// importComment makes a member's comment a reply. A late one (caught up
+// after their GitHub account became known) doesn't ask for more work: the
+// item may have moved on since it was written.
+func (s *IssueSync) importComment(ctx context.Context, c github.IssueComment, late bool) error {
 	it, err := s.Store.ItemByIssue(ctx, c.IssueNumber())
 	if errors.Is(err, db.ErrNotFound) {
 		return nil
@@ -307,7 +315,7 @@ func (s *IssueSync) importComment(ctx context.Context, c github.IssueComment) er
 		return err
 	}
 	// As on the board, an admin's comment asks for more work.
-	if m.IsAdmin() {
+	if m.IsAdmin() && !late {
 		if _, _, err = s.Store.FollowUp(ctx, it.ID); err != nil {
 			return err
 		}

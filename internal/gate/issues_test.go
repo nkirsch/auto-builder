@@ -11,6 +11,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/nkirsch/auto-builder/internal/db"
 	"github.com/nkirsch/auto-builder/internal/github"
@@ -30,7 +31,7 @@ func testStore(t *testing.T) *db.Store {
 	}
 	t.Cleanup(pool.Close)
 	if _, err := pool.Exec(ctx, `TRUNCATE members, items, responses, attachments, notifications, runs, run_items RESTART IDENTITY CASCADE;
-		UPDATE settings SET spend_limit_usd = 20, issues_synced_at = NULL`); err != nil {
+		UPDATE settings SET spend_limit_usd = 20, issues_synced_at = NULL, issues_catchup_from = NULL`); err != nil {
 		t.Fatal(err)
 	}
 	return &db.Store{Pool: pool}
@@ -420,6 +421,77 @@ func TestIssueCommentFollowUp(t *testing.T) {
 	st.MarkShipped(ctx, building)
 	if reopened, err := st.ReopenShipped(ctx, building); err != nil || !reopened {
 		t.Errorf("building item reopened on ship: %v %v", reopened, err)
+	}
+}
+
+// A member who connects their GitHub account gets the comments it made
+// since they joined; one older than the last sync doesn't reopen its item.
+func TestIssueCatchUp(t *testing.T) {
+	ctx := context.Background()
+	st := testStore(t)
+	st.UpsertMember(ctx, "matthew", "admin", "nkirsch")
+	st.SetMemberEmail(ctx, "matthew", "m@example.com")
+	joined := time.Now().Add(-3 * time.Hour)
+	st.Pool.Exec(ctx, `UPDATE members SET added_at = $1`, joined)
+	open, _, _ := st.CreateIssueItem(ctx, 6, "Board", "x", "builder-bot", true)
+	shipped, _, _ := st.CreateIssueItem(ctx, 3, "Server", "x", "matthew", false)
+	st.SetPR(ctx, shipped, 4)
+	st.MarkMerged(ctx, shipped, "abc")
+	st.MarkShipped(ctx, shipped)
+	synced := time.Now().Add(-time.Minute)
+	st.SetIssuesSyncedAt(ctx, synced, nil)
+
+	old := time.Now().Add(-2 * time.Hour).UTC().Format(time.RFC3339)
+	fresh := ""
+	var since []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method + " " + r.URL.Path {
+		case "GET /repos/o/r/issues/comments":
+			since = append(since, r.URL.Query().Get("since"))
+			fmt.Fprintf(w, `[
+				{"id":30,"body":"shared boards","user":{"login":"mkfoote"},"created_at":%q,"issue_url":"https://api.github.com/repos/o/r/issues/6"},
+				{"id":31,"body":"nice","user":{"login":"mkfoote"},"created_at":%q,"issue_url":"https://api.github.com/repos/o/r/issues/3"}%s]`, old, old, fresh)
+		default:
+			w.Write([]byte(`[]`))
+		}
+	}))
+	defer srv.Close()
+	s := &IssueSync{Store: st, GitHub: github.New(srv.URL, ""), Repo: "o/r", BaseURL: "https://b"}
+
+	// Not linked yet: nothing imports, and the cursor moves on.
+	if err := s.Sync(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if rs, _ := st.Responses(ctx, open); len(rs) != 0 {
+		t.Fatalf("imported before link: %+v", rs)
+	}
+	st.LinkGitHub(ctx, "matthew", "mkfoote")
+	if err := s.Sync(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := time.Parse(time.RFC3339, since[1]); err != nil || got.After(joined) {
+		t.Fatalf("catch-up since = %q, want <= %v", since[1], joined)
+	}
+	if rs, _ := st.Responses(ctx, open); len(rs) != 1 || rs[0].Author != "matthew" || rs[0].Body != "shared boards" {
+		t.Fatalf("open item replies = %+v", rs)
+	}
+	if it, _ := st.Item(ctx, shipped); it.Status != "shipped" {
+		t.Fatalf("late comment reopened the shipped item: %s", it.Status)
+	}
+	if _, c, _ := st.IssuesSyncedAt(ctx); c != nil {
+		t.Fatalf("catch-up left set: %v", c)
+	}
+	// A fresh admin comment still asks for more work.
+	fresh = fmt.Sprintf(`,{"id":32,"body":"one more thing","user":{"login":"mkfoote"},"created_at":%q,"issue_url":"https://api.github.com/repos/o/r/issues/3"}`,
+		time.Now().UTC().Format(time.RFC3339))
+	if err := s.Sync(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if it, _ := st.Item(ctx, shipped); it.Status != "open" {
+		t.Fatalf("fresh comment didn't reopen: %s", it.Status)
+	}
+	if got := since[2]; got == since[1] {
+		t.Fatalf("since stayed at the catch-up: %q", got)
 	}
 }
 

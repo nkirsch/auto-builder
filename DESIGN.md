@@ -240,6 +240,11 @@ syncs issues (the App needs Issues read & write):
   sequence always moves past every item.
 - Member comments on an imported issue become replies
   (`responses.issue_comment_id`, human activity, notifications as usual).
+- A member's GitHub account becoming known (connected, or "GitHub too")
+  sets `settings.issues_catchup_from` to when they joined, so the next sync
+  re-reads from there and imports what that account wrote meanwhile, then
+  clears it. A comment older than the previous cursor is a reply only: it
+  doesn't reopen its item.
 - Board items are mirrored the other way (the admin chose: everything except
   items tagged `#private`): an active item (open/building/merged) with no
   issue, filed over a minute ago, gets an issue opened by the App (title,

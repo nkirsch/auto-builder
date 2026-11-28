@@ -56,13 +56,70 @@ func TestImportIssue(t *testing.T) {
 		t.Fatalf("closed issue still to close: %+v", todo)
 	}
 
-	if at, err := s.IssuesSyncedAt(ctx); err != nil || at != nil {
+	if at, _, err := s.IssuesSyncedAt(ctx); err != nil || at != nil {
 		t.Fatalf("synced at = %v, %v", at, err)
 	}
 	now := time.Now().Truncate(time.Microsecond)
-	s.SetIssuesSyncedAt(ctx, now)
-	if at, _ := s.IssuesSyncedAt(ctx); at == nil || !at.Equal(now) {
+	s.SetIssuesSyncedAt(ctx, now, nil)
+	if at, _, _ := s.IssuesSyncedAt(ctx); at == nil || !at.Equal(now) {
 		t.Fatalf("synced at = %v, want %v", at, now)
+	}
+}
+
+// A member's GitHub account becoming known has the next sync re-read from
+// when they joined; the sync that reads it clears it.
+func TestIssuesCatchUp(t *testing.T) {
+	ctx := context.Background()
+	s := testStore(t)
+	s.UpsertMember(ctx, "kat", "admin", "nkirsch")
+	s.SetMemberEmail(ctx, "kat", "kat@example.com")
+	s.UpsertMember(ctx, "bob", "member", "nkirsch")
+	s.SetMemberEmail(ctx, "bob", "bob@example.com")
+	joined := time.Now().Add(-48 * time.Hour).Truncate(time.Microsecond)
+	s.Pool.Exec(ctx, `UPDATE members SET added_at = $1 WHERE login = 'kat'`, joined)
+	s.Pool.Exec(ctx, `UPDATE members SET added_at = $1 WHERE login = 'bob'`, joined.Add(time.Hour))
+	catchUp := func() *time.Time {
+		_, c, err := s.IssuesSyncedAt(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return c
+	}
+
+	if err := s.LinkGitHub(ctx, "kat", "kat-gh"); err != nil {
+		t.Fatal(err)
+	}
+	c := catchUp()
+	if c == nil || !c.Equal(joined) {
+		t.Fatalf("catch-up after link = %v, want %v", c, joined)
+	}
+	s.SetIssuesSyncedAt(ctx, time.Now(), c)
+	if c := catchUp(); c != nil {
+		t.Fatalf("catch-up after sync = %v", c)
+	}
+	// Linking the same account again, or disconnecting, has nothing to catch up.
+	s.LinkGitHub(ctx, "kat", "KAT-gh")
+	s.LinkGitHub(ctx, "kat", "")
+	if c := catchUp(); c != nil {
+		t.Fatalf("catch-up after relink = %v", c)
+	}
+
+	// "GitHub too" makes bob's login an account the sync reads.
+	if err := s.SetMemberGitHub(ctx, "bob", true); err != nil {
+		t.Fatal(err)
+	}
+	if c := catchUp(); c == nil || !c.Equal(joined.Add(time.Hour)) {
+		t.Fatalf("catch-up after GitHub too = %v", c)
+	}
+	// A catch-up set during a sync that reaches further back survives it.
+	read := catchUp()
+	s.LinkGitHub(ctx, "kat", "kat-gh")
+	s.SetIssuesSyncedAt(ctx, time.Now(), read)
+	if c := catchUp(); c == nil || !c.Equal(joined) {
+		t.Fatalf("catch-up set mid-sync = %v", c)
+	}
+	if err := s.SetMemberGitHub(ctx, "nobody", true); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("unknown member: %v", err)
 	}
 }
 

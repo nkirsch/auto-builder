@@ -389,7 +389,8 @@ type IssueComment struct {
 	User struct {
 		Login string `json:"login"`
 	} `json:"user"`
-	IssueURL string `json:"issue_url"`
+	IssueURL  string    `json:"issue_url"`
+	CreatedAt time.Time `json:"created_at"`
 }
 
 // IssueNumber is the number at the end of IssueURL, 0 if there is none.

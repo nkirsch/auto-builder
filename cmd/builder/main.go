@@ -298,7 +298,7 @@ func run() error {
 		g.Ship.Release = releaser(gh, cfg.Repo)
 	}
 	if app != nil && cfg.IssueSync {
-		g.Issues = &gate.IssueSync{Store: st, GitHub: gh, Repo: cfg.Repo, BaseURL: cfg.BaseURL, Notified: b.Notified}
+		g.Issues = &gate.IssueSync{Store: st, GitHub: gh, Repo: cfg.Repo, BaseURL: cfg.BaseURL, BotLogin: cfg.BotLogin, Notified: b.Notified}
 		if len(cfg.SessionKey) >= 16 { // a random one wouldn't survive a restart
 			b.LinkKey, g.Issues.AttachmentURL = []byte(cfg.SessionKey), b.AttachmentURL
 		}

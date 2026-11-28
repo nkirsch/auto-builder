@@ -686,6 +686,16 @@ func (s *Store) SetApproved(ctx context.Context, id int, approved bool, by strin
 		human_activity_at = now() WHERE id = $1`, id, approved, by)
 }
 
+// ApproveBotItemOnReply approves an open, unapproved item bot filed on
+// behalf of by, an auto-approving admin who replied on it; it reports
+// whether it did. The reply is the human activity.
+func (s *Store) ApproveBotItemOnReply(ctx context.Context, id int, by, bot string) (bool, error) {
+	tag, err := s.Pool.Exec(ctx, `UPDATE items SET approved = true, approved_by = $2, updated_at = now()
+		WHERE id = $1 AND NOT approved AND status = 'open' AND lower(author) = lower($3)
+		AND EXISTS (SELECT 1 FROM members WHERE lower(login) = lower($2) AND role = 'admin' AND auto_approve)`, id, by, bot)
+	return err == nil && tag.RowsAffected() > 0, err
+}
+
 // CloseItem closes an item with a note; human marks it as human activity.
 func (s *Store) CloseItem(ctx context.Context, id int, note string, human bool) error {
 	return s.execOne(ctx, `UPDATE items SET status = 'closed', close_note = $2, closed_at = now(), updated_at = now(),

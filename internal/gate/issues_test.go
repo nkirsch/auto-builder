@@ -456,7 +456,7 @@ func TestIssueCatchUp(t *testing.T) {
 		}
 	}))
 	defer srv.Close()
-	s := &IssueSync{Store: st, GitHub: github.New(srv.URL, ""), Repo: "o/r", BaseURL: "https://b"}
+	s := &IssueSync{Store: st, GitHub: github.New(srv.URL, ""), Repo: "o/r", BaseURL: "https://b", BotLogin: "builder-bot"}
 
 	// Not linked yet: nothing imports, and the cursor moves on.
 	if err := s.Sync(ctx); err != nil {
@@ -474,6 +474,10 @@ func TestIssueCatchUp(t *testing.T) {
 	}
 	if rs, _ := st.Responses(ctx, open); len(rs) != 1 || rs[0].Author != "matthew" || rs[0].Body != "shared boards" {
 		t.Fatalf("open item replies = %+v", rs)
+	}
+	// The auto-approving admin's comment on the bot's item approves it.
+	if it, _ := st.Item(ctx, open); !it.Approved || it.ApprovedBy != "matthew" {
+		t.Fatalf("bot item after comment: approved %v by %q", it.Approved, it.ApprovedBy)
 	}
 	if it, _ := st.Item(ctx, shipped); it.Status != "shipped" {
 		t.Fatalf("late comment reopened the shipped item: %s", it.Status)

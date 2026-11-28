@@ -90,3 +90,34 @@ func TestAdminReplyReopensFinishedItem(t *testing.T) {
 		t.Fatalf("gate activity = %d", g.activity)
 	}
 }
+
+// An auto-approving admin's reply on an item the bot filed approves it;
+// a member's, or an admin's without auto-approve, doesn't.
+func TestReplyApprovesBotItem(t *testing.T) {
+	ctx := context.Background()
+	b, _ := dbBoard(t)
+	s := b.Store
+	admin := db.Member{Login: "matthew", Role: "admin", AutoApprove: true}
+	manual := db.Member{Login: "kat", Role: "admin"}
+	member := db.Member{Login: "alice", Role: "member"}
+	for _, m := range []db.Member{admin, manual, member} {
+		s.UpsertMember(ctx, m.Login, m.Role, "test")
+		s.SetAutoApprove(ctx, m.Login, m.AutoApprove)
+	}
+	split, _ := s.CreateBotItem(ctx, "Real board", "Split from #1.", "builder-bot")
+	theirs, _ := s.CreateItem(ctx, "Dark mode", "", "alice")
+
+	postReply(b, member, "1", "shared boards please")
+	postReply(b, manual, "1", "hmm")
+	if it, _ := s.Item(ctx, split); it.Approved {
+		t.Fatalf("approved by %q", it.ApprovedBy)
+	}
+	postReply(b, admin, "1", "shared boards please")
+	if it, _ := s.Item(ctx, split); !it.Approved || it.ApprovedBy != "matthew" {
+		t.Fatalf("bot item after admin reply: approved %v by %q", it.Approved, it.ApprovedBy)
+	}
+	postReply(b, admin, "2", "what about contrast?")
+	if it, _ := s.Item(ctx, theirs); it.Approved {
+		t.Fatal("a member's ask approved by a reply")
+	}
+}

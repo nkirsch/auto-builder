@@ -286,6 +286,9 @@ func (s *Store) setGitHub(ctx context.Context, where, key, github string) error 
 			key, github); err != nil {
 			return err
 		}
+		if err := catchUpFrom(ctx, tx, where+` AND lower(github_login) <> lower($2)`, key, github); err != nil {
+			return err
+		}
 	}
 	tag, err := tx.Exec(ctx, `UPDATE members SET github_login = $2 WHERE `+where, key, github)
 	if err != nil {
@@ -327,8 +330,26 @@ func (s *Store) SetMemberEmail(ctx context.Context, login, email string) error {
 
 // SetMemberGitHub says whether a member with an email may also sign in with
 // GitHub as their login.
+// Turning it on makes login a GitHub account issue sync reads (catchUpFrom).
 func (s *Store) SetMemberGitHub(ctx context.Context, login string, on bool) error {
-	return s.execOne(ctx, `UPDATE members SET github = $2 WHERE lower(login) = lower($1)`, login, on)
+	tx, err := s.Pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	if on {
+		if err := catchUpFrom(ctx, tx, `lower(login) = lower($1) AND email <> '' AND NOT github`, login); err != nil {
+			return err
+		}
+	}
+	tag, err := tx.Exec(ctx, `UPDATE members SET github = $2 WHERE lower(login) = lower($1)`, login, on)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrNotFound
+	}
+	return tx.Commit(ctx)
 }
 
 // SetAutoApprove turns auto-approve on or off for a member.
@@ -591,14 +612,27 @@ func (s *Store) SetAttachmentsIssueComment(ctx context.Context, ids []int, comme
 }
 
 // IssuesSyncedAt is when the last issue sync started; nil before the first.
-func (s *Store) IssuesSyncedAt(ctx context.Context) (*time.Time, error) {
-	var t *time.Time
-	err := s.Pool.QueryRow(ctx, `SELECT issues_synced_at FROM settings`).Scan(&t)
-	return t, err
+// catchUp, when set, is how far back the next sync re-reads because a
+// member's GitHub account became known (catchUpFrom).
+func (s *Store) IssuesSyncedAt(ctx context.Context) (last, catchUp *time.Time, err error) {
+	err = s.Pool.QueryRow(ctx, `SELECT issues_synced_at, issues_catchup_from FROM settings`).Scan(&last, &catchUp)
+	return last, catchUp, err
 }
 
-func (s *Store) SetIssuesSyncedAt(ctx context.Context, t time.Time) error {
-	return s.execOne(ctx, `UPDATE settings SET issues_synced_at = $1`, t)
+// SetIssuesSyncedAt moves the cursor and clears the catch-up the sync read
+// (catchUp), unless one reaching further back was set meanwhile.
+func (s *Store) SetIssuesSyncedAt(ctx context.Context, t time.Time, catchUp *time.Time) error {
+	return s.execOne(ctx, `UPDATE settings SET issues_synced_at = $1,
+		issues_catchup_from = CASE WHEN issues_catchup_from >= $2 THEN NULL ELSE issues_catchup_from END`, t, catchUp)
+}
+
+// catchUpFrom has the next issue sync re-read from when the members matched
+// by where joined, so issues and comments from the GitHub account they're
+// getting, ignored until now, are imported.
+func catchUpFrom(ctx context.Context, tx pgx.Tx, where string, args ...any) error {
+	_, err := tx.Exec(ctx, `UPDATE settings SET issues_catchup_from =
+		LEAST(issues_catchup_from, (SELECT min(added_at) FROM members WHERE `+where+`))`, args...)
+	return err
 }
 
 // SetTags sets an item's tags. With onlyIfEmpty it leaves tagged items alone

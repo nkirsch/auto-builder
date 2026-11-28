@@ -643,7 +643,7 @@ func (h *hub) tenantFor(ctx context.Context, slug string) (*tenantRT, error) {
 	// The runner API is the hub's, not the tenant's: it finds the tenant by run token.
 	tools := &mcp.Board{Store: st, BotLogin: h.cfg.BotLogin, BaseURL: h.cfg.BaseURL, GitSHA: h.cfg.GitSHA, Deployed: deployed, Reply: b.BotReply}
 	if h.app != nil && h.cfg.IssueSync {
-		g.Issues = &gate.IssueSync{Store: st, GitHub: gh, Repo: t.Repo, BaseURL: base, Notified: b.Notified}
+		g.Issues = &gate.IssueSync{Store: st, GitHub: gh, Repo: t.Repo, BaseURL: base, BotLogin: h.cfg.BotLogin, Notified: b.Notified}
 		if len(h.cfg.SessionKey) >= 16 { // a random one wouldn't survive a restart
 			b.LinkKey, g.Issues.AttachmentURL = []byte(h.cfg.SessionKey), b.AttachmentURL
 		}

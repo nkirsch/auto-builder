@@ -665,6 +665,9 @@ func (b *Board) respond(ctx context.Context, me db.Member, it db.Item, body stri
 			return reopened, reopensOnShip, err
 		}
 	}
+	if err := b.approveOnReply(ctx, me, it); err != nil {
+		return reopened, reopensOnShip, err
+	}
 	if uploads != nil {
 		uploads()
 	}
@@ -672,6 +675,19 @@ func (b *Board) respond(ctx context.Context, me db.Member, it db.Item, body stri
 	b.push(ctx, me.Login, me.Login+" replied: "+it.Title, body, b.itemURL(it.ID))
 	b.Gate.Activity()
 	return reopened, reopensOnShip, nil
+}
+
+// approveOnReply approves an item the bot filed when an auto-approving admin
+// replies on it: talking it over counts as wanting it built.
+func (b *Board) approveOnReply(ctx context.Context, me db.Member, it db.Item) error {
+	if !me.IsAdmin() || !me.AutoApprove || it.Approved {
+		return nil
+	}
+	ok, err := b.Store.ApproveBotItemOnReply(ctx, it.ID, me.Login, b.BotLogin)
+	if ok {
+		slog.Info("approved on reply", "item", it.ID, "by", me.Login)
+	}
+	return err
 }
 
 // Reply is the item page's reply form without a browser.

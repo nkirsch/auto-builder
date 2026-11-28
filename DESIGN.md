@@ -120,7 +120,9 @@ non-bot change (create, reply, approve) and drives the gate.
   GitHub account), and an
   item the agent files with `file_item(..., from_item)` starts approved when
   `from_item` is approved and its latest post by an auto-approving admin
-  names who approved it (not human activity).
+  names who approved it (not human activity). An open, unapproved item the
+  agent filed is approved by the first auto-approving admin who replies on
+  it, on the board or in a comment on its GitHub issue.
 - Agent replies are authored as the bot login (`BOT_LOGIN`, default `builder-bot`).
 - Blocked items (`items.blocked` note + `blocked_at`) need action outside
   auto-builder (e.g. re-run bootstrap) or hit an error. The agent sets or

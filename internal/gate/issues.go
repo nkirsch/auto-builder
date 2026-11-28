@@ -29,6 +29,9 @@ type IssueSync struct {
 	GitHub  *github.Client
 	Repo    string
 	BaseURL string
+	// BotLogin authors the agent's items; an auto-approving admin's comment
+	// on one approves it.
+	BotLogin string
 	// Notified creates in-app notifications for an imported comment.
 	Notified func(ctx context.Context, it db.Item, actor, body string)
 	// AttachmentURL, when set, is a link anyone can open to an attachment;
@@ -313,6 +316,11 @@ func (s *IssueSync) importComment(ctx context.Context, c github.IssueComment, la
 	created, err := s.Store.ImportIssueComment(ctx, it.ID, c.ID, author, strings.TrimSpace(c.Body))
 	if !created || err != nil {
 		return err
+	}
+	if m.IsAdmin() && m.AutoApprove && !it.Approved && s.BotLogin != "" {
+		if _, err := s.Store.ApproveBotItemOnReply(ctx, it.ID, author, s.BotLogin); err != nil {
+			return err
+		}
 	}
 	// As on the board, an admin's comment asks for more work.
 	if m.IsAdmin() && !late {
